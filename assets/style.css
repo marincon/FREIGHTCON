@@ -442,36 +442,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 @keyframes shimmer{to{background-position:-200% 0}}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(144,194,71,.6)}100%{box-shadow:0 0 0 10px rgba(144,194,71,0)}}
 
-/* login: a gantry crane brings the containers in from the right and lowers them onto the quay, one after another */
-.stack{overflow:hidden}
-.stack .cx,.stack .cy{animation-duration:1.5s;animation-timing-function:cubic-bezier(.45,0,.25,1);animation-fill-mode:both}
-.stack .trolley,.stack .cable{opacity:0;animation:hoist 1.5s linear both}
-.stack .cx0,.stack .cx0 .cy,.stack .cx0 .trolley,.stack .cx0 .cable{animation-delay:.2s}
-.stack .cx1,.stack .cx1 .cy,.stack .cx1 .trolley,.stack .cx1 .cable{animation-delay:1.3s}
-.stack .cx2,.stack .cx2 .cy,.stack .cx2 .trolley,.stack .cx2 .cable{animation-delay:2.4s}
-.stack .cx3,.stack .cx3 .cy,.stack .cx3 .trolley,.stack .cx3 .cable{animation-delay:3.5s}
-.stack .cx4,.stack .cx4 .cy,.stack .cx4 .trolley,.stack .cx4 .cable{animation-delay:4.6s}
-.stack .cx0{animation-name:cx0}.stack .cy0{animation-name:cy0}
-.stack .cx1{animation-name:cx1}.stack .cy1{animation-name:cy1}
-.stack .cx2{animation-name:cx2}.stack .cy2{animation-name:cy2}
-.stack .cx3{animation-name:cx3}.stack .cy3{animation-name:cy3}
-.stack .cx4{animation-name:cx4}.stack .cy4{animation-name:cy4}
-
-
-
-
-
-@keyframes cx0{0%{transform:translate(216px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
-@keyframes cy0{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx1{0%{transform:translate(26px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
-@keyframes cy1{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx2{0%{transform:translate(126px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
-@keyframes cy2{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx3{0%{transform:translate(6px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
-@keyframes cy3{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx4{0%{transform:translate(36px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
-@keyframes cy4{0%,42%{transform:translate(0,-10px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes hoist{0%{opacity:1}90%{opacity:1}100%{opacity:0}}
+/* login: the gantry crane is animated by a small script in index.html (SVG attributes, works in every browser) */
 .stack .quay{animation:march 2.4s linear infinite}
 .auth-art h1,.auth-art p{animation:rise .8s var(--ease-out) both}
 .auth-art p{animation-delay:.12s}
