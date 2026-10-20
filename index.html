@@ -57,8 +57,14 @@
         <h2>Create an account</h2>
         <p class="lead">We check every new account before activating it, usually within one working day.</p>
         <div class="grid2">
-          <div class="field"><label for="reName">Your name</label><input id="reName" autocomplete="name" maxlength="100" required></div>
-          <div class="field"><label for="reCompany">Company</label><input id="reCompany" autocomplete="organization" maxlength="150" required></div>
+          <div class="field"><label for="reFirst">First name</label><input id="reFirst" autocomplete="given-name" maxlength="60" required></div>
+          <div class="field"><label for="reLast">Last name</label><input id="reLast" autocomplete="family-name" maxlength="60" required></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label for="reCompany">Company</label><input id="reCompany" autocomplete="organization" maxlength="150" required></div>
+        <div class="field"><label for="reAddr">Street and number</label><input id="reAddr" autocomplete="address-line1" maxlength="150" required></div>
+        <div class="grid2" style="margin-top:12px;grid-template-columns:120px 1fr">
+          <div class="field"><label for="reZip">Postcode</label><input id="reZip" autocomplete="postal-code" maxlength="20" required></div>
+          <div class="field"><label for="reCity">City</label><input id="reCity" autocomplete="address-level2" maxlength="80" required></div>
         </div>
         <div class="grid2" style="margin-top:12px">
           <div class="field"><label for="reCountry">Country</label><input id="reCountry" autocomplete="country-name" maxlength="80" required></div>
@@ -147,10 +153,12 @@
     if(!(await enterIfAllowed())) busy(b, false);
   });
 
+  $('#fRegister').addEventListener('input', () => { if(!$('#fRegister').querySelector('input:disabled')) msg('#reMsg', ''); });
   $('#fRegister').addEventListener('submit', async e => {
     e.preventDefault(); const b = $('#fRegister button[type=submit]');
     const v = id => $(id).value.trim();
-    if(v('#reName').length < 2 || v('#reCompany').length < 2 || v('#reCountry').length < 2) { msg('#reMsg', 'Please fill in your name, company and country.'); return; }
+    const need = [['#reFirst','first name'],['#reLast','last name'],['#reCompany','company'],['#reAddr','street and number'],['#reZip','postcode'],['#reCity','city'],['#reCountry','country']].filter(([id]) => v(id).length < (id === '#reZip' ? 2 : 2));
+    if(need.length){ msg('#reMsg', 'Please fill in your ' + need.map(n => n[1]).join(', ') + '. We need the full company address for quotations and policies.'); $(need[0][0]).focus(); return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('#reEmail'))) { msg('#reMsg', 'Please enter a valid e-mail address.'); return; }
     if($('#rePw').value.length < 8) { msg('#reMsg', 'The password needs at least 8 characters.'); return; }
     if(!$('#reTerms').checked) { msg('#reMsg', 'Please accept the Terms of Use to continue.'); return; }
@@ -158,7 +166,7 @@
     const { error } = await sb.auth.signUp({
       email: v('#reEmail'), password: $('#rePw').value,
       options: { emailRedirectTo: location.origin + location.pathname,
-                 data: { full_name: v('#reName'), company: v('#reCompany'), country: v('#reCountry'), phone: v('#rePhone'), ref } }
+                 data: { first_name: v('#reFirst'), last_name: v('#reLast'), full_name: v('#reFirst') + ' ' + v('#reLast'), company: v('#reCompany'), address_line: v('#reAddr'), postcode: v('#reZip'), city: v('#reCity'), country: v('#reCountry'), phone: v('#rePhone'), ref } }
     });
     busy(b, false);
     if(error){ msg('#reMsg', /registered|exists/i.test(error.message) ? 'An account with this e-mail already exists. Log in or reset your password.' : 'Registration did not go through: ' + error.message); return; }
