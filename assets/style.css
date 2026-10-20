@@ -316,14 +316,14 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 
 /* ---------- auth pages ---------- */
 .auth{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
-.auth-art{background:#0A4027;color:#E4F0E7;padding:48px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
+.auth-art{background:#0A4027;color:#E4F0E7;padding:48px;display:flex;flex-direction:column;justify-content:space-between;gap:28px;position:relative;overflow:hidden}
 :root[data-theme="dark"] .auth-art{background:#0B2E1C}
 .auth-art .wordmark{color:#fff}
 .auth-art .wordmark .logo-mark{height:30px}
 .auth-art .wordmark .tagline{color:#A9C9B3;font-size:12px}
 .auth-art h1{color:#fff;font-size:clamp(30px,3.6vw,48px);font-stretch:118%;max-width:12ch;font-weight:850}
 .auth-art p{max-width:42ch;color:#C2DBC9;font-size:var(--fs-lg);line-height:1.5}
-.stack{position:absolute;right:-40px;bottom:64px;width:min(400px,44%);opacity:.95}
+.stack{position:relative;display:block;width:min(440px,100%);margin:28px 0 20px auto;opacity:.95;overflow:hidden}
 .auth-art > div,.auth-art > .wordmark{position:relative;z-index:1}
 .auth-form{display:flex;align-items:center;justify-content:center;padding:40px 24px;background:var(--paper)}
 .auth-form .box{width:min(400px,100%)}
@@ -456,15 +456,20 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .stack .cx2{animation-name:cx2}.stack .cy2{animation-name:cy2}
 .stack .cx3{animation-name:cx3}.stack .cy3{animation-name:cy3}
 .stack .cx4{animation-name:cx4}.stack .cy4{animation-name:cy4}
-@keyframes cx0{0%{transform:translate(440px,0)}42%,100%{transform:none}}
+
+
+
+
+
+@keyframes cx0{0%{transform:translate(216px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
 @keyframes cy0{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx1{0%{transform:translate(250px,0)}42%,100%{transform:none}}
+@keyframes cx1{0%{transform:translate(26px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
 @keyframes cy1{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx2{0%{transform:translate(350px,0)}42%,100%{transform:none}}
+@keyframes cx2{0%{transform:translate(126px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
 @keyframes cy2{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx3{0%{transform:translate(160px,0)}42%,100%{transform:none}}
+@keyframes cx3{0%{transform:translate(6px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
 @keyframes cy3{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
-@keyframes cx4{0%{transform:translate(260px,0)}42%,100%{transform:none}}
+@keyframes cx4{0%{transform:translate(36px,0);opacity:0}8%{opacity:1}42%,100%{transform:none;opacity:1}}
 @keyframes cy4{0%,42%{transform:translate(0,-10px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
 @keyframes hoist{0%{opacity:1}90%{opacity:1}100%{opacity:0}}
 .stack .quay{animation:march 2.4s linear infinite}
