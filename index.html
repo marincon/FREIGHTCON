@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FREIGHTCON — Log in</title>
+<meta name="description" content="Cargo insurance indications, quotations and cover for forwarders, traders and shippers.">
+<script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="auth">
+  <aside class="auth-art">
+    <a class="wordmark" id="wm" href="index.html"></a>
+    <div>
+      <h1>Insure a shipment in minutes.</h1>
+      <p>Enter the goods, the route and the value. You see an indication straight away and can ask for a binding quotation with one click.</p>
+    </div>
+    <svg class="stack" viewBox="0 0 420 300" aria-hidden="true">
+      <g stroke="#0A2A31" stroke-width="2">
+        <rect x="20"  y="190" width="180" height="70" rx="3" fill="#E9A23B"/>
+        <rect x="210" y="190" width="180" height="70" rx="3" fill="#7FD4D9"/>
+        <rect x="110" y="112" width="180" height="70" rx="3" fill="#F3F7F7"/>
+        <rect x="300" y="112" width="110" height="70" rx="3" fill="#E9A23B" opacity=".75"/>
+        <rect x="200" y="34"  width="180" height="70" rx="3" fill="#137C83"/>
+      </g>
+      <g stroke="#0A2A31" stroke-opacity=".35" stroke-width="2">
+        <path d="M44 196v58M68 196v58M92 196v58M116 196v58M140 196v58M164 196v58"/>
+        <path d="M234 196v58M258 196v58M282 196v58M306 196v58M330 196v58M354 196v58"/>
+        <path d="M134 118v58M158 118v58M182 118v58M206 118v58M230 118v58M254 118v58"/>
+        <path d="M224 40v58M248 40v58M272 40v58M296 40v58M320 40v58M344 40v58"/>
+      </g>
+      <path d="M0 272h420" stroke="#E9A23B" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+    </svg>
+    <div class="xs" style="color:#A8C9CD" id="artFoot"></div>
+  </aside>
+
+  <section class="auth-form">
+    <div class="box">
+      <!-- log in -->
+      <form id="fLogin" novalidate>
+        <h2>Log in</h2>
+        <p class="lead">Welcome back. Log in to calculate and request cover.</p>
+        <div class="field"><label for="liEmail">E-mail</label><input id="liEmail" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="liPw">Password</label><input id="liPw" type="password" autocomplete="current-password" required></div>
+        <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit"><span class="spin"></span>Log in</button>
+        <div class="auth-msg" id="liMsg" role="alert"></div>
+        <p class="switch-mode"><button type="button" class="linkbtn" data-go="forgot">Forgot your password?</button></p>
+        <p class="switch-mode">New here? <button type="button" class="linkbtn" data-go="register">Create an account</button></p>
+      </form>
+
+      <!-- register -->
+      <form id="fRegister" novalidate hidden>
+        <h2>Create an account</h2>
+        <p class="lead">We check every new account before activating it, usually within one working day.</p>
+        <div class="grid2">
+          <div class="field"><label for="reName">Your name</label><input id="reName" autocomplete="name" maxlength="100" required></div>
+          <div class="field"><label for="reCompany">Company</label><input id="reCompany" autocomplete="organization" maxlength="150" required></div>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="field"><label for="reCountry">Country</label><input id="reCountry" autocomplete="country-name" maxlength="80" required></div>
+          <div class="field"><label for="rePhone">Phone <span class="muted">(optional)</span></label><input id="rePhone" type="tel" autocomplete="tel" maxlength="40"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label for="reEmail">Business e-mail</label><input id="reEmail" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="rePw">Password</label><input id="rePw" type="password" autocomplete="new-password" minlength="8" required><span class="hint">At least 8 characters.</span></div>
+        <label class="check"><input type="checkbox" id="reTerms"><span>I accept the <a href="terms.html" target="_blank" rel="noopener">Terms of Use</a> and have read the <a href="privacy.html" target="_blank" rel="noopener">Privacy Notice</a>.</span></label>
+        <div class="xs muted" id="reRef" hidden style="margin-top:10px"></div>
+        <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit"><span class="spin"></span>Create account</button>
+        <div class="auth-msg" id="reMsg" role="alert"></div>
+        <p class="switch-mode">Already registered? <button type="button" class="linkbtn" data-go="login">Log in</button></p>
+      </form>
+
+      <!-- forgot -->
+      <form id="fForgot" novalidate hidden>
+        <h2>Reset your password</h2>
+        <p class="lead">We send you a link to choose a new password.</p>
+        <div class="field"><label for="fgEmail">E-mail</label><input id="fgEmail" type="email" autocomplete="email" required></div>
+        <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit"><span class="spin"></span>Send reset link</button>
+        <div class="auth-msg" id="fgMsg" role="alert"></div>
+        <p class="switch-mode"><button type="button" class="linkbtn" data-go="login">Back to log in</button></p>
+      </form>
+
+      <!-- new password (after the e-mail link) -->
+      <form id="fReset" novalidate hidden>
+        <h2>Choose a new password</h2>
+        <p class="lead">At least 8 characters.</p>
+        <div class="field"><label for="rsPw">New password</label><input id="rsPw" type="password" autocomplete="new-password" required></div>
+        <div class="field"><label for="rsPw2">Repeat new password</label><input id="rsPw2" type="password" autocomplete="new-password" required></div>
+        <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit"><span class="spin"></span>Save new password</button>
+        <div class="auth-msg" id="rsMsg" role="alert"></div>
+      </form>
+
+      <p class="legal"><a href="terms.html">Terms of Use</a> &nbsp;&middot;&nbsp; <a href="privacy.html">Privacy</a> &nbsp;&middot;&nbsp; <a href="imprint.html">Imprint</a></p>
+    </div>
+  </section>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/core.js"></script>
+<script>
+(async () => {
+  const { $, sb, busy, esc } = FC;
+  $('#wm').innerHTML = FC.wordmarkHtml();
+  $('#artFoot').textContent = window.FREIGHTCON_LEGAL_LINE || '';
+  if(!sb){ document.querySelector('.box').insertAdjacentHTML('afterbegin', '<div class="auth-msg err show">config.js is missing or incomplete. See README.</div>'); return; }
+
+  const forms = { login:'#fLogin', register:'#fRegister', forgot:'#fForgot', reset:'#fReset' };
+  const show = m => { Object.entries(forms).forEach(([k, s]) => $(s).hidden = k !== m); const f = $(forms[m]).querySelector('input'); if(f) f.focus(); };
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+  const msg = (id, text, ok) => { const m = $(id); m.textContent = text || ''; m.className = 'auth-msg' + (text ? ' show ' + (ok ? 'ok' : 'err') : ''); };
+
+  // invitation link: ?ref=CODE (kept for the session, shown on the register form)
+  const params = new URLSearchParams(location.search);
+  let ref = (params.get('ref') || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  try{ if(ref) sessionStorage.setItem('fc_ref', ref); else ref = sessionStorage.getItem('fc_ref') || ''; }catch(e){}
+  if(ref){ $('#reRef').hidden = false; $('#reRef').textContent = 'You were invited with code ' + ref + '.'; show('register'); }
+  if(params.get('idle')) msg('#liMsg', 'You were logged out after 60 minutes without activity.', true);
+  if(params.get('mode') === 'register') show('register');
+
+  // password recovery link lands here with a recovery session
+  sb.auth.onAuthStateChange(ev => { if(ev === 'PASSWORD_RECOVERY') show('reset'); });
+  if(/type=recovery/.test(location.hash)) show('reset');
+
+  async function enterIfAllowed(){
+    const { data: { session } } = await sb.auth.getSession();
+    if(!session) return false;
+    const { data: p } = await sb.from('profiles').select('approved, rejected').eq('id', session.user.id).maybeSingle();
+    if(p && p.approved && !p.rejected){ location.replace('app.html'); return true; }
+    await sb.auth.signOut();
+    msg('#liMsg', p && p.rejected ? 'Your account could not be activated. Please contact us if you think this is a mistake.'
+                                  : 'Your account is registered and waiting for activation. We will e-mail you as soon as it is active.');
+    return false;
+  }
+  if(!/type=recovery/.test(location.hash)) enterIfAllowed();
+
+  $('#fLogin').addEventListener('submit', async e => {
+    e.preventDefault(); const b = e.submitter || $('#fLogin button[type=submit]');
+    const email = $('#liEmail').value.trim(), password = $('#liPw').value;
+    if(!email || !password){ msg('#liMsg', 'Please enter your e-mail and password.'); return; }
+    busy(b, true); msg('#liMsg', '');
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error){ busy(b, false); msg('#liMsg', /confirm/i.test(error.message) ? 'Please confirm your e-mail address first — check your inbox for our message.' : 'E-mail or password is not correct.'); return; }
+    if(!(await enterIfAllowed())) busy(b, false);
+  });
+
+  $('#fRegister').addEventListener('submit', async e => {
+    e.preventDefault(); const b = $('#fRegister button[type=submit]');
+    const v = id => $(id).value.trim();
+    if(v('#reName').length < 2 || v('#reCompany').length < 2 || v('#reCountry').length < 2) { msg('#reMsg', 'Please fill in your name, company and country.'); return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('#reEmail'))) { msg('#reMsg', 'Please enter a valid e-mail address.'); return; }
+    if($('#rePw').value.length < 8) { msg('#reMsg', 'The password needs at least 8 characters.'); return; }
+    if(!$('#reTerms').checked) { msg('#reMsg', 'Please accept the Terms of Use to continue.'); return; }
+    busy(b, true); msg('#reMsg', '');
+    const { error } = await sb.auth.signUp({
+      email: v('#reEmail'), password: $('#rePw').value,
+      options: { emailRedirectTo: location.origin + location.pathname,
+                 data: { full_name: v('#reName'), company: v('#reCompany'), country: v('#reCountry'), phone: v('#rePhone'), ref } }
+    });
+    busy(b, false);
+    if(error){ msg('#reMsg', /registered|exists/i.test(error.message) ? 'An account with this e-mail already exists. Log in or reset your password.' : 'Registration did not go through: ' + error.message); return; }
+    try{ sessionStorage.removeItem('fc_ref'); }catch(e){}
+    $('#fRegister').querySelectorAll('input,button[type=submit]').forEach(x => x.disabled = true);
+    msg('#reMsg', 'Almost done. Confirm your e-mail address with the link we just sent. We then check your account and let you know when it is active.', true);
+  });
+
+  $('#fForgot').addEventListener('submit', async e => {
+    e.preventDefault(); const b = $('#fForgot button[type=submit]'); const email = $('#fgEmail').value.trim();
+    if(!email){ msg('#fgMsg', 'Please enter your e-mail.'); return; }
+    busy(b, true);
+    await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    busy(b, false);
+    msg('#fgMsg', 'If an account exists for this address, the reset link is on its way.', true);
+  });
+
+  $('#fReset').addEventListener('submit', async e => {
+    e.preventDefault(); const b = $('#fReset button[type=submit]');
+    const a = $('#rsPw').value, c = $('#rsPw2').value;
+    if(a.length < 8){ msg('#rsMsg', 'The password needs at least 8 characters.'); return; }
+    if(a !== c){ msg('#rsMsg', 'The two passwords do not match.'); return; }
+    busy(b, true);
+    const { error } = await sb.auth.updateUser({ password: a });
+    busy(b, false);
+    if(error){ msg('#rsMsg', 'Could not save the password. Request a new link and try again.'); return; }
+    msg('#rsMsg', 'Password saved. Logging you in…', true);
+    history.replaceState(null, '', location.pathname);
+    setTimeout(enterIfAllowed, 800);
+  });
+})();
+</script>
+</body>
+</html>

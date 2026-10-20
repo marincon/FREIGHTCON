@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
+<script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="wordmark" id="wm" href="#new"></a>
+    <nav aria-label="Main">
+      <button class="navbtn" data-view="new">New shipment</button>
+      <button class="navbtn" data-view="quotes">My quotations<span class="badge" id="quoteBadge" hidden></span></button>
+      <button class="navbtn" data-view="history">History</button>
+    </nav>
+    <div class="spacer"></div>
+    <button class="internal-pill" id="internalBtn" data-view="admin" aria-pressed="false" hidden>Internal<span class="badge" id="adminBadge" hidden></span></button>
+    <button class="iconbtn" id="inviteBtn" title="Invite a client" aria-label="Invite a client"></button>
+    <button class="iconbtn" id="feedbackBtn" title="Send feedback" aria-label="Send feedback"></button>
+    <button class="iconbtn" id="themeBtn" title="Switch light / dark" aria-label="Switch light or dark mode"></button>
+    <button class="avatar" id="avatarBtn" aria-haspopup="true" aria-expanded="false" aria-label="Account">?</button>
+  </div>
+  <div class="menu" id="accMenu" hidden role="menu">
+    <div class="who"><b id="whoName"></b><span class="xs muted" id="whoCo"></span></div>
+    <button role="menuitem" data-acc="profile">My profile</button>
+    <button role="menuitem" data-acc="password">Change password</button>
+    <button role="menuitem" data-acc="invite">Invite a client</button>
+    <button role="menuitem" data-acc="data">My data</button>
+    <button role="menuitem" class="mob-only" id="feedbackMenu">Send feedback</button>
+    <button role="menuitem" id="logoutBtn">Log out</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============ NEW SHIPMENT ============ -->
+  <section id="view-new" data-view-panel="new">
+    <div class="view-head">
+      <div><h1>New shipment</h1><p>Describe the cargo and route. The indication appears as soon as you calculate.</p></div>
+      <button class="btn btn-ghost btn-sm" id="clearBtn" type="button">Start over</button>
+    </div>
+    <div class="workspace">
+      <form class="card" id="shipForm" novalidate>
+        <div class="form-sec">
+          <h2><span id="icBox"></span>Cargo</h2>
+          <div class="field"><label for="fCommodity">Type of cargo</label><select id="fCommodity" required><option value="">Loading…</option></select><span class="hint" id="commodityHint"></span><span class="err">Choose the type of cargo.</span></div>
+          <div class="field"><label for="fGoods">Description of goods</label><input id="fGoods" maxlength="300" placeholder="e.g. 2 CNC lathes in wooden crates" required><span class="err">Describe the goods.</span></div>
+          <div class="field"><label for="fPacking">Packaging</label>
+            <select id="fPacking">
+              <option value="">Not stated</option><option>Cartons on pallets</option><option>Wooden crates / cases</option><option>Loose in container</option>
+              <option>Bags / big bags</option><option>Drums / IBCs</option><option>Bulk</option><option>Unpacked, lashed</option><option>Other</option>
+            </select></div>
+        </div>
+        <div class="form-sec">
+          <h2><span id="icRoute"></span>Route</h2>
+          <div class="field"><span class="lbl" id="convLbl">Conveyance</span><div class="seg" id="fConv" role="radiogroup" aria-labelledby="convLbl"></div><span class="hint" id="convHint"></span></div>
+          <div class="grid2" style="margin-top:14px">
+            <div class="field"><label for="fOrigin">From (country)</label><select id="fOrigin" required></select><span class="err">Choose the origin country.</span></div>
+            <div class="field"><label for="fOriginPlace">City / port</label><input id="fOriginPlace" maxlength="100" placeholder="e.g. Hamburg"></div>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div class="field"><label for="fDest">To (country)</label><select id="fDest" required></select><span class="err">Choose the destination country.</span></div>
+            <div class="field"><label for="fDestPlace">City / port</label><input id="fDestPlace" maxlength="100" placeholder="e.g. Shanghai"></div>
+          </div>
+          <div class="field" style="margin-top:12px;max-width:240px"><label for="fDep">Departure date</label><input id="fDep" type="date"><span class="err">The departure date cannot lie in the past.</span></div>
+        </div>
+        <div class="form-sec">
+          <h2><span id="icCoin"></span>Value</h2>
+          <div class="grid3">
+            <div class="field" style="grid-column:span 2"><label for="fValue">Invoice value</label><input id="fValue" inputmode="decimal" placeholder="e.g. 120,000" required><span class="err">Enter the invoice value.</span></div>
+            <div class="field"><span class="lbl" id="curLbl">Currency</span><div class="seg" id="fCur" role="radiogroup" aria-labelledby="curLbl"><button type="button" role="radio" data-v="EUR" aria-checked="true">EUR</button><button type="button" role="radio" data-v="USD" aria-checked="false">USD</button></div></div>
+          </div>
+          <div class="field" style="margin-top:12px;max-width:240px"><label for="fUplift">Uplift on invoice value</label><div class="with-unit"><input id="fUplift" inputmode="decimal" value="10"><span class="unit">%</span></div><span class="hint">Usually 10 % to cover freight and costs.</span><span class="err">Between 0 and 30 %.</span></div>
+          <div class="si-line"><span>Sum insured</span><b id="siOut">—</b></div>
+        </div>
+        <div class="form-sec">
+          <h2><span id="icShield"></span>Cover</h2>
+          <div class="covers" id="fCover" role="radiogroup" aria-label="Cover"></div>
+          <label class="switch"><input type="checkbox" id="fWar" checked><span><b id="warLbl">War &amp; strikes</b><span id="warTxt">Institute War and Strikes Clauses (Cargo), sea and air transit.</span></span></label>
+        </div>
+        <div class="form-foot">
+          <button class="btn btn-primary" type="submit" id="calcBtn"><span class="spin"></span>Calculate indication</button>
+          <span class="xs muted" id="formMsg" role="status"></span>
+        </div>
+      </form>
+
+      <div id="resultHost">
+        <div class="card howto" id="howto">
+          <h2>How it works</h2>
+          <ol>
+            <li><div><b>Describe the shipment</b><span>Cargo, route, value and the cover you need.</span></div></li>
+            <li><div><b>See the indication</b><span>The premium appears right away. Download it as a PDF for your records or your customer.</span></div></li>
+            <li><div><b>Request a quotation</b><span>One click sends it to us. You accept the quotation here and receive the cover note.</span></div></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MY QUOTATIONS ============ -->
+  <section id="view-quotes" data-view-panel="quotes" hidden>
+    <div class="view-head"><div><h1>My quotations</h1><p>Accept quotations, download documents and follow open requests.</p></div></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-qtab="quotations" aria-selected="true">Quotations</button>
+      <button role="tab" data-qtab="waiting" aria-selected="false">Waiting for quotation<span class="badge" id="waitBadge" hidden></span></button>
+      <button role="tab" data-qtab="invoices" aria-selected="false">Invoices</button>
+    </div>
+    <div id="qList" class="list"></div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="view-history" data-view-panel="history" hidden>
+    <div class="view-head"><div><h1>History</h1><p>Every indication you calculated. Open one to recalculate or request a quotation.</p></div></div>
+    <div class="toolbar"><input class="input" id="hSearch" type="search" placeholder="Search goods, route or reference" aria-label="Search history"></div>
+    <div id="hList" class="list"></div>
+  </section>
+
+  <!-- ============ INTERNAL (admin) ============ -->
+  <section id="view-admin" data-view-panel="admin" hidden></section>
+</main>
+
+<nav class="mobile-nav" aria-label="Main">
+  <button data-view="new"><span data-ic="plus"></span>New</button>
+  <button data-view="quotes"><span data-ic="doc"></span>Quotations</button>
+  <button data-view="history"><span data-ic="clock"></span>History</button>
+  <button data-view="admin" id="mobInternal" hidden><span data-ic="gear"></span>Internal</button>
+</nav>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/pdf.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
