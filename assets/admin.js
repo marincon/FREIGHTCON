@@ -102,6 +102,7 @@
       ${scopeBtn('b_won', 'Won cases', n('won'), 'won')}
       ${scopeBtn('b_lost', 'Lost cases', n('lost'))}
       <div class="stat"><b class="num" style="font-size:20px">${esc(brkTxt)}</b><span>Brokerage on won cases (internal)</span></div></div>`));
+    body.querySelectorAll('.stat-btn b').forEach(b => FC.countUp(b, Number(b.textContent), null, 500));
     const tb = FC.el(`<div class="toolbar">
       <input class="input" type="search" id="rqQ" placeholder="Search reference, customer, goods, country" value="${esc(rqFilter.q)}" aria-label="Search">
       <select class="input" id="rqScope" aria-label="Show">

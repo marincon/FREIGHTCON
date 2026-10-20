@@ -422,3 +422,101 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .up-bar i{display:block;height:100%;background:var(--teal);width:0;transition:width .2s}
 .up-err{color:var(--danger);font-size:var(--fs-xs)}
 .tbl td.up-err{max-width:260px}
+
+/* =================================================================== motion
+   Calm, purposeful motion: things arrive from where they come from, nothing loops
+   except the quay line and loaders. Everything is switched off by
+   prefers-reduced-motion (rule at the top of this file). */
+:root{--ease-out:cubic-bezier(.22,1,.36,1);--ease-spring:cubic-bezier(.34,1.56,.64,1)}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{0%{transform:scale(.96);opacity:0}100%{transform:none;opacity:1}}
+@keyframes slideIn{from{transform:translateX(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes drop{0%{transform:translateY(-90px);opacity:0}70%{transform:translateY(4px);opacity:1}100%{transform:none}}
+@keyframes sway{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes march{to{stroke-dashoffset:-48}}
+@keyframes travel{from{left:8%}to{left:50%}}
+@keyframes sheen{from{transform:translateX(-120%) skewX(-18deg)}to{transform:translateX(220%) skewX(-18deg)}}
+@keyframes check{to{stroke-dashoffset:0}}
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(144,194,71,.6)}100%{box-shadow:0 0 0 10px rgba(144,194,71,0)}}
+
+/* login: containers are lowered onto the quay one by one */
+.stack .box{animation:drop .9s var(--ease-out) var(--d) both;transform-box:fill-box}
+.stack .box.top{animation:drop 1s var(--ease-out) var(--d) both, sway 6s ease-in-out 2.2s infinite}
+.stack .hook{animation:fade .4s ease var(--d) both}
+.stack .quay{animation:march 2.4s linear infinite}
+.auth-art h1,.auth-art p{animation:rise .8s var(--ease-out) both}
+.auth-art p{animation-delay:.12s}
+.auth-form form:not([hidden]){animation:rise .45s var(--ease-out) both}
+
+/* views and cards */
+[data-view-panel]:not([hidden]){animation:rise .4s var(--ease-out) both}
+.workspace > *{animation:rise .5s var(--ease-out) both}
+.workspace > :nth-child(2){animation-delay:.06s}
+.howto li{animation:rise .5s var(--ease-out) both}
+.howto li:nth-child(2){animation-delay:.1s}.howto li:nth-child(3){animation-delay:.2s}
+.card{transition:box-shadow .25s var(--ease-out),border-color .2s}
+.navbtn[aria-current="page"]::after{animation:grow .35s var(--ease-out) both;transform-origin:center}
+@keyframes grow{from{transform:scaleX(0)}to{transform:none}}
+
+/* the result card: card rises, the route is drawn, the mode icon travels, facts follow */
+.consign{animation:pop .45s var(--ease-out) both}
+.lane.drawn .track .mode{animation:travel .9s var(--ease-out) both}
+.lane.drawn .end{animation:rise .5s var(--ease-out) both}
+.lane.drawn .end.to{animation-delay:.55s}
+.lane.drawn ~ .facts > div{animation:rise .4s var(--ease-out) both}
+.lane.drawn ~ .facts > div:nth-child(2){animation-delay:.04s}.lane.drawn ~ .facts > div:nth-child(3){animation-delay:.08s}
+.lane.drawn ~ .facts > div:nth-child(4){animation-delay:.12s}.lane.drawn ~ .facts > div:nth-child(5){animation-delay:.16s}
+.lane.drawn ~ .facts > div:nth-child(n+6){animation-delay:.2s}
+.lane.drawn ~ .premium{animation:rise .5s var(--ease-out) .25s both}
+.premium .amount{display:inline-block}
+
+/* lists arrive in a short cascade */
+.list > *{animation:rise .38s var(--ease-out) both}
+.list > :nth-child(2){animation-delay:.03s}.list > :nth-child(3){animation-delay:.06s}.list > :nth-child(4){animation-delay:.09s}
+.list > :nth-child(5){animation-delay:.12s}.list > :nth-child(6){animation-delay:.15s}.list > :nth-child(n+7){animation-delay:.18s}
+.item{transition:transform .2s var(--ease-out),box-shadow .2s,border-color .2s}
+.item:hover{transform:translateY(-1px);box-shadow:var(--shadow);border-color:var(--teal)}
+.stats > *{animation:rise .45s var(--ease-out) both}
+.stats > :nth-child(2){animation-delay:.05s}.stats > :nth-child(3){animation-delay:.1s}.stats > :nth-child(4){animation-delay:.15s}.stats > :nth-child(5){animation-delay:.2s}
+.stat.alert b{animation:none}
+.stat.alert{position:relative}
+.stat.alert::after{content:'';position:absolute;top:12px;right:12px;width:8px;height:8px;border-radius:50%;background:var(--amber);animation:ping 1.6s ease-out 3}
+.up-step{animation:rise .45s var(--ease-out) both}.up-step:nth-child(2){animation-delay:.08s}
+
+/* buttons: tactile press, a light sheen across primary buttons on hover */
+.btn{transition:background .15s,border-color .15s,color .15s,transform .12s var(--ease-out),box-shadow .2s;position:relative;overflow:hidden}
+.btn:active:not([disabled]){transform:scale(.97)}
+.btn-primary::before{content:'';position:absolute;top:0;bottom:0;left:0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);transform:translateX(-120%) skewX(-18deg);pointer-events:none}
+.btn-primary:hover:not([disabled])::before{animation:sheen .8s ease}
+.btn-primary:hover:not([disabled]){box-shadow:0 6px 18px -8px rgba(10,64,39,.6)}
+.internal-pill .badge,.navbtn .badge{animation:pop .3s var(--ease-spring) both}
+
+/* form controls */
+.switch input{transition:background .2s}
+.switch input::after{transition:left .25s var(--ease-spring),width .15s}
+.switch input:active::after{width:20px}
+.cover-opt{transition:border-color .15s,background .15s,transform .15s var(--ease-out)}
+.cover-opt:has(input:checked){transform:translateY(-1px)}
+.seg button{transition:background .2s,color .2s,box-shadow .2s}
+.field.invalid input,.field.invalid select{animation:nudge .32s ease}
+@keyframes nudge{20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+#custFields:not([hidden]),#extFields:not([hidden]),#interestField:not([hidden]),#deckField:not([hidden]){animation:rise .3s var(--ease-out) both}
+
+/* dialogs, drawer, toast */
+.dlg-back{animation:fade .2s ease both}
+.dlg{animation:pop .28s var(--ease-out) both}
+.drawer-back{animation:fade .2s ease both}
+.drawer{animation:slideIn .32s var(--ease-out) both}
+.toast{animation:toastIn .45s var(--ease-spring) both}
+@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
+
+/* success tick on "Quotation requested" */
+.tick{display:inline-block;width:22px;height:22px;vertical-align:-5px;margin-right:6px}
+.tick circle{stroke:var(--ok);stroke-width:2;fill:none;stroke-dasharray:63;stroke-dashoffset:63;animation:check .5s var(--ease-out) forwards}
+.tick path{stroke:var(--ok);stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:14;stroke-dashoffset:14;animation:check .3s var(--ease-out) .4s forwards}
+
+/* loading placeholders and progress */
+.empty:only-child{animation:fade .3s ease both}
+.up-bar i{background:linear-gradient(90deg,var(--teal) 0%,#90C247 50%,var(--teal) 100%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}

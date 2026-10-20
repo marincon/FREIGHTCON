@@ -24,6 +24,16 @@
 
   // ---------- text & numbers ----------
   FC.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  // counts a number up to its value (respects reduced motion)
+  FC.reducedMotion = () => { try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } };
+  FC.countUp = (el, to, fmt, ms) => {
+    if(!el || !isFinite(to)) return; fmt = fmt || (v => String(Math.round(v)));
+    if(FC.reducedMotion()){ el.textContent = fmt(to); return; }
+    const t0 = performance.now(), d = ms || 700, ease = x => 1 - Math.pow(1 - x, 3);
+    const step = t => { const k = Math.min(1, (t - t0) / d); el.textContent = fmt(to * ease(k)); if(k < 1) requestAnimationFrame(step); else el.textContent = fmt(to); };
+    el.textContent = fmt(0); requestAnimationFrame(step);
+  };
+  FC.tick = '<svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>';
   FC.parseNum = v => {
     if(typeof v === 'number') return v;
     const s = String(v == null ? '' : v).trim().replace(/\s/g, '');

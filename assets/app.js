@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20i'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-20j'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -300,7 +300,7 @@
       <div class="consign-actions">
         ${requested ? '' : `<label class="lbl" for="qComment">Message to us <span class="muted">(optional)</span></label><textarea id="qComment" maxlength="1000" placeholder="e.g. vessel name, packing details, preferred insurer, deadline"></textarea>`}
         <div class="row">
-          ${requested ? `<div class="notice ok" style="margin:0;flex:1"><b>Quotation requested</b>We received your request ${esc(r.ref ? 'under ' + r.ref : '')}. You find the quotation in My quotations as soon as it is ready.</div>`
+          ${requested ? `<div class="notice ok" style="margin:0;flex:1"><b>${FC.tick}Quotation requested</b>We received your request ${esc(r.ref ? 'under ' + r.ref : '')}. You find the quotation in My quotations as soon as it is ready.</div>`
                       : `<button class="btn btn-primary" id="reqBtn" type="button" ${r.status === 'sanctioned' ? '' : ''}><span class="spin"></span>${FC.icon.send}Request quotation</button>`}
           <button class="btn btn-ghost" id="pdfBtn" type="button"><span class="spin"></span>${FC.icon.download}Download PDF</button>
         </div>
@@ -308,6 +308,7 @@
       <p class="fine">Indications are non-binding. Cover is only in place once a quotation has been accepted and confirmed in writing. Deductible: ${esc(r.deductible_text)}.${isSea(r.conveyance) ? ' Sea transport is subject to the Institute Classification Clause: older or unclassed vessels may carry an additional premium. We check the vessel before we quote.' : ''}</p>
     </article>`);
     const host = $('#resultHost'); host.innerHTML = ''; host.appendChild(card);
+    if(animate && r.status === 'quoted') FC.countUp(card.querySelector('.premium .amount'), Number(r.premium), v => money2(Math.round(v * 100) / 100, r.currency), 800);
     const rb = card.querySelector('#reqBtn');
     if(rb) rb.addEventListener('click', async () => {
       busy(rb, true);
@@ -535,7 +536,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20i');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20j');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -545,7 +546,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20i').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20j').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [];
