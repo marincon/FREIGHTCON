@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20f'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-20g'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -315,21 +315,27 @@
   const views = ['new', 'quotes', 'history', 'admin'];
   async function go(v){
     if(!views.includes(v) || (v === 'admin' && !profile.is_admin)) v = 'new';
+    if(v !== 'admin') FC.lastExternal = v;
+    const inAdm = v === 'admin', il = document.getElementById('internalLbl'), ml = document.getElementById('mobInternalLbl');
+    if(il) il.textContent = inAdm ? 'External' : 'Internal'; if(ml) ml.textContent = inAdm ? 'External' : 'Internal';
+    $('#internalBtn').title = inAdm ? 'Back to the client view' : 'Internal area';
     $$('[data-view-panel]').forEach(p => p.hidden = p.dataset.viewPanel !== v);
     $$('[data-view]').forEach(b => { if(b.classList.contains('internal-pill')) b.setAttribute('aria-pressed', String(v === 'admin')); else if(b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     if(location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
     if(v === 'quotes') loadQuotes();
     if(v === 'history') loadHistory();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20f');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20g');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
   }
   FC.go = go;
-  $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+  const curView = () => { const p = $$('[data-view-panel]').find(x => !x.hidden); return p ? p.dataset.viewPanel : 'new'; };
+  // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
+  $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20f').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20g').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [];

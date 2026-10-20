@@ -267,6 +267,12 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .stat b{display:block;font-size:var(--fs-xl);font-weight:850;color:var(--harbour);font-variant-numeric:tabular-nums}
 .stat span{font-size:var(--fs-sm);color:var(--steel)}
 .stat.alert{border-color:var(--amber);background:var(--amber-wash)}
+.stat-btn{font:inherit;text-align:left;cursor:pointer;color:inherit;transition:border-color .15s,box-shadow .15s}
+.stat-btn:hover{border-color:var(--harbour)}
+.stat-btn[aria-pressed="true"]{border-color:var(--harbour);box-shadow:inset 0 0 0 1px var(--harbour)}
+.stat-btn.won b{color:var(--ok)}
+.qe-internal{border:1px dashed var(--line);border-radius:var(--r);padding:12px 14px;margin-top:12px;background:var(--fog)}
+.qe-internal h4{margin:0 0 8px;font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em;color:var(--steel)}
 .bars{display:flex;align-items:flex-end;gap:3px;height:90px;padding:10px 0}
 .bars div{flex:1;background:var(--teal);border-radius:3px 3px 0 0;min-height:2px;position:relative}
 .bars div i{position:absolute;left:0;right:0;bottom:0;background:var(--amber);border-radius:3px 3px 0 0}

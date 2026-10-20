@@ -4,7 +4,7 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[] };
+  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{} };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
@@ -16,10 +16,11 @@
     root = host;
     if(!loaded){
       root.innerHTML = `<div class="view-head"><div><h1>Internal</h1><p>Requests, quotations, cover and customers.</p></div>
-          <button class="btn btn-ghost btn-sm" id="admRefresh" type="button"><span class="spin"></span>Refresh</button></div>
+          <div class="toolbar" style="margin:0"><button class="btn btn-ghost btn-sm" id="admRefresh" type="button"><span class="spin"></span>Refresh</button><button class="btn btn-primary btn-sm" id="admExternal" type="button">External view</button></div></div>
         <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" data-atab="${k}" aria-selected="${k === tab}">${l}<span class="badge" data-abadge="${k}" hidden></span></button>`).join('')}</div>
         <div id="admBody"></div>`;
       $$('[data-atab]', root).forEach(b => b.addEventListener('click', () => { tab = b.dataset.atab; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x === b))); render(); }));
+      $('#admExternal', root).addEventListener('click', () => FC.go(FC.lastExternal || 'new'));
       $('#admRefresh', root).addEventListener('click', async e => { busy(e.currentTarget, true); await loadAll(); busy(e.currentTarget, false); render(); toast('Updated.'); });
       loaded = true;
       await loadAll();
@@ -28,7 +29,7 @@
   };
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -39,9 +40,11 @@
       sb.from('quotations').select('id,indication_id,version,status,valid_until,created_at,responded_at,response_note,data').order('version'),
       sb.from('cover_notes').select('*').order('issued_at'),
       sb.from('rate_tables').select('*').order('sort'),
-      sb.from('rate_cells').select('*')
+      sb.from('rate_cells').select('*'),
+      sb.from('quotation_internal').select('*')
     ]);
     const err = [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc].find(r => r.error);
+    S.qint = {}; (qi.data || []).forEach(x => S.qint[x.quotation_id] = x);
     if(err) toast('Some internal data could not be loaded: ' + err.error.message, 'error');
     S.rateTables = rt.data || []; S.rateCells = rc.data || [];
     S.rows = ind.data || []; S.commodities = com.data || []; S.regions = reg.data || []; S.countries = cty.data || []; S.insurers = ins.data || [];
@@ -74,55 +77,109 @@
 
   // =================================================================== REQUESTS
   let rqFilter = { q:'', scope:'open', stage:'' };
+  const selected = new Set();
+  const liveQuotes = r => (S.quotes[r.id] || []).filter(q => q.status !== 'superseded');
+  const quoteExpired = r => { const l = liveQuotes(r).pop(); return r.stage === 'quoted' && l && l.status === 'open' && new Date(l.valid_until) < Date.now(); };
+  // Case outcome: open (requested, still in play), won (accepted / bound), lost (declined, lost, quote expired)
+  function bucket(r){
+    if(['accepted','bound'].includes(r.stage)) return 'won';
+    if(r.stage === 'closed') return (S.coverNotes[r.id] || []).length ? 'won' : 'lost';
+    if(['declined','lost'].includes(r.stage) || quoteExpired(r)) return 'lost';
+    return r.quote_requested_at ? 'open' : 'calc';
+  }
+  A.bucket = bucket;
+  const wonQuote = r => liveQuotes(r).filter(q => q.status === 'accepted').pop() || liveQuotes(r).pop();
+  const brokerageOf = r => { const q = wonQuote(r), x = q && S.qint[q.id]; return x ? { amount: Number(x.brokerage_amount) || 0, pct: Number(x.brokerage_pct) || 0, insurer: x.insurer_name, currency: x.currency || r.currency } : null; };
   function renderRequests(body){
-    const open = openRequests(), acc = acceptedNoCover();
+    const open = openRequests(), acc = acceptedNoCover(), real = S.rows.filter(r => !r.is_test);
+    const n = k => real.filter(r => bucket(r) === k).length;
+    const brk = {}; real.filter(r => bucket(r) === 'won').forEach(r => { const b = brokerageOf(r); if(b) brk[b.currency] = (brk[b.currency] || 0) + b.amount; });
+    const brkTxt = Object.keys(brk).length ? Object.entries(brk).map(([c, v]) => money2(v, c)).join(' · ') : '—';
+    const scopeBtn = (k, label, cnt, cls) => `<button type="button" class="stat stat-btn${cls ? ' ' + cls : ''}" data-scope="${k}" aria-pressed="${rqFilter.scope === k}"><b>${cnt}</b><span>${label}</span></button>`;
     body.appendChild(FC.el(`<div class="stats">
-      <div class="stat${open.length ? ' alert' : ''}"><b>${open.length}</b><span>Requests waiting for a quotation</span></div>
-      <div class="stat${acc.length ? ' alert' : ''}"><b>${acc.length}</b><span>Accepted, cover note to issue</span></div>
-      <div class="stat"><b>${S.rows.filter(r => r.stage === 'quoted').length}</b><span>Quoted, waiting for the client</span></div>
-      <div class="stat"><b>${S.rows.filter(r => new Date(r.created_at) > Date.now() - 864e5).length}</b><span>Indications in the last 24 h</span></div></div>`));
+      ${scopeBtn('open', 'To do: quote or issue cover', open.length + acc.length, open.length + acc.length ? 'alert' : '')}
+      ${scopeBtn('b_open', 'Open cases', n('open'))}
+      ${scopeBtn('b_won', 'Won cases', n('won'), 'won')}
+      ${scopeBtn('b_lost', 'Lost cases', n('lost'))}
+      <div class="stat"><b class="num" style="font-size:20px">${esc(brkTxt)}</b><span>Brokerage on won cases (internal)</span></div></div>`));
     const tb = FC.el(`<div class="toolbar">
       <input class="input" type="search" id="rqQ" placeholder="Search reference, customer, goods, country" value="${esc(rqFilter.q)}" aria-label="Search">
       <select class="input" id="rqScope" aria-label="Show">
-        <option value="open">To do</option><option value="requests">All requests</option><option value="all">All indications</option></select>
+        <option value="open">To do</option><option value="b_open">Open cases</option><option value="b_won">Won cases</option><option value="b_lost">Lost cases</option><option value="requests">All requests</option><option value="all">All indications</option></select>
       <select class="input" id="rqStage" aria-label="Stage"><option value="">Every stage</option>${Object.entries(FC.STAGE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+      <button class="btn btn-danger btn-sm" id="rqDel" type="button" hidden><span class="spin"></span>Delete selected</button>
       <button class="btn btn-ghost btn-sm" id="rqCsv" type="button">Export CSV</button></div>`);
     body.appendChild(tb);
     $('#rqScope', tb).value = rqFilter.scope; $('#rqStage', tb).value = rqFilter.stage;
     const wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(wrap);
+    const delBtn = $('#rqDel', tb);
+    const paintSel = () => { delBtn.hidden = !selected.size; delBtn.lastChild.textContent = 'Delete selected (' + selected.size + ')'; };
     const paint = () => {
       const rows = filteredRequests();
+      const ids = new Set(rows.map(r => r.id)); Array.from(selected).forEach(id => { if(!ids.has(id)) selected.delete(id); }); paintSel();
+      body.querySelectorAll('[data-scope]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scope === rqFilter.scope)));
       if(!rows.length){ wrap.innerHTML = `<div class="empty"><h3>${rqFilter.scope === 'open' ? 'Nothing to do' : 'No matches'}</h3><p>${rqFilter.scope === 'open' ? 'New requests and accepted quotations appear here.' : 'Change the search or filters.'}</p></div>`; return; }
-      wrap.innerHTML = `<table class="tbl"><thead><tr><th>Reference</th><th>Received</th><th>Customer</th><th>Route</th><th>Goods</th><th class="r">Sum insured</th><th>Indication</th><th>Stage</th><th>Owner</th></tr></thead><tbody></tbody></table>`;
+      const showBrk = rqFilter.scope === 'b_won';
+      wrap.innerHTML = `<table class="tbl"><thead><tr><th style="width:28px"><input type="checkbox" id="rqAll" aria-label="Select all" style="width:auto;min-width:0"></th><th>Reference</th><th>Received</th><th>Customer</th><th>Route</th><th>Goods</th><th class="r">Sum insured</th><th>${showBrk ? 'Premium / brokerage' : 'Indication'}</th><th>Stage</th><th>Owner</th></tr></thead><tbody></tbody></table>`;
       const tbody = wrap.querySelector('tbody');
       rows.slice(0, 400).forEach(r => {
-        const w = who(r), qs = (S.quotes[r.id] || []).filter(q => q.status !== 'superseded'), last = qs[qs.length - 1];
-        const stageChip = r.stage === 'quoted' && last && last.status === 'open' && new Date(last.valid_until) < Date.now() ? chip('expired', 'Quote expired') : chip(r.stage === 'new' ? 'pending' : r.stage, FC.STAGE[r.stage]);
+        const w = who(r), bk = bucket(r);
+        const stageChip = quoteExpired(r) ? chip('expired', 'Quote expired') : chip(r.stage === 'new' ? 'pending' : r.stage, FC.STAGE[r.stage]);
+        const wq = wonQuote(r), b = brokerageOf(r);
+        const third = showBrk ? `${wq ? '<span class="num">' + esc(money2(wq.data.total, wq.data.currency)) + '</span>' : '—'}${b ? '<br><span class="xs num muted">' + esc(money2(b.amount, b.currency)) + ' (' + esc(b.pct) + ' %)' + (b.insurer ? ', ' + esc(b.insurer) : '') + '</span>' : ''}`
+          : `${chip(r.status, FC.STATUS[r.status])}${r.premium != null ? '<br><span class="xs num">' + esc(money2(r.premium, r.currency)) + '</span>' : ''}`;
         const tr = FC.el(`<tr class="click" tabindex="0">
-          <td><b>${esc(r.ref || '—')}</b>${r.is_test ? ' ' + chip('neutral', 'Test') : ''}</td>
+          <td data-nosel><input type="checkbox" class="rqSel" aria-label="Select" ${selected.has(r.id) ? 'checked' : ''} style="width:auto;min-width:0"></td>
+          <td><b>${esc(r.ref || '—')}</b>${r.is_test ? ' ' + chip('neutral', 'Test') : ''}${bk === 'won' ? ' ' + chip('accepted', 'Won') : bk === 'lost' ? ' ' + chip('declined', 'Lost') : ''}</td>
           <td class="xs">${esc(FC.ago(r.quote_requested_at || r.created_at))}${r.quote_requested_at ? '' : '<br><span class="muted">no request</span>'}</td>
           <td>${esc(w.company)}<br><span class="xs muted">${esc(w.name)}</span></td>
           <td><b>${esc(r.origin_country)} → ${esc(r.dest_country)}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[r.conveyance] || {}).short)}</span></td>
           <td>${esc(r.goods_description.slice(0, 60))}</td>
           <td class="r num">${esc(money2(r.sum_insured, r.currency))}</td>
-          <td>${chip(r.status, FC.STATUS[r.status])}${r.premium != null ? '<br><span class="xs num">' + esc(money2(r.premium, r.currency)) + '</span>' : ''}</td>
+          <td>${third}</td>
           <td>${stageChip}</td><td>${esc(r.owner || '')}</td></tr>`);
+        const cb = tr.querySelector('.rqSel');
+        cb.addEventListener('click', e => e.stopPropagation());
+        cb.addEventListener('change', () => { cb.checked ? selected.add(r.id) : selected.delete(r.id); paintSel(); });
+        tr.querySelector('[data-nosel]').addEventListener('click', e => { if(e.target === e.currentTarget){ e.stopPropagation(); cb.click(); } });
         tr.addEventListener('click', () => openCase(r.id));
-        tr.addEventListener('keydown', e => { if(e.key === 'Enter') openCase(r.id); });
+        tr.addEventListener('keydown', e => { if(e.key === 'Enter' && e.target === tr) openCase(r.id); });
         tbody.appendChild(tr);
       });
+      const all = $('#rqAll', wrap);
+      all.checked = rows.slice(0, 400).every(r => selected.has(r.id));
+      all.addEventListener('change', () => { rows.slice(0, 400).forEach(r => all.checked ? selected.add(r.id) : selected.delete(r.id)); paint(); });
     };
+    body.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => { rqFilter.scope = b.dataset.scope; $('#rqScope', tb).value = rqFilter.scope; paint(); }));
     $('#rqQ', tb).addEventListener('input', e => { rqFilter.q = e.target.value; paint(); });
     $('#rqScope', tb).addEventListener('change', e => { rqFilter.scope = e.target.value; paint(); });
     $('#rqStage', tb).addEventListener('change', e => { rqFilter.stage = e.target.value; paint(); });
     $('#rqCsv', tb).addEventListener('click', () => exportCsv(filteredRequests()));
+    delBtn.addEventListener('click', async () => {
+      const ids = Array.from(selected); if(!ids.length) return;
+      if(!(await FC.confirm('Delete ' + ids.length + ' case' + (ids.length > 1 ? 's' : '') + '?', 'Indications, quotations, cover notes, notes and invoice files are deleted for good. The clients no longer see them either.', 'Delete for good', 'danger'))) return;
+      busy(delBtn, true);
+      const ok = await deleteCases(ids);
+      busy(delBtn, false);
+      if(ok){ selected.clear(); await loadAll(); render(); toast(ids.length + ' deleted.'); }
+    });
     paint();
+  }
+  async function deleteCases(ids){
+    const { data: invs } = await sb.from('invoices').select('id,file_path').in('indication_id', ids);
+    const files = (invs || []).map(i => i.file_path).filter(Boolean);
+    if(files.length) await sb.storage.from('invoices').remove(files);
+    if((invs || []).length){ const { error } = await sb.from('invoices').delete().in('id', invs.map(i => i.id)); if(error){ toast('Could not delete invoices: ' + error.message, 'error'); return false; } }
+    const { error } = await sb.from('indications').delete().in('id', ids);
+    if(error){ toast('Could not delete: ' + error.message, 'error'); return false; }
+    return true;
   }
   function filteredRequests(){
     const s = rqFilter.q.trim().toLowerCase();
     const openIds = new Set(openRequests().concat(acceptedNoCover()).map(r => r.id));
     return S.rows.filter(r => {
       if(rqFilter.scope === 'open' && !openIds.has(r.id)) return false;
+      if(rqFilter.scope.startsWith('b_') && bucket(r) !== rqFilter.scope.slice(2)) return false;
       if(rqFilter.scope === 'requests' && !r.quote_requested_at) return false;
       if(rqFilter.stage && r.stage !== rqFilter.stage) return false;
       if(!s) return true;
@@ -204,14 +261,14 @@
       qs.slice().reverse().forEach(q => {
         const st = q.status === 'open' && new Date(q.valid_until) < Date.now() ? 'expired' : q.status;
         const it = FC.el(`<div class="item"><div><div class="t">Version ${q.version} ${chip(st, st)}</div>
-          <div class="meta">${esc(money2(q.data.total, q.data.currency))}, sent ${esc(FC.dateTime(q.created_at))}, valid until ${esc(FC.dateTime(q.valid_until))}${q.responded_at ? ', answered ' + esc(FC.dateTime(q.responded_at)) : ''}${q.response_note ? '<br>Client: ' + esc(q.response_note) : ''}</div></div><div class="acts"></div></div>`);
+          <div class="meta">${esc(money2(q.data.total, q.data.currency))}${Number(q.data.taxPct) > 0 ? ' incl. ' + esc(Number(q.data.taxPct)) + ' % tax' : ''}${q.data.insurer ? ', ' + esc(q.data.insurer) : ''}${S.qint[q.id] ? ' <span class="chip neutral">brokerage ' + esc(Number(S.qint[q.id].brokerage_pct)) + ' % = ' + esc(money2(S.qint[q.id].brokerage_amount, q.data.currency)) + '</span>' : ''}<br>sent ${esc(FC.dateTime(q.created_at))}, valid until ${esc(FC.dateTime(q.valid_until))}${q.responded_at ? ', answered ' + esc(FC.dateTime(q.responded_at)) : ''}${q.response_note ? '<br>Client: ' + esc(q.response_note) : ''}</div></div><div class="acts"></div></div>`);
         const a = it.querySelector('.acts');
         a.appendChild(btn('PDF', 'ghost', async b => { busy(b, true); try{ FC.saveBlob(await FCPDF.quotation(q, r), FCPDF.fileName('FREIGHTCON_Quotation', r.ref, 'v' + q.version)); }catch(e){ console.error(e); toast('PDF failed.', 'error'); } busy(b, false); }));
         if(q.status === 'open') a.appendChild(btn('Withdraw', 'danger', async b => {
           if(!(await FC.confirm('Withdraw this quotation?', 'The client can no longer accept it.', 'Withdraw', 'danger'))) return;
           const { error } = await sb.rpc('admin_withdraw_quotation', { p_quotation_id: q.id }); if(error){ toast(error.message, 'error'); return; } refresh();
         }));
-        if(st !== 'superseded') a.appendChild(btn('New version from this', 'ghost', () => quotationEditor(r, q.data).then(ok => ok && refresh())));
+        if(st !== 'superseded') a.appendChild(btn('New version from this', 'ghost', () => quotationEditor(r, q.data, q.id).then(ok => ok && refresh())));
         qh.appendChild(it);
       });
       $('#csQuoteActs', body).appendChild(btn(qs.length ? 'New quotation' : 'Create quotation', qs.length ? 'ghost' : 'primary', () => quotationEditor(r).then(ok => ok && refresh())));
@@ -263,8 +320,8 @@
       $('#csTl', body).innerHTML = ev.map(([t, l]) => `<li>${esc(l)}<span>${esc(FC.dateTime(t))}</span></li>`).join('');
       // danger zone
       $('#csMore', body).appendChild(btn('Delete case', 'danger', async () => {
-        if(!(await FC.confirm('Delete this case?', 'The indication, its quotations, cover notes and notes are deleted for good. Prefer the stage "Closed" if you need the record.', 'Delete for good', 'danger'))) return;
-        const { error } = await sb.from('indications').delete().eq('id', r.id); if(error) return toast(error.message, 'error');
+        if(!(await FC.confirm('Delete this case?', 'The indication, its quotations, cover notes, notes and invoices are deleted for good. Prefer the stage "Lost" or "Closed" if you need the record.', 'Delete for good', 'danger'))) return;
+        if(!(await deleteCases([r.id]))) return;
         close(); await loadAll(); render(); toast('Deleted.');
       }));
     };
@@ -286,8 +343,8 @@
   }
 
   // ---------------- quotation editor ----------------
-  function quotationEditor(r, prev){
-    const w = who(r), sp = splitRate(r), land = sp.land;
+  function quotationEditor(r, prev, prevId){
+    const w = who(r), sp = splitRate(r), land = sp.land, prevInt = prevId ? S.qint[prevId] : null;
     const conds = (FC.COVER[r.cover] || {}).clause + (r.war_strikes ? (land ? ', Institute Strikes Clauses (Cargo)' : ', Institute War Clauses (Cargo), Institute Strikes Clauses (Cargo)') : '') + ', warehouse to warehouse';
     const d = Object.assign({
       client: w.company, clientAddress: addrOf(w.p), coAssured: [], goods: r.goods_description, packaging: r.packaging || '', conveyance: r.conveyance, vessel: r.vessel || '', incoterm: r.incoterm ? r.incoterm + ' ' + (r.origin_place || r.dest_place || '') : '',
@@ -301,7 +358,13 @@
       subjectivities: setting('quote_subjectivities', []), note: '', closing: setting('quote_closing', '')
     }, prev ? JSON.parse(JSON.stringify(prev)) : {});
     const toLocal = dt => { const z = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 16); };
-    const insOpts = S.insurers.filter(i => i.active).map(i => `<option value="${esc(i.name)}">`).join('');
+    const actIns = S.insurers.filter(i => i.active || (prevInt && prevInt.insurer_id === i.id));
+    const preIns = (prevInt && actIns.find(i => i.id === prevInt.insurer_id)) || actIns.find(i => i.name === d.insurer) || actIns.find(i => i.name === setting('default_insurer', '')) || actIns[0] || null;
+    const otherName = preIns ? '' : (d.insurer || '');
+    const insOpts = actIns.map(i => `<option value="${i.id}" ${preIns && preIns.id === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('') + `<option value="" ${preIns ? '' : 'selected'}>Other insurer (type name)</option>`;
+    const preBrk = prevInt ? Number(prevInt.brokerage_pct) : preIns ? Number(preIns.brokerage_pct || 0) : 0;
+    const taxDefault = Number(setting('insurance_tax_pct', 19));
+    const taxOn = prev ? Number(d.taxPct) > 0 : (r.origin_country === 'DE' && r.dest_country === 'DE');
     const lineRow = (l, i) => `<tr data-i="${i}"><td><input class="ln-label" value="${esc(l.label)}" maxlength="120"></td><td><input class="ln-sum" inputmode="decimal" value="${l.sum != null ? esc(l.sum) : ''}"></td><td><input class="ln-rate" inputmode="decimal" value="${l.rate != null ? esc(l.rate) : ''}"></td><td class="r num ln-prem">—</td><td><button type="button" class="linkbtn ln-del" aria-label="Remove line">Remove</button></td></tr>`;
     const body = FC.el(`<div>
       <div class="grid2">
@@ -320,7 +383,7 @@
       <div class="field"><label>Period</label><input id="qePer" maxlength="200" value="${esc(d.period)}"></div>
       <div class="field"><label>Conditions</label><textarea id="qeCond" rows="2" maxlength="800">${esc(d.conditions)}</textarea></div>
       <div class="grid2" style="margin-top:12px">
-        <div class="field"><label>Insurer</label><input id="qeIns" list="qeInsList" maxlength="200" value="${esc(d.insurer)}"><datalist id="qeInsList">${insOpts}</datalist></div>
+        <div class="field"><label for="qeInsSel">Insurer</label><select id="qeInsSel">${insOpts}</select><input id="qeIns" maxlength="200" value="${esc(otherName)}" placeholder="Name of the insurer" style="margin-top:6px" ${preIns ? 'hidden' : ''}></div>
         <div class="field"><label>Deductible</label><input id="qeDed" maxlength="200" value="${esc(d.deductible)}"></div>
       </div>
       <div class="field" style="margin-top:12px"><label>Special conditions</label><textarea id="qeSpec" rows="2" maxlength="1200">${esc(d.special)}</textarea></div>
@@ -332,8 +395,15 @@
       </div>
       <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Cover line</th><th>Sum insured</th><th>Rate %</th><th class="r">Premium</th><th></th></tr></thead><tbody id="qeLines">${(d.lines || []).map(lineRow).join('')}</tbody></table></div>
       <div class="toolbar" style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="qeAdd">Add line</button>
-        <div class="field" style="flex-direction:row;align-items:center;gap:8px;margin:0"><label for="qeTax" style="white-space:nowrap">Insurance tax %</label><input id="qeTax" inputmode="decimal" value="${esc(d.taxPct || 0)}" style="width:90px"></div></div>
+        <label class="switch" style="margin:0"><input type="checkbox" id="qeTaxOn" ${taxOn ? 'checked' : ''}><span><b>Add insurance tax</b></span></label>
+        <div class="field" style="flex-direction:row;align-items:center;gap:8px;margin:0"><label for="qeTax" style="white-space:nowrap">Rate %</label><input id="qeTax" inputmode="decimal" value="${esc(Number(d.taxPct) > 0 ? d.taxPct : taxDefault)}" style="width:80px" ${taxOn ? '' : 'disabled'}></div></div>
+      <p class="xs muted" style="margin:4px 0 0">German insurance tax applies to the net premium. International transports of goods are usually exempt; tick it for domestic transports or where the insurer requires it.</p>
       <table class="qtable" id="qeSum"></table>
+      <div class="qe-internal"><h4>Internal, never shown to the client</h4>
+        <div class="grid3"><div class="field"><label for="qeBrk">Brokerage % with this insurer</label><input id="qeBrk" inputmode="decimal" value="${esc(preBrk)}"></div>
+        <div class="field"><label>Brokerage</label><div class="num" id="qeBrkAmt" style="padding-top:10px">—</div></div>
+        <div class="field"><label>Net premium to insurer</label><div class="num" id="qeNetIns" style="padding-top:10px">—</div></div></div>
+        <p class="xs muted" style="margin:0">Calculated on the premium after discount and minimum, before insurance tax. The default comes from the insurer (tab Insurers).</p></div>
       <div class="grid2" style="margin-top:6px">
         <div class="field"><label>Valid until (your local time)</label><input id="qeValid" type="datetime-local" value="${toLocal(new Date(Date.now() + 3 * 864e5))}"></div>
         <div class="field"><label>Handled by</label><input id="qeHandler" maxlength="100" value="${esc(me().full_name || '')}"></div>
@@ -348,14 +418,16 @@
         const sum = FC.parseNum(tr.querySelector('.ln-sum').value), rate = FC.parseNum(tr.querySelector('.ln-rate').value);
         return { label: tr.querySelector('.ln-label').value.trim(), sum, rate, premium: isFinite(sum) && isFinite(rate) ? Math.round(sum * rate) / 100 : NaN, tr };
       });
-      return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: FC.parseNum($b('#qeTax').value) || 0, cur: $b('#qeCur').value };
+      return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, cur: $b('#qeCur').value };
     };
     const recalc = () => {
       const c = collect();
       c.lines.forEach(l => { l.tr.querySelector('.ln-prem').textContent = isFinite(l.premium) ? money2(l.premium, c.cur) : '—'; });
       const ok = c.lines.length && c.lines.every(l => isFinite(l.premium));
-      if(!ok){ $b('#qeSum').innerHTML = '<tr><td class="muted">Enter sum insured and rate for each line.</td></tr>'; return; }
+      if(!ok){ $b('#qeSum').innerHTML = '<tr><td class="muted">Enter sum insured and rate for each line.</td></tr>'; $b('#qeBrkAmt').textContent = $b('#qeNetIns').textContent = '—'; return; }
       const t = calcQuote(c.lines, c.disc, c.min, c.tax);
+      const ba = Math.round(t.net * c.brk) / 100;
+      $b('#qeBrkAmt').textContent = money2(ba, c.cur); $b('#qeNetIns').textContent = money2(Math.round((t.net - ba) * 100) / 100, c.cur);
       $b('#qeSum').innerHTML = `<tr><td>Premium</td><td class="r">${esc(money2(t.subtotal, c.cur))}</td></tr>
         ${c.disc ? `<tr><td>Client discount ${esc(c.disc)} %</td><td class="r">− ${esc(money2(t.discountAmount, c.cur))}</td></tr>` : ''}
         ${t.minApplied ? `<tr><td>Minimum premium applies</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr>` : ''}
@@ -363,6 +435,13 @@
         <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(t.total, c.cur))}</td></tr>`;
     };
     body.addEventListener('input', recalc);
+    $b('#qeTaxOn').addEventListener('change', () => { $b('#qeTax').disabled = !$b('#qeTaxOn').checked; recalc(); });
+    $b('#qeInsSel').addEventListener('change', () => {
+      const ins = S.insurers.find(i => String(i.id) === $b('#qeInsSel').value);
+      $b('#qeIns').hidden = !!ins; if(!ins) $b('#qeIns').focus();
+      $b('#qeBrk').value = ins ? Number(ins.brokerage_pct || 0) : 0; recalc();
+    });
+    const insurerPick = () => { const ins = S.insurers.find(i => String(i.id) === $b('#qeInsSel').value); return ins ? { id: ins.id, name: ins.name } : { id: null, name: $b('#qeIns').value.trim() }; };
     body.addEventListener('click', e => { if(e.target.classList.contains('ln-del')){ e.target.closest('tr').remove(); recalc(); } });
     $b('#qeAdd').addEventListener('click', () => { $b('#qeLines').insertAdjacentHTML('beforeend', lineRow({ label:'', sum: Number(r.sum_insured), rate:null }, Date.now())); recalc(); });
     const build = () => {
@@ -370,13 +449,16 @@
       if(!$b('#qeClient').value.trim()) return err('Enter the assured.');
       if(!c.lines.length || c.lines.some(l => !l.label || !(l.sum > 0) || !(l.rate >= 0))) return err('Every cover line needs a name, a sum insured above 0 and a rate.');
       if(c.disc < 0 || c.disc >= 100 || c.tax < 0 || c.tax > 40) return err('Check discount and tax.');
+      if(!insurerPick().name) return err('Choose the insurer or type its name.');
+      if(c.brk < 0 || c.brk > 50) return err('Brokerage must be between 0 and 50 %.');
       const vu = new Date($b('#qeValid').value); if(isNaN(vu) || vu.getTime() < Date.now() + 60000) return err('The validity must lie in the future.');
       const t = calcQuote(c.lines, c.disc, c.min, c.tax); $b('#qeErr').textContent = '';
-      return { validUntil: vu.toISOString(), data: {
+      const ip = insurerPick(), ba = Math.round(t.net * c.brk) / 100;
+      return { validUntil: vu.toISOString(), internal: { insurer_id: ip.id, insurer_name: ip.name, brokerage_pct: c.brk, brokerage_amount: ba, net_to_insurer: Math.round((t.net - ba) * 100) / 100 }, data: {
         client: $b('#qeClient').value.trim(), clientAddress: $b('#qeAddr').value.trim(), incoterm: $b('#qeInco').value.trim(), coAssured: $b('#qeCo').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 6),
         goods: $b('#qeGoods').value.trim(), packaging: $b('#qePack').value.trim(), conveyance: $b('#qeConv').value, vessel: $b('#qeVessel').value.trim(),
         originCountry: $b('#qeOC').value.trim().toUpperCase(), originPlace: $b('#qeOP').value.trim(), destCountry: $b('#qeDC').value.trim().toUpperCase(), destPlace: $b('#qeDP').value.trim(),
-        voyage: $b('#qeVoy').value.trim(), period: $b('#qePer').value.trim(), conditions: $b('#qeCond').value.trim(), insurer: $b('#qeIns').value.trim(),
+        voyage: $b('#qeVoy').value.trim(), period: $b('#qePer').value.trim(), conditions: $b('#qeCond').value.trim(), insurer: insurerPick().name,
         deductible: $b('#qeDed').value.trim(), special: $b('#qeSpec').value.trim(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
         lines: c.lines.map(l => ({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium })),
         subtotal: t.subtotal, discountAmount: t.discountAmount, net: t.net, minApplied: t.minApplied, tax: t.tax, total: t.total,
@@ -392,7 +474,7 @@
         { label:'Send to client', kind:'primary', onClick: async () => {
           const b = build(); if(!b) return;
           if(!(await FC.confirm('Send this quotation?', 'Total ' + money2(b.data.total, b.data.currency) + ', valid until ' + FC.dateTime(b.validUntil) + '. The client is notified by e-mail and can accept it online.', 'Send quotation'))) return;
-          const { error } = await sb.rpc('admin_save_quotation', { p_indication_id: r.id, p_data: b.data, p_valid_until: b.validUntil });
+          const { error } = await sb.rpc('admin_save_quotation', { p_indication_id: r.id, p_data: b.data, p_valid_until: b.validUntil, p_internal: b.internal });
           if(error){ $b('#qeErr').textContent = 'Could not send: ' + error.message; return; }
           toast('Quotation sent.'); return true;
         } }
@@ -835,16 +917,16 @@
     const tb = FC.el('<div class="toolbar"><span style="flex:1"></span></div>'); body.appendChild(tb);
     tb.appendChild(btn('Add insurer', 'primary', () => editInsurer({ active:true })));
     const l = FC.el('<div class="list"></div>'); body.appendChild(l);
-    if(!S.insurers.length) l.innerHTML = '<div class="empty card"><h3>No insurers yet</h3><p>Add the markets you place with. They appear as suggestions on quotations.</p></div>';
+    if(!S.insurers.length) l.innerHTML = '<div class="empty card"><h3>No insurers yet</h3><p>Add the markets you place with. You pick them on each quotation, with their brokerage.</p></div>';
     S.insurers.forEach(i => {
-      const it = FC.el(`<div class="item"><div><div class="t">${esc(i.name)} ${i.active ? '' : chip('neutral', 'Inactive')}</div><div class="meta">${esc([i.contact, i.email, i.phone].filter(Boolean).join(', '))}${i.notes ? '<br>' + esc(i.notes) : ''}</div></div><div class="acts"></div></div>`);
+      const it = FC.el(`<div class="item"><div><div class="t">${esc(i.name)} ${i.active ? '' : chip('neutral', 'Inactive')}</div><div class="meta">Brokerage ${esc(Number(i.brokerage_pct || 0))} %${[i.contact, i.email, i.phone].filter(Boolean).length ? ' · ' : ''}${esc([i.contact, i.email, i.phone].filter(Boolean).join(', '))}${i.notes ? '<br>' + esc(i.notes) : ''}</div></div><div class="acts"></div></div>`);
       it.querySelector('.acts').appendChild(btn('Edit', 'ghost', () => editInsurer(i)));
       l.appendChild(it);
     });
   }
   function editInsurer(i){
     const f = (id, l, v) => `<div class="field"><label for="${id}">${l}</label><input id="${id}" maxlength="200" value="${esc(v || '')}"></div>`;
-    const body = FC.el(`<div><div class="grid2">${f('inN', 'Name', i.name)}${f('inC', 'Contact person', i.contact)}${f('inE', 'E-mail', i.email)}${f('inP', 'Phone', i.phone)}</div>
+    const body = FC.el(`<div><div class="grid2">${f('inN', 'Name', i.name)}${f('inB', 'Brokerage % (internal, default on quotations)', i.brokerage_pct != null ? String(i.brokerage_pct) : '0')}${f('inC', 'Contact person', i.contact)}${f('inE', 'E-mail', i.email)}${f('inP', 'Phone', i.phone)}</div>
       <div class="field" style="margin-top:12px"><label for="inNo">Notes (capacity, appetite, commission…)</label><textarea id="inNo" rows="3" maxlength="1000">${esc(i.notes || '')}</textarea></div>
       <label class="switch"><input type="checkbox" id="inA" ${i.active ? 'checked' : ''}><span><b>Active</b></span></label><div class="err-msg" id="inErr"></div></div>`);
     const acts = [{ label:'Cancel', kind:'ghost', value:null }];
@@ -852,7 +934,8 @@
     acts.push({ label:'Save', kind:'primary', onClick: async () => {
       const v = id => body.querySelector('#' + id).value.trim();
       if(!v('inN')){ body.querySelector('#inErr').textContent = 'Enter the name.'; return; }
-      const row = { name:v('inN'), contact:v('inC') || null, email:v('inE') || null, phone:v('inP') || null, notes:v('inNo') || null, active: body.querySelector('#inA').checked };
+      const bp = FC.parseNum(v('inB') || '0'); if(!(bp >= 0 && bp <= 50)){ body.querySelector('#inErr').textContent = 'Brokerage must be between 0 and 50 %.'; return; }
+      const row = { name:v('inN'), brokerage_pct: bp, contact:v('inC') || null, email:v('inE') || null, phone:v('inP') || null, notes:v('inNo') || null, active: body.querySelector('#inA').checked };
       const { error } = i.id ? await sb.from('insurers').update(row).eq('id', i.id) : await sb.from('insurers').insert(row);
       if(error){ body.querySelector('#inErr').textContent = error.message; return; }
       await loadAll(); render(); return true;
