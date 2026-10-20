@@ -214,7 +214,7 @@
       body.innerHTML = `
         <section><h3>Shipment</h3><dl class="kv">
           <dt>Indication</dt><dd>${chip(r.status, FC.STATUS[r.status])} ${r.premium != null ? esc(money2(r.premium, r.currency)) + ' at ' + esc(FC.pct(r.rate_pct)) + (Number(r.discount_pct) ? ', discount ' + esc(Number(r.discount_pct)) + ' %' : '') + (r.min_applied ? ', minimum' : '') : ''}</dd>
-          ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(explain(r.calc_detail))}${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}</dd>` : ''}
+          ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(explain(r.calc_detail))}${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}${r.ext_hssc ? ', HSSC' : ''}${r.ext_liw ? ', LiW/DiW' : ''}</dd>` : ''}
           ${(r.reasons || []).length ? `<dt>Reasons</dt><dd>${esc(r.reasons.join('; '))}</dd>` : ''}
           ${r.insured_name ? `<dt>Assured</dt><dd><b>${esc(r.insured_name)}</b>${r.insured_address ? '<br><span class="xs muted">' + esc(r.insured_address) + '</span>' : ''}<br><span class="xs muted">on behalf of the customer below (policyholder)</span></dd>` : ''}
           ${r.customer_ref ? `<dt>Client's reference</dt><dd>${esc(r.customer_ref)}</dd>` : ''}
@@ -357,7 +357,7 @@
       conditions: conds, insurer: setting('default_insurer', ''), deductible: ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
       currency: r.currency, discountPct: Number(r.discount_pct || w.p.client_discount_pct || 0), taxPct: 0,
       minPremium: Number(sp.detail && sp.detail.mode === 'land' ? setting('land_min_premium', 75) : (((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0)),
-      lines: [{ key:'cargo', label:'Cargo, ' + ((FC.COVER[r.cover] || {}).clause || '') + (r.interest_only ? ", seller's / buyer's interest only" : '') + (r.on_deck ? ', on deck' : '') + (r.war_strikes ? (land ? ', incl. strikes' : ', incl. war & strikes') : ''), sum: Number(r.sum_insured), rate: sp.cargo }],
+      lines: [{ key:'cargo', label:'Cargo, ' + ((FC.COVER[r.cover] || {}).clause || '') + (r.interest_only ? ", seller's / buyer's interest only" : '') + (r.on_deck ? ', on deck' : '') + (r.ext_hssc ? ', incl. HSSC' : '') + (r.ext_liw ? ', incl. loss / difference in weight' : '') + (r.war_strikes ? (land ? ', incl. strikes' : ', incl. war & strikes') : ''), sum: Number(r.sum_insured), rate: sp.cargo }],
       subjectivities: setting('quote_subjectivities', []), note: '', closing: setting('quote_closing', '')
     }, prev ? JSON.parse(JSON.stringify(prev)) : {});
     const toLocal = dt => { const z = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 16); };
@@ -749,7 +749,7 @@
     const parts = [['class', d.f_class], ['cover', d.f_cover], ['conveyance', d.f_conveyance], ['packing', d.f_packing], ['on deck', d.f_deck], ['theft', d.f_theft], ['extra', d.f_loading]]
       .filter(([, v]) => v != null && Number(v) !== 1).map(([k, v]) => k + ' ' + pm(v));
     const route = d.mode === 'land' ? 'land ' + String(d.band || '').replace('_', '-') : 'zone ' + d.zone_from + ' → ' + d.zone_to;
-    return `${d.table_name}, ${route}: base ${pm(d.base_permille)} ‰${parts.length ? ' × ' + parts.join(' × ') : ''} = ${pm(d.cargo_permille)} ‰ + ${d.mode === 'land' ? 'strikes' : 'war'} ${pm(d.war_permille)} ‰${Number(d.crisis_permille) ? ' + crisis ' + pm(d.crisis_permille) + ' ‰' : ''}${Number(d.f_interest) !== 1 ? ', × interest ' + pm(d.f_interest) : ''} = ${pm(d.rate_permille)} ‰`;
+    return `${d.table_name}, ${route}: base ${pm(d.base_permille)} ‰${parts.length ? ' × ' + parts.join(' × ') : ''} = ${pm(d.cargo_permille)} ‰${Number(d.hssc_permille) ? ' + HSSC ' + pm(d.hssc_permille) + ' ‰' : ''}${Number(d.liw_permille) ? ' + LiW/DiW ' + pm(d.liw_permille) + ' ‰' : ''} + ${d.mode === 'land' ? 'strikes' : 'war'} ${pm(d.war_permille)} ‰${Number(d.crisis_permille) ? ' + crisis ' + pm(d.crisis_permille) + ' ‰' : ''}${Number(d.f_interest) !== 1 ? ', × interest ' + pm(d.f_interest) : ''} = ${pm(d.rate_permille)} ‰`;
   }
   function rtTables(host){
     if(!S.rateTables.length){ host.innerHTML = '<div class="empty card"><h3>No schedules yet</h3><p>Run update_2026-10-20c.sql in Supabase.</p></div>'; return; }
@@ -827,11 +827,12 @@
         { k:'sea_table', l:'Sea base rates', type:'select', options: tables },
         { k:'air_class', l:'By air', type:'select', options:[['', 'no'], ['new', 'yes']] },
         { k:'theft_attractive', l:'Theft-attractive', type:'bool' }, { k:'temp_controlled', l:'Temp.-controlled', type:'bool' },
+        { k:'ext_hssc', l:'Offer HSSC', type:'bool' }, { k:'ext_liw', l:'Offer LiW / DiW', type:'bool' },
         { k:'loading_pct', l:'Extra loading %', type:'num' }, { k:'max_sum_insured', l:'Max. sum insured', type:'num' },
         { k:'on_request', l:'Always on request', type:'bool' }, { k:'active', l:'Active', type:'bool' }, { k:'sort', l:'Sort', type:'num' },
         { k:'deductible', l:'Deductible (shown to clients)', w:240 },
         { k:'description', l:'Description (shown to clients)', w:220 }, { k:'conditions', l:'Special conditions', w:280 } ],
-      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; ['theft_attractive','temp_controlled','on_request','active'].forEach(k => { if(k in r && r[k] == null) r[k] = k === 'active'; }); return r; } });
+      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; ['theft_attractive','temp_controlled','ext_hssc','ext_liw','on_request','active'].forEach(k => { if(k in r && r[k] == null) r[k] = k === 'active'; }); return r; } });
   }
   function rtCountries(host){
     const zs = n => [['', '— none —']].concat(Array.from({ length:n }, (_, i) => [String(i + 1), String(i + 1)]));
@@ -863,6 +864,10 @@
         <div class="field"><label>On-deck loading %</label><input id="ffDeck" inputmode="decimal" value="${esc(setting('deck_loading_pct', 50))}"></div>
         <div class="field"><label>Theft loading on land (factor)</label><input id="ffTheft" inputmode="decimal" value="${esc(setting('theft_land_factor', 1.5))}"></div>
         <div class="field"><label>Seller's / buyer's interest factor</label><input id="ffCont" inputmode="decimal" value="${esc(setting('contingency_factor', 0.4))}"></div></div>
+      <h3 style="margin:20px 0 6px">Optional extensions</h3><p class="xs muted" style="margin:0 0 10px">Added flat to the rate in ‰ of the sum insured, only for cargo types that offer them (tab Cargo types). 0.15 ‰ = 0.015 %.</p><div class="grid3">
+        <div class="field"><label>HSSC surcharge (‰)</label><input id="ffHssc" inputmode="decimal" value="${esc(((setting('extensions', {}) || {}).hssc || {}).permille ?? 0.15)}"></div>
+        <div class="field"><label>LiW / DiW surcharge (‰)</label><input id="ffLiw" inputmode="decimal" value="${esc(((setting('extensions', {}) || {}).liw || {}).permille ?? 0.75)}"></div>
+        <div class="field"><label>LiW / DiW deductible</label><input id="ffLiwDed" maxlength="100" value="${esc(((setting('extensions', {}) || {}).liw || {}).deductible || '0.5 % of the sum insured')}"></div></div>
       <h3 style="margin:20px 0 6px">Limits &amp; defaults</h3><div class="grid3">
         ${['EUR','USD'].map(c => `<div class="field"><label>Automatic limit ${c}</label>${inp('al', c, al[c])}</div>`).join('')}
         <div class="field"><label>Minimum premium road / rail</label><input id="ffLandMin" inputmode="decimal" value="${esc(setting('land_min_premium', 75))}"></div>
@@ -880,7 +885,12 @@
         deck_loading_pct: num(body.querySelector('#ffDeck')), theft_land_factor: num(body.querySelector('#ffTheft')), contingency_factor: num(body.querySelector('#ffCont')),
         land_min_premium: num(body.querySelector('#ffLandMin')), uplift_pct: num(body.querySelector('#ffUp')), referral_discount_pct: num(body.querySelector('#ffRef')),
         deductible_text: body.querySelector('#ffDed').value.trim() };
-      const nums = Object.entries(vals).filter(([k]) => !['land_groups','deductible_text'].includes(k)).flatMap(([, v]) => typeof v === 'object' ? Object.values(v) : [v]);
+      const ex = JSON.parse(JSON.stringify(setting('extensions', {}) || {})); ex.hssc = ex.hssc || {}; ex.liw = ex.liw || {};
+      ex.hssc.permille = num(body.querySelector('#ffHssc')); ex.liw.permille = num(body.querySelector('#ffLiw')); ex.liw.deductible = body.querySelector('#ffLiwDed').value.trim() || '0.5 % of the sum insured';
+      if(!(ex.hssc.permille >= 0) || !(ex.liw.permille >= 0)){ body.querySelector('#ffErr').textContent = 'Extension surcharges need a value of 0 or more.'; return; }
+      ex.liw.clause = 'Extended to cover loss in weight / difference in weight (shortage), subject to a deductible of ' + ex.liw.deductible + '.';
+      vals.extensions = ex;
+      const nums = Object.entries(vals).filter(([k]) => !['land_groups','deductible_text','extensions'].includes(k)).flatMap(([, v]) => typeof v === 'object' ? Object.values(v) : [v]);
       if(nums.some(v => !(v >= 0))){ body.querySelector('#ffErr').textContent = 'All number fields need a value of 0 or more.'; return; }
       busy(b, true);
       const { error } = await sb.from('settings').upsert(Object.entries(vals).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() })), { onConflict: 'key' });
@@ -899,13 +909,13 @@
         <div class="field"><label>Invoice value (EUR)</label><input id="ttI" value="100000" inputmode="decimal"></div>
         <div class="field"><label>Cover</label><select id="ttK"><option value="icc_a">ICC A</option><option value="icc_b">ICC B</option><option value="icc_c">ICC C</option></select></div>
         <div class="field"><label>Packaging</label><select id="ttP">${Object.keys(Object.assign({ '':1 }, setting('packing_factors', {}))).map(k => `<option value="${esc(k)}">${esc(k || 'Not stated')}</option>`).join('')}</select></div>
-      </div><div class="small" style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap"><label><input type="checkbox" id="ttW" checked> War &amp; strikes</label><label><input type="checkbox" id="ttDk"> On deck</label><label><input type="checkbox" id="ttIn"> Interest only</label></div>
+      </div><div class="small" style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap"><label><input type="checkbox" id="ttW" checked> War &amp; strikes</label><label><input type="checkbox" id="ttDk"> On deck</label><label><input type="checkbox" id="ttHs"> HSSC</label><label><input type="checkbox" id="ttLw"> LiW / DiW</label><label><input type="checkbox" id="ttIn"> Interest only</label></div>
       <div id="ttRun" style="margin-top:12px"></div><div id="ttOut" style="margin-top:14px"></div></div>`);
     host.appendChild(body);
     body.querySelector('#ttRun').appendChild(btn('Calculate', 'primary', async b => {
       busy(b, true);
       const v = id => body.querySelector(id).value, c = id => body.querySelector(id).checked;
-      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:'EUR', uplift_pct:10, cover:v('#ttK'), packaging:v('#ttP'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
+      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:'EUR', ext_hssc:c('#ttHs'), ext_liw:c('#ttLw'), uplift_pct:10, cover:v('#ttK'), packaging:v('#ttP'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
       busy(b, false);
       if(error){ body.querySelector('#ttOut').innerHTML = `<div class="notice danger" style="margin:0">${esc(error.message)}</div>`; return; }
       await sb.from('indications').update({ is_test:true, hidden_by_user:true }).eq('id', data.id);

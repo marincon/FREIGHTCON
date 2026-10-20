@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20h'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-20i'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -90,6 +90,8 @@
   $('#fDep').min = FC.today();
   FC.groupInput($('#fValue'));
   if(settings.uplift_pct != null) $('#fUplift').value = settings.uplift_pct;
+  { const ex = settings.extensions || {}; if(ex.hssc && ex.hssc.label) $('#hsscLbl').textContent = ex.hssc.label; if(ex.liw && ex.liw.label) $('#liwLbl').textContent = ex.liw.label;
+    if(ex.liw && ex.liw.deductible) $('#liwTxt').textContent = 'Covers shortage between the weight loaded and the weight delivered. Deductible ' + ex.liw.deductible + '. Small surcharge on the rate.'; }
 
   // end customers insured before → suggestions; picking one fills in the address
   let insureds = [];
@@ -139,7 +141,9 @@
       interest_only: !$('#interestField').hidden && $('#fInterest').checked,
       insured_name: $('#fForCust').checked ? $('#fInsName').value.trim() : '',
       insured_address: $('#fForCust').checked ? $('#fInsAddr').value.trim() : '',
-      customer_ref: $('#fCustRef').value.trim()
+      customer_ref: $('#fCustRef').value.trim(),
+      ext_hssc: !$('#extFields').hidden && !$('#hsscField').hidden && $('#fHssc').checked,
+      ext_liw: !$('#extFields').hidden && !$('#liwField').hidden && $('#fLiw').checked
     };
   }
   function writeForm(r){
@@ -153,6 +157,7 @@
     const c = form.querySelector(`input[name=cover][value="${r.cover || 'icc_a'}"]`); if(c) c.checked = true;
     $('#fWar').checked = r.war_strikes !== false;
     $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
+    $('#fHssc').checked = !!r.ext_hssc; $('#fLiw').checked = !!r.ext_liw;
     $('#fForCust').checked = !!r.insured_name; $('#fInsName').value = r.insured_name || ''; $('#fInsAddr').value = r.insured_address || ''; $('#fCustRef').value = r.customer_ref || '';
     $$('.field.invalid', form).forEach(f => f.classList.remove('invalid'));
     onFormChange();
@@ -175,6 +180,7 @@
     $('#siOut').textContent = isFinite(si) ? money2(si, v.currency) : '—';
     $('#vesselField').hidden = !isSea(v.conveyance);
     $('#custFields').hidden = !$('#fForCust').checked;
+    $('#hsscField').hidden = !(com && com.ext_hssc); $('#liwField').hidden = !(com && com.ext_liw); $('#extFields').hidden = $('#hsscField').hidden && $('#liwField').hidden;
     $('#deckField').hidden = !(v.conveyance === 'sea_breakbulk' && (!com || com.deck_allowed));
     const air = v.conveyance === 'air' || v.conveyance === 'air_charter';
     paintIncoterm(v);
@@ -286,6 +292,7 @@
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
         ${r.on_deck || r.interest_only ? `<div><dt>Special</dt><dd>${[r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Own interest only (contingency)" : ''].filter(Boolean).join(', ')}</dd></div>` : ''}
+        ${r.ext_hssc || r.ext_liw ? `<div><dt>Extensions</dt><dd>${[r.ext_hssc ? 'HSSC' : '', r.ext_liw ? 'Loss / difference in weight' : ''].filter(Boolean).join(', ')}</dd></div>` : ''}
         ${isSea(r.conveyance) ? `<div><dt>Vessel</dt><dd>${esc(r.vessel || 'To be declared')}</dd></div>` : ''}
         ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}, cover for the ${esc(r.insured_party || 'seller')}</dd></div>` : ''}
       </dl>
@@ -337,6 +344,7 @@
     ['departure_date', 'Departure date', ''],
     ['invoice_value', 'Invoice value', 120000], ['currency', 'Currency', 'EUR'], ['uplift_pct', 'Uplift %', 10],
     ['cover', 'Cover (A/B/C)', 'A'], ['war_strikes', 'War & strikes (yes/no)', 'yes'],
+    ['ext_hssc', 'HSSC (yes/no)', ''], ['ext_liw', 'LiW / DiW (yes/no)', ''],
     ['vessel', 'Vessel or IMO', ''], ['incoterm', 'Incoterm', 'CIF'], ['insured_party', 'Cover is for (seller/buyer)', 'seller'],
     ['insured_name', 'Assured: your customer', 'Müller Maschinenbau GmbH'], ['insured_address', 'Assured address', 'Industriestr. 5, 20095 Hamburg, Germany']
   ];
@@ -350,7 +358,7 @@
       const b = e.currentTarget; busy(b, true);
       try{
         const X = await needXlsx(), wb = X.utils.book_new();
-        const ex2 = { customer_ref:'JOB-26-1188', commodity:'agri_bagged', goods_description:'Coffee beans in jute bags, 1 x 20ft', packaging:'Bags / big bags', conveyance:'Sea, container', origin_country:'Brazil', origin_place:'Santos', dest_country:'DE', dest_place:'Hamburg', departure_date:'', invoice_value:45000, currency:'USD', uplift_pct:10, cover:'A', war_strikes:'yes', vessel:'', incoterm:'FOB', insured_party:'buyer', insured_name:'', insured_address:'' };
+        const ex2 = { customer_ref:'JOB-26-1188', commodity:'agri_bagged', goods_description:'Coffee beans in jute bags, 1 x 20ft', packaging:'Bags / big bags', conveyance:'Sea, container', origin_country:'Brazil', origin_place:'Santos', dest_country:'DE', dest_place:'Hamburg', departure_date:'', invoice_value:45000, currency:'USD', uplift_pct:10, cover:'A', war_strikes:'yes', ext_hssc:'yes', ext_liw:'no', vessel:'', incoterm:'FOB', insured_party:'buyer', insured_name:'', insured_address:'' };
         const ws = X.utils.aoa_to_sheet([UP_COLS.map(c => c[1]), UP_COLS.map(c => c[2]), UP_COLS.map(c => ex2[c[0]])]);
         ws['!cols'] = UP_COLS.map(c => ({ wch: Math.max(14, c[1].length + 2) }));
         X.utils.book_append_sheet(wb, ws, 'Shipments');
@@ -362,7 +370,8 @@
         X.utils.book_append_sheet(wb, ws2, 'Codes');
         const help = [['How to fill in the template'], [''], ['One row per shipment. Required: cargo type, description of goods, from country, to country, invoice value.'],
           ['Countries: ISO code (DE) or English name (Germany).'], ['Cargo type: name or ID from the sheet "Codes".'], ['Conveyance: Sea, container / Sea, breakbulk / Air freight / Air charter / Road / Rail. Empty = sea container.'],
-          ['Cover: A, B or C. Empty = A. War & strikes: yes or no. Empty = yes.'], ['Departure date: optional, e.g. 2026-11-15. Not in the past.'],
+          ['Cover: A, B or C. Empty = A. War & strikes: yes or no. Empty = yes.'],
+          ['HSSC (heating, sweating & spontaneous combustion) and LiW / DiW (loss / difference in weight): yes or no. Only for cargo types that offer them, e.g. agricultural products. Empty = no.'], ['Departure date: optional, e.g. 2026-11-15. Not in the past.'],
           ['Assured: fill in only if you insure on behalf of your customer. You remain the policyholder.'], ['Up to ' + UP_MAX + ' shipments per file.']];
         X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(help), 'Help');
         X.writeFile(wb, 'FREIGHTCON_bulk_template.xlsx');
@@ -412,6 +421,9 @@
     if(!(up >= 0 && up <= 30)) err.push('Uplift must be 0–30 %');
     const cv = norm(s('cover')).replace(/^icc /, ''), cover = !cv ? 'icc_a' : ({ a:'icc_a', b:'icc_b', c:'icc_c', icc_a:'icc_a', icc_b:'icc_b', icc_c:'icc_c' })[cv.replace(' ', '_')];
     if(!cover) err.push('Cover must be A, B or C');
+    const yn = (k, label) => { const v = norm(s(k)); if(!v) return false; if(['yes','y','ja','j','true','1','x'].includes(v)) return true; if(!['no','n','nein','false','0'].includes(v)) err.push(label + ' must be yes or no'); return false; };
+    const hssc = yn('ext_hssc', 'HSSC'), liw = yn('ext_liw', 'LiW / DiW');
+    if(com && hssc && !com.ext_hssc) err.push('HSSC is not available for this cargo'); if(com && liw && !com.ext_liw) err.push('LiW / DiW is not available for this cargo');
     const wv = norm(s('war_strikes')), war = !wv || ['yes','y','ja','j','true','1','x'].includes(wv); if(wv && !war && !['no','n','nein','false','0'].includes(wv)) err.push('War & strikes must be yes or no');
     let dep = c.departure_date, depS = '';
     if(dep instanceof Date && !isNaN(dep)) depS = new Date(dep.getTime() - dep.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -425,7 +437,7 @@
       origin_country: country('origin_country'), origin_place: s('origin_place').slice(0, 100), dest_country: country('dest_country'), dest_place: s('dest_place').slice(0, 100),
       departure_date: depS || null, invoice_value: val, currency: cur, uplift_pct: up, cover: cover || 'icc_a', war_strikes: war,
       vessel: isSea(conv) ? s('vessel').slice(0, 100) : '', incoterm: inc || null, insured_party: inc ? party : null, on_deck: false, interest_only: false,
-      insured_name: s('insured_name').slice(0, 150), insured_address: s('insured_address').slice(0, 250), source: 'upload' };
+      insured_name: s('insured_name').slice(0, 150), insured_address: s('insured_address').slice(0, 250), ext_hssc: hssc, ext_liw: liw, source: 'upload' };
     if(!s('origin_country')) err.push('From country missing');
     if(!s('dest_country')) err.push('To country missing');
     if(com && cover && !(com.allowed_covers || []).includes(cover)) err.push('Cover ' + cover.slice(-1).toUpperCase() + ' not available for this cargo (allowed: ' + (com.allowed_covers || []).map(x => x.slice(-1).toUpperCase()).join(', ') + ')');
@@ -461,7 +473,7 @@
       const tr = FC.el(`<tr><td>${x && !x.error ? `<input type="checkbox" class="upSel" ${r.sel ? 'checked' : ''} ${x.quote_requested_at || x.status === 'sanctioned' ? 'disabled' : ''} aria-label="Select row ${r.line}" style="width:auto;min-width:0">` : ''}</td>
         <td class="xs muted">${r.line}</td><td>${esc(p.customer_ref || '')}</td>
         <td>${esc(p.goods_description || '—')}${p.insured_name ? '<br><span class="xs muted">for ' + esc(p.insured_name) + '</span>' : ''}<br><span class="xs muted">${esc(((commodities.find(c => c.id === p.commodity_id) || {}).name) || '')}</span></td>
-        <td><b>${esc(p.origin_country || '?')} → ${esc(p.dest_country || '?')}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[p.conveyance] || {}).short || '')}, ICC ${esc((p.cover || '').slice(-1).toUpperCase())}</span></td>
+        <td><b>${esc(p.origin_country || '?')} → ${esc(p.dest_country || '?')}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[p.conveyance] || {}).short || '')}, ICC ${esc((p.cover || '').slice(-1).toUpperCase())}${p.ext_hssc ? ' + HSSC' : ''}${p.ext_liw ? ' + LiW' : ''}</span></td>
         <td class="r num">${si ? esc(money2(si, p.currency)) : '—'}</td><td>${result}</td></tr>`);
       const cb = tr.querySelector('.upSel'); if(cb) cb.addEventListener('change', () => { r.sel = cb.checked; paintUpload(); });
       tb.appendChild(tr);
@@ -494,11 +506,11 @@
     busy(b, true);
     try{
       const X = await needXlsx();
-      const head = ['Row', 'Your reference', 'FREIGHTCON reference', 'Assured', 'Cargo type', 'Description of goods', 'Conveyance', 'From', 'To', 'Departure', 'Invoice value', 'Currency', 'Sum insured', 'Cover', 'War & strikes', 'Result', 'Rate %', 'Premium (excl. tax)', 'Notes'];
+      const head = ['Row', 'Your reference', 'FREIGHTCON reference', 'Assured', 'Cargo type', 'Description of goods', 'Conveyance', 'From', 'To', 'Departure', 'Invoice value', 'Currency', 'Sum insured', 'Cover', 'War & strikes', 'HSSC', 'LiW / DiW', 'Result', 'Rate %', 'Premium (excl. tax)', 'Notes'];
       const rows = upRows.map(r => { const p = r.p, x = r.res || {};
         return [r.line, p.customer_ref, x.ref || '', p.insured_name, ((commodities.find(c => c.id === p.commodity_id) || {}).name) || '', p.goods_description, (FC.CONVEYANCE[p.conveyance] || {}).label || '',
           [p.origin_place, countryName(p.origin_country)].filter(Boolean).join(', '), [p.dest_place, countryName(p.dest_country)].filter(Boolean).join(', '), p.departure_date || '',
-          p.invoice_value, p.currency, x.sum_insured != null ? Number(x.sum_insured) : '', (FC.COVER[p.cover] || {}).clause || '', p.war_strikes ? 'yes' : 'no',
+          p.invoice_value, p.currency, x.sum_insured != null ? Number(x.sum_insured) : '', (FC.COVER[p.cover] || {}).clause || '', p.war_strikes ? 'yes' : 'no', p.ext_hssc ? 'yes' : 'no', p.ext_liw ? 'yes' : 'no',
           r.err.length ? 'Error' : x.error ? 'Error' : x.status ? FC.STATUS[x.status] : 'Not calculated', x.rate_pct != null ? Number(x.rate_pct) : '', x.premium != null ? Number(x.premium) : '',
           r.err.length ? r.err.join('; ') : x.error || (x.reasons || []).join('; ') + (x.quote_requested_at ? (x.reasons && x.reasons.length ? '; ' : '') + 'Quotation requested' : '')]; });
       const ws = X.utils.aoa_to_sheet([head].concat(rows)); ws['!cols'] = head.map(h => ({ wch: Math.max(12, h.length + 2) }));
@@ -523,7 +535,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20h');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20i');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -533,7 +545,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20h').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20i').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [];

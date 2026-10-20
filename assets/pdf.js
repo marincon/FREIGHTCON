@@ -165,6 +165,7 @@
       ['Conveyance', conv], ['From', placeOf(r.origin_place, r.origin_name)], ['To', placeOf(r.dest_place, r.dest_name)],
       ['Departure', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
       ['Special', [r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Seller's / buyer's own interest only (contingency cover)" : ''].filter(Boolean).join(', ')],
+      ['Extensions', [r.ext_hssc ? 'Heating, sweating & spontaneous combustion (HSSC)' : '', r.ext_liw ? 'Loss / difference in weight (LiW / DiW)' : ''].filter(Boolean).join(', ')],
       ['Vessel', /^sea_/.test(r.conveyance) ? (r.vessel || 'To be declared') : ''],
       ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + '), insured for the ' + (r.insured_party || 'seller') : '']
     ]);
