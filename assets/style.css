@@ -323,7 +323,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .auth-art .wordmark .tagline{color:#A9C9B3;font-size:12px}
 .auth-art h1{color:#fff;font-size:clamp(30px,3.6vw,48px);font-stretch:118%;max-width:12ch;font-weight:850}
 .auth-art p{max-width:42ch;color:#C2DBC9;font-size:var(--fs-lg);line-height:1.5}
-.stack{position:absolute;right:-40px;bottom:120px;width:min(420px,48%);opacity:.95}
+.stack{position:absolute;right:-40px;bottom:64px;width:min(400px,44%);opacity:.95}
+.auth-art > div,.auth-art > .wordmark{position:relative;z-index:1}
 .auth-form{display:flex;align-items:center;justify-content:center;padding:40px 24px;background:var(--paper)}
 .auth-form .box{width:min(400px,100%)}
 .auth-form h2{font-size:var(--fs-xl);margin-bottom:6px}
@@ -441,10 +442,31 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 @keyframes shimmer{to{background-position:-200% 0}}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(144,194,71,.6)}100%{box-shadow:0 0 0 10px rgba(144,194,71,0)}}
 
-/* login: containers are lowered onto the quay one by one */
-.stack .box{animation:drop .9s var(--ease-out) var(--d) both;transform-box:fill-box}
-.stack .box.top{animation:drop 1s var(--ease-out) var(--d) both, sway 6s ease-in-out 2.2s infinite}
-.stack .hook{animation:fade .4s ease var(--d) both}
+/* login: a gantry crane brings the containers in from the right and lowers them onto the quay, one after another */
+.stack{overflow:hidden}
+.stack .cx,.stack .cy{animation-duration:1.5s;animation-timing-function:cubic-bezier(.45,0,.25,1);animation-fill-mode:both}
+.stack .trolley,.stack .cable{opacity:0;animation:hoist 1.5s linear both}
+.stack .cx0,.stack .cx0 .cy,.stack .cx0 .trolley,.stack .cx0 .cable{animation-delay:.2s}
+.stack .cx1,.stack .cx1 .cy,.stack .cx1 .trolley,.stack .cx1 .cable{animation-delay:1.3s}
+.stack .cx2,.stack .cx2 .cy,.stack .cx2 .trolley,.stack .cx2 .cable{animation-delay:2.4s}
+.stack .cx3,.stack .cx3 .cy,.stack .cx3 .trolley,.stack .cx3 .cable{animation-delay:3.5s}
+.stack .cx4,.stack .cx4 .cy,.stack .cx4 .trolley,.stack .cx4 .cable{animation-delay:4.6s}
+.stack .cx0{animation-name:cx0}.stack .cy0{animation-name:cy0}
+.stack .cx1{animation-name:cx1}.stack .cy1{animation-name:cy1}
+.stack .cx2{animation-name:cx2}.stack .cy2{animation-name:cy2}
+.stack .cx3{animation-name:cx3}.stack .cy3{animation-name:cy3}
+.stack .cx4{animation-name:cx4}.stack .cy4{animation-name:cy4}
+@keyframes cx0{0%{transform:translate(440px,0)}42%,100%{transform:none}}
+@keyframes cy0{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
+@keyframes cx1{0%{transform:translate(250px,0)}42%,100%{transform:none}}
+@keyframes cy1{0%,42%{transform:translate(0,-166px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
+@keyframes cx2{0%{transform:translate(350px,0)}42%,100%{transform:none}}
+@keyframes cy2{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
+@keyframes cx3{0%{transform:translate(160px,0)}42%,100%{transform:none}}
+@keyframes cy3{0%,42%{transform:translate(0,-88px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
+@keyframes cx4{0%{transform:translate(260px,0)}42%,100%{transform:none}}
+@keyframes cy4{0%,42%{transform:translate(0,-10px)}88%{transform:translate(0,1.5px)}100%{transform:none}}
+@keyframes hoist{0%{opacity:1}90%{opacity:1}100%{opacity:0}}
 .stack .quay{animation:march 2.4s linear infinite}
 .auth-art h1,.auth-art p{animation:rise .8s var(--ease-out) both}
 .auth-art p{animation-delay:.12s}
