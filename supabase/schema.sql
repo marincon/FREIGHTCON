@@ -16,7 +16,6 @@
 --  * Admins (profiles.is_admin) can read and edit everything through RLS.
 -- =====================================================================
 
-create extension if not exists pgcrypto;
 
 -- ---------------------------------------------------------------------
 -- Helpers
@@ -312,11 +311,12 @@ $$;
 -- New auth user → profile (+ referral)
 -- ---------------------------------------------------------------------
 create or replace function public.gen_referral_code() returns text
-language plpgsql as $$
+language plpgsql set search_path = public as $$
 declare c text;
 begin
   loop
-    c := upper(substr(translate(encode(gen_random_bytes(8), 'base64'), '+/=0O1Il', ''), 1, 8));
+    -- gen_random_uuid() is built into PostgreSQL 13+ (no extension/schema needed); digits 0 and 1 dropped to avoid O/I mix-ups
+    c := upper(substr(translate(replace(gen_random_uuid()::text, '-', ''), '01', ''), 1, 8));
     exit when length(c) = 8 and not exists (select 1 from public.profiles where referral_code = c);
   end loop;
   return c;
