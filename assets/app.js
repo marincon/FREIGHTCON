@@ -16,7 +16,7 @@
 
   // ---------- header ----------
   $('#wm').innerHTML = FC.wordmarkHtml();
-  $('#icBox').innerHTML = FC.icon.box; $('#icRoute').innerHTML = FC.icon.route; $('#icCoin').innerHTML = FC.icon.coin; $('#icShield').innerHTML = FC.icon.shield;
+  $('#icBox').innerHTML = FC.icon.box; $('#icRoute').innerHTML = FC.icon.route; $('#icCoin').innerHTML = FC.icon.coin; $('#icShield').innerHTML = FC.icon.shield; $('#icDoc').innerHTML = FC.icon.doc;
   $('#inviteBtn').innerHTML = FC.icon.gift; $('#feedbackBtn').innerHTML = FC.icon.chat;
   $$('[data-ic]').forEach(s => s.outerHTML = FC.icon[s.dataset.ic]);
   const paintTheme = () => { $('#themeBtn').innerHTML = FC.isDark() ? FC.icon.sun : FC.icon.moon; };
@@ -87,6 +87,8 @@
   FC.groupInput($('#fValue'));
   if(settings.uplift_pct != null) $('#fUplift').value = settings.uplift_pct;
 
+  $('#fInco').insertAdjacentHTML('beforeend', Object.entries(FC.INCOTERMS).map(([k, t]) => `<option value="${k}">${k} — ${esc(t.name)}</option>`).join(''));
+  const partyHost = $('#fParty');
   const convHost = $('#fConv');
   Object.entries(FC.CONVEYANCE).forEach(([k, v], i) => {
     const b = FC.el(`<button type="button" role="radio" data-v="${k}" aria-checked="${i === 0}">${FC.icon[k]}<span>${esc(v.label)}</span></button>`);
@@ -98,14 +100,15 @@
   });
   const segVal = host => (host.querySelector('[aria-checked="true"]') || {}).dataset.v;
   const segSet = (host, v) => host.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === v)));
-  [convHost, $('#fCur')].forEach(h => h.addEventListener('click', e => { const b = e.target.closest('button'); if(b && !b.disabled){ segSet(h, b.dataset.v); onFormChange(); } }));
+  [convHost, $('#fCur'), partyHost].forEach(h => h.addEventListener('click', e => { const b = e.target.closest('button'); if(b && !b.disabled){ segSet(h, b.dataset.v); onFormChange(); } }));
   // keyboard: arrows move within a radio group
-  [convHost, $('#fCur')].forEach(h => h.addEventListener('keydown', e => {
+  [convHost, $('#fCur'), partyHost].forEach(h => h.addEventListener('keydown', e => {
     if(!['ArrowLeft','ArrowRight'].includes(e.key)) return;
     const bs = Array.from(h.querySelectorAll('button')), i = bs.findIndex(b => b.getAttribute('aria-checked') === 'true');
     const n = bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length]; segSet(h, n.dataset.v); n.focus(); onFormChange(); e.preventDefault();
   }));
 
+  const isSea = c => c === 'sea_container' || c === 'sea_breakbulk';
   function readForm(){
     return {
       commodity_id: $('#fCommodity').value,
@@ -119,7 +122,10 @@
       currency: segVal($('#fCur')),
       uplift_pct: FC.parseNum($('#fUplift').value),
       cover: (form.querySelector('input[name=cover]:checked') || {}).value,
-      war_strikes: $('#fWar').checked
+      war_strikes: $('#fWar').checked,
+      vessel: isSea(segVal(convHost)) ? $('#fVessel').value.trim() : '',
+      incoterm: $('#fInco').value || null,
+      insured_party: $('#fInco').value ? segVal(partyHost) : null
     };
   }
   function writeForm(r){
@@ -132,6 +138,7 @@
     segSet($('#fCur'), r.currency || 'EUR'); $('#fUplift').value = r.uplift_pct != null ? Number(r.uplift_pct) : (settings.uplift_pct || 10);
     const c = form.querySelector(`input[name=cover][value="${r.cover || 'icc_a'}"]`); if(c) c.checked = true;
     $('#fWar').checked = r.war_strikes !== false;
+    $('#fVessel').value = r.vessel || ''; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
     $$('.field.invalid', form).forEach(f => f.classList.remove('invalid'));
     onFormChange();
   }
@@ -151,6 +158,31 @@
     $('#warTxt').textContent = land ? 'Institute Strikes Clauses (Cargo). War risks are not insurable on land transit.' : 'Institute War and Strikes Clauses (Cargo), sea and air transit.';
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
     $('#siOut').textContent = isFinite(si) ? money2(si, v.currency) : '—';
+    $('#vesselField').hidden = !isSea(v.conveyance);
+    paintIncoterm(v);
+  }
+  // Incoterms: who carries the risk where, in plain words, with a small journey line
+  function paintIncoterm(v){
+    const host = $('#incoExplain'), t = FC.INCOTERMS[v.incoterm];
+    partyHost.querySelectorAll('button').forEach(b => b.disabled = !t);
+    if(!t){ host.innerHTML = `<div class="inco-head">Not sure which Incoterm applies?</div><p>It is in the sales contract or on the commercial invoice, e.g. "FOB Hamburg" or "CIF Shanghai". It decides who carries the transport risk and who has to insure. You can calculate without it.</p>`; return; }
+    const party = v.insured_party || 'seller', other = party === 'seller' ? 'buyer' : 'seller';
+    const pct = Math.round(t.pt / 3 * 100);
+    const sellerMine = party === 'seller';
+    const stops = FC.JOURNEY.filter(([x]) => t.sea || x !== 2).map(([x, l]) => `<i class="stop${x === 0 ? ' first' : x === 3 ? ' last' : ''}" style="left:${x / 3 * 100}%"><span>${esc(l)}</span></i>`).join('');
+    const segA = pct > 0 ? `<div class="seg-a ${sellerMine ? 'mine' : 'theirs'}" style="width:${pct}%"></div><div class="lbl-a ${sellerMine ? 'mine-t' : 'theirs-t'}" style="left:${Math.max(pct / 2, 9)}%">Seller's risk</div>` : '';
+    const segB = pct < 100 ? `<div class="seg-b ${sellerMine ? 'theirs' : 'mine'}" style="left:${pct}%;width:${100 - pct}%"></div><div class="lbl-b ${sellerMine ? 'theirs-t' : 'mine-t'}" style="left:${Math.min(pct + (100 - pct) / 2, 91)}%">Buyer's risk</div>` : '';
+    const tips = [];
+    if(t.sea && !(v.conveyance === 'sea_breakbulk'))
+      tips.push(['warn', `${v.incoterm} is made for goods loaded directly on board a vessel (bulk, breakbulk). For ${v.conveyance === 'sea_container' ? 'containers' : 'air, road and rail'} the matching terms are FCA, CPT or CIP, because the risk should pass when the goods are handed to the carrier.`]);
+    const com = commodities.find(c => c.id === v.commodity_id), aOk = !com || (com.allowed_covers || []).includes('icc_a');
+    if(party === 'seller' && t.insure === 'A' && v.cover !== 'icc_a') tips.push(['warn', aOk ? 'Under CIP the seller must insure ICC (A). Please choose Institute Cargo Clauses (A) below.' : 'Under CIP the seller must insure ICC (A), which is not available online for this cargo. Request a quotation and we will find a solution.']);
+    if(party === 'seller' && t.insure === 'C') tips.push(['', 'ICC (C) meets the minimum, but covers only major casualties. Most buyers expect ICC (A); it costs little more.']);
+    if(party === 'seller' && t.insure && isFinite(v.uplift_pct) && v.uplift_pct < 10) tips.push(['warn', `Under ${v.incoterm} the sum insured must be at least 110 % of the invoice value. Set the uplift to 10 %.`]);
+    if(FC.noRisk(v.incoterm, party)) tips.push(['', 'You can still calculate cover, e.g. if your client wants to protect its own interest or the other party asks for it.']);
+    host.innerHTML = `<div class="inco-head">${esc(v.incoterm)}, ${esc(t.name)}</div><p class="xs muted" style="margin-top:2px">The risk passes from seller to buyer ${esc(t.point)}.</p>
+      <div class="jr" role="img" aria-label="${esc(`Seller carries the risk up to ${t.point}, the buyer from there`)}">${segA}${segB}${stops}<b class="pass" style="left:${pct}%"></b></div>
+      <p>${esc(t[party])}</p>${tips.map(([k, x]) => `<div class="inco-tip${k ? ' ' + k : ''}">${esc(x)}</div>`).join('')}`;
   }
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
   form.addEventListener('input', e => { const f = e.target.closest('.field'); if(f) f.classList.remove('invalid'); });
@@ -225,6 +257,8 @@
         <div><dt>Conveyance</dt><dd>${esc(conv.label || '')}${r.departure_date ? ', departs ' + esc(FC.date(r.departure_date)) : ''}</dd></div>
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
+        ${isSea(r.conveyance) ? `<div><dt>Vessel</dt><dd>${esc(r.vessel || 'To be declared')}</dd></div>` : ''}
+        ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}, your client is the ${esc(r.insured_party || 'seller')}</dd></div>` : ''}
       </dl>
       ${body}
       <div class="consign-actions">
@@ -235,7 +269,7 @@
           <button class="btn btn-ghost" id="pdfBtn" type="button"><span class="spin"></span>${FC.icon.download}Download PDF</button>
         </div>
       </div>
-      <p class="fine">Indications are non-binding. Cover is only in place once a quotation has been accepted and confirmed in writing. Deductible: ${esc(r.deductible_text)}.</p>
+      <p class="fine">Indications are non-binding. Cover is only in place once a quotation has been accepted and confirmed in writing. Deductible: ${esc(r.deductible_text)}.${isSea(r.conveyance) ? ' Sea transport is subject to the Institute Classification Clause: older or unclassed vessels may carry an additional premium. We check the vessel before we quote.' : ''}</p>
     </article>`);
     const host = $('#resultHost'); host.innerHTML = ''; host.appendChild(card);
     const rb = card.querySelector('#reqBtn');
@@ -441,6 +475,9 @@
       FC.dialog({ title:'My profile', body:`
         <div class="field"><label for="acName">Name</label><input id="acName" maxlength="100" value="${esc(profile.full_name || '')}"></div>
         <div class="field"><label>Company</label><input readonly value="${esc(profile.company || '')}"></div>
+        <div class="field"><label for="acAddr">Street and number</label><input id="acAddr" maxlength="150" value="${esc(profile.address_line || '')}"></div>
+        <div class="grid2" style="margin-top:12px;grid-template-columns:110px 1fr"><div class="field"><label for="acZip">Postcode</label><input id="acZip" maxlength="20" value="${esc(profile.postcode || '')}"></div><div class="field"><label for="acCity">City</label><input id="acCity" maxlength="80" value="${esc(profile.city || '')}"></div></div>
+        <div class="grid2" style="margin-top:12px"><div class="field"><label for="acCountry">Country</label><input id="acCountry" maxlength="80" value="${esc(profile.country || '')}"></div><div class="field"><label for="acPhone">Phone</label><input id="acPhone" maxlength="40" value="${esc(profile.phone || '')}"></div></div>
         <div class="field"><label>E-mail</label><input readonly value="${esc(profile.email)}"><span class="hint">To change company or e-mail, please contact us.</span></div>
         ${Number(profile.client_discount_pct) > 0 ? `<div class="notice ok" style="margin:14px 0 0"><b>Client discount ${esc(Number(profile.client_discount_pct))} %</b>Applied to all your indications.</div>` : ''}
         <div class="err-msg" id="acErr"></div>`,
@@ -449,6 +486,10 @@
           if(nm.length < 2){ box.querySelector('#acErr').textContent = 'Please enter your name.'; return; }
           const { error } = await sb.rpc('update_my_name', { p_name: nm });
           if(error){ box.querySelector('#acErr').textContent = 'Could not save.'; return; }
+          const ad = { p_address: box.querySelector('#acAddr').value, p_postcode: box.querySelector('#acZip').value, p_city: box.querySelector('#acCity').value, p_country: box.querySelector('#acCountry').value, p_phone: box.querySelector('#acPhone').value };
+          const r2 = await sb.rpc('update_my_address', ad);
+          if(r2.error){ box.querySelector('#acErr').textContent = 'The name was saved, the address could not be saved.'; return; }
+          Object.assign(profile, { address_line: ad.p_address.trim(), postcode: ad.p_postcode.trim(), city: ad.p_city.trim(), country: ad.p_country.trim(), phone: ad.p_phone.trim() });
           profile.full_name = nm; $('#whoName').textContent = nm; $('#avatarBtn').textContent = FC.initials(nm); toast('Saved.'); return true;
         } }] });
     }else if(kind === 'password'){

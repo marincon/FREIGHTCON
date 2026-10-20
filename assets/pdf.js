@@ -159,7 +159,9 @@
     ctx.kv([
       ['Goods', r.goods_description], ['Cargo type', r.commodity_name], ['Packaging', r.packaging],
       ['Conveyance', conv], ['From', placeOf(r.origin_place, r.origin_name)], ['To', placeOf(r.dest_place, r.dest_name)],
-      ['Departure', r.departure_date ? FC.date(r.departure_date) : 'Not stated']
+      ['Departure', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
+      ['Vessel', /^sea_/.test(r.conveyance) ? (r.vessel || 'To be declared') : ''],
+      ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + '), insured for the ' + (r.insured_party || 'seller') : '']
     ]);
     ctx.heading('Cover');
     const cov = FC.COVER[r.cover] || {};
@@ -176,7 +178,7 @@
       if(r.min_applied) rows.push(['Minimum premium applied', 'Yes']);
       rows.push(['Total premium (excl. insurance tax)', FC.money2(r.premium, r.currency)]);
       ctx.kv(rows, { labelWidth: 200 });
-      ctx.box('This is an indication, not an offer of cover', 'The figures are non-binding and based on the details above. Cover is only in place once a quotation has been accepted and confirmed in writing. Insurance tax is added where applicable.', C.teal);
+      ctx.box('This is an indication, not an offer of cover', 'The figures are non-binding and based on the details above. Cover is only in place once a quotation has been accepted and confirmed in writing. Insurance tax is added where applicable.' + (/^sea_/.test(r.conveyance) ? ' Sea transport is subject to the Institute Classification Clause; older or unclassed vessels may carry an additional premium.' : ''), C.teal);
     }else if(r.status === 'on_request'){
       ctx.box('Quoted individually', 'This shipment cannot be priced automatically: ' + (r.reasons || []).join('; ') + '. Please request a quotation, we come back to you promptly.', [224,160,48]);
     }else{
@@ -194,8 +196,8 @@
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.heading('Assured & shipment');
     ctx.kv([
-      ['Assured', d.client], ['Co-assured', (d.coAssured || []).join(', ')], ['Goods', d.goods], ['Packaging', d.packaging],
-      ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period]
+      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Goods', d.goods], ['Packaging', d.packaging],
+      ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period], ['Incoterm', d.incoterm]
     ]);
     ctx.heading('Cover');
     ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.special]]);
@@ -223,7 +225,7 @@
     ctx.para('We confirm that insurance has been effected as follows:', { bold:true });
     ctx.heading('Insurance');
     ctx.kv([
-      ['Assured', d.client], ['Co-assured', (d.coAssured || []).join(', ')], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
+      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
     ]);
     ctx.heading('Shipment');
     ctx.kv([
