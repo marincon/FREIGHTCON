@@ -83,7 +83,8 @@
   // ---------- form ----------
   const form = $('#shipForm');
   const fill = (sel, items, first) => { sel.innerHTML = (first ? `<option value="">${esc(first)}</option>` : '') + items.join(''); };
-  fill($('#fCommodity'), commodities.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.on_request ? ' (quoted individually)' : ''}</option>`), 'Choose…');
+  { const groups = []; commodities.forEach(c => { const g = c.group_name || 'Other'; let x = groups.find(y => y[0] === g); if(!x){ x = [g, []]; groups.push(x); } x[1].push(c); });
+    fill($('#fCommodity'), groups.map(([g, list]) => `<optgroup label="${esc(g)}">` + list.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.on_request ? ' (quoted individually)' : ''}</option>`).join('') + '</optgroup>'), 'Choose…'); }
   const countryOpts = countries.map(c => `<option value="${esc(c.iso2)}">${esc(c.name)}</option>`);
   fill($('#fOrigin'), countryOpts, 'Choose…'); fill($('#fDest'), countryOpts, 'Choose…');
   $('#fDep').min = FC.today();
@@ -156,7 +157,7 @@
       l.classList.toggle('off', !ok); l.querySelector('input').disabled = !ok;
     });
     if(com && !(com.allowed_covers || []).includes(v.cover)){ const first = coverHost.querySelector('input:not(:disabled)'); if(first) first.checked = true; }
-    $('#commodityHint').textContent = com ? (com.on_request ? 'This cargo is always quoted individually. You can still request a quotation.' : (com.description || '')) : '';
+    $('#commodityHint').textContent = com ? (com.on_request ? 'This cargo is always quoted individually. You can still request a quotation.' : [com.description, com.deductible ? 'Deductible: ' + com.deductible : ''].filter(Boolean).join(' · ')) : '';
     $('#convHint').textContent = com && v.conveyance && !com.on_request && !(com.conveyances || []).includes(v.conveyance) ? 'This cargo is quoted individually for this conveyance.' : '';
     const land = v.conveyance === 'road' || v.conveyance === 'rail';
     $('#warLbl').textContent = land ? 'Strikes, riots & civil commotion' : 'War & strikes';
@@ -234,7 +235,7 @@
     r.origin_name = r.origin_name || countryName(r.origin_country);
     r.dest_name = r.dest_name || countryName(r.dest_country);
     r.commodity_name = r.commodity_name || ((commodities.find(c => c.id === r.commodity_id) || {}).name) || '';
-    r.deductible_text = r.deductible_text || settings.deductible_text || '';
+    r.deductible_text = r.deductible_text || ((commodities.find(c => c.id === r.commodity_id) || {}).deductible) || settings.deductible_text || '';
     r.company = r.company || profile.company;
     return r;
   }

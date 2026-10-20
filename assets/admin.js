@@ -157,7 +157,7 @@
       body.innerHTML = `
         <section><h3>Shipment</h3><dl class="kv">
           <dt>Indication</dt><dd>${chip(r.status, FC.STATUS[r.status])} ${r.premium != null ? esc(money2(r.premium, r.currency)) + ' at ' + esc(FC.pct(r.rate_pct)) + (Number(r.discount_pct) ? ', discount ' + esc(Number(r.discount_pct)) + ' %' : '') + (r.min_applied ? ', minimum' : '') : ''}</dd>
-          ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(r.calc_detail.table_name || r.calc_detail.table)}, zone ${esc(r.calc_detail.zone_from)} → ${esc(r.calc_detail.zone_to)}: ${esc(pm(r.calc_detail.schedule_permille))} ‰ × ${esc(pm(r.calc_detail.factor))}${Number(r.calc_detail.crisis_permille) ? ' + crisis ' + esc(r.calc_detail.crisis_permille) + ' ‰' : ''} = ${esc(pm(r.calc_detail.rate_permille))} ‰${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}</dd>` : ''}
+          ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(explain(r.calc_detail))}${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}</dd>` : ''}
           ${(r.reasons || []).length ? `<dt>Reasons</dt><dd>${esc(r.reasons.join('; '))}</dd>` : ''}
           <dt>Goods</dt><dd>${esc(r.goods_description)}</dd>
           <dt>Cargo type</dt><dd>${esc((S.commodities.find(c => c.id === r.commodity_id) || {}).name || r.commodity_id)}</dd>
@@ -294,9 +294,9 @@
       originCountry: r.origin_country, originPlace: r.origin_place || '', destCountry: r.dest_country, destPlace: r.dest_place || '',
       voyage: [r.origin_place, cName(r.origin_country)].filter(Boolean).join(', ') + ' to ' + [r.dest_place, cName(r.dest_country)].filter(Boolean).join(', '),
       period: r.departure_date ? 'Transit commencing on or about ' + FC.date(r.departure_date) : 'Single transit as per voyage',
-      conditions: conds, insurer: setting('default_insurer', ''), deductible: setting('deductible_text', ''), special: r.conditions || '',
+      conditions: conds, insurer: setting('default_insurer', ''), deductible: ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
       currency: r.currency, discountPct: Number(r.discount_pct || w.p.client_discount_pct || 0), taxPct: 0,
-      minPremium: Number(((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0),
+      minPremium: Number(sp.detail && sp.detail.mode === 'land' ? setting('land_min_premium', 75) : (((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0)),
       lines: [{ key:'cargo', label:'Cargo, ' + ((FC.COVER[r.cover] || {}).clause || '') + (r.interest_only ? ", seller's / buyer's interest only" : '') + (r.on_deck ? ', on deck' : '') + (r.war_strikes ? (land ? ', incl. strikes' : ', incl. war & strikes') : ''), sum: Number(r.sum_insured), rate: sp.cargo }],
       subjectivities: setting('quote_subjectivities', []), note: '', closing: setting('quote_closing', '')
     }, prev ? JSON.parse(JSON.stringify(prev)) : {});
@@ -600,7 +600,7 @@
   const ppm = v => { const t = String(v == null ? '' : v).trim().replace(/\s/g, '').replace(/\.(?=.*,)/g, '').replace(',', '.'); return t === '' ? NaN : Number(t); };
   const pm = v => v == null || v === '' || !isFinite(Number(v)) ? '' : Number(v).toLocaleString('de-DE', { minimumFractionDigits:2, maximumFractionDigits:4 });
   function renderRates(body){
-    body.innerHTML = `<p class="small muted" style="margin:0 0 14px">Rate = schedule rate for the zone pair (origin zone ↔ destination zone, ‰ of the sum insured) × cover factor × loadings (on deck, used goods / cars by air) × interest factor, then war &amp; strikes (inside sea schedules, added on air) and any crisis surcharge. Minimum premium per schedule. Countries without a zone are quoted individually.</p>
+    body.innerHTML = `<p class="small muted" style="margin:0 0 14px">Rate (‰ of the sum insured) = route base rate (sea / air zone matrix without war, road / rail by band) × cargo class factor × cover × conveyance × packing × on deck × theft loading (land) × extra loading; plus war &amp; strikes (strikes on land) and crisis surcharge; × interest factor for seller's / buyer's interest. Minimum premium per schedule (land: setting). Countries without a zone, local-insurance countries, sanctioned countries and amounts over the limit go on request.</p>
       <div class="tabs" role="tablist">${[['tables','Schedules (zone matrices)'],['commodities','Cargo types'],['countries','Countries & zones'],['factors','Factors & limits'],['test','Test a calculation']].map(([k, l]) => `<button role="tab" data-rtab="${k}" aria-selected="${k === rateTab}">${l}</button>`).join('')}</div><div id="rtBody"></div>`;
     $$('[data-rtab]', body).forEach(b => b.addEventListener('click', () => { rateTab = b.dataset.rtab; renderRates(body); }));
     const host = $('#rtBody', body);
@@ -656,6 +656,14 @@
     paint();
   }
   // ---- schedules: one matrix per rate table, upper triangle editable, Excel import in the Bertling layout
+  // the rate breakdown in words, used in the case and in the test tab
+  function explain(d){
+    if(!d) return '';
+    const parts = [['class', d.f_class], ['cover', d.f_cover], ['conveyance', d.f_conveyance], ['packing', d.f_packing], ['on deck', d.f_deck], ['theft', d.f_theft], ['extra', d.f_loading]]
+      .filter(([, v]) => v != null && Number(v) !== 1).map(([k, v]) => k + ' ' + pm(v));
+    const route = d.mode === 'land' ? 'land ' + String(d.band || '').replace('_', '-') : 'zone ' + d.zone_from + ' → ' + d.zone_to;
+    return `${d.table_name}, ${route}: base ${pm(d.base_permille)} ‰${parts.length ? ' × ' + parts.join(' × ') : ''} = ${pm(d.cargo_permille)} ‰ + ${d.mode === 'land' ? 'strikes' : 'war'} ${pm(d.war_permille)} ‰${Number(d.crisis_permille) ? ' + crisis ' + pm(d.crisis_permille) + ' ‰' : ''}${Number(d.f_interest) !== 1 ? ', × interest ' + pm(d.f_interest) : ''} = ${pm(d.rate_permille)} ‰`;
+  }
   function rtTables(host){
     if(!S.rateTables.length){ host.innerHTML = '<div class="empty card"><h3>No schedules yet</h3><p>Run update_2026-10-20c.sql in Supabase.</p></div>'; return; }
     if(!curTable || !S.rateTables.find(t => t.id === curTable)) curTable = S.rateTables[0].id;
@@ -723,16 +731,20 @@
     });
   }
   function rtCommodities(host){
-    const tables = [['', '— none (on request) —']].concat(S.rateTables.filter(t => t.mode === 'sea').map(t => [t.id, t.name]));
+    const tables = [['', '— not by sea —']].concat(S.rateTables.filter(t => t.mode === 'sea').map(t => [t.id, t.name]));
     editTable(host, { table:'commodities', key:'id', rows:S.commodities, search:true,
-      add: () => ({ id:'', name:'', allowed_covers:['icc_a','icc_b','icc_c'], active:true, on_request:false, sort:200, loading_pct:0 }),
-      cols:[ { k:'id', l:'ID', ro:true, w:110 }, { k:'name', l:'Name', w:200 },
-        { k:'sea_table', l:'Sea / land schedule', type:'select', options: tables },
-        { k:'air_class', l:'By air as', type:'select', options:[['', '— not by air —'], ['new', 'new goods'], ['used', 'used goods (+ loading)'], ['cars', 'cars (+ loading)'], ['household', 'household (flat)']] },
-        { k:'loading_pct', l:'Extra loading %', type:'num' }, { k:'allowed_covers', l:'Covers', type:'covers' },
+      add: () => ({ id:'', name:'', group_name:'General & industrial', class_factor:1, sea_table:'sea_new', air_class:'new', allowed_covers:['icc_a','icc_b','icc_c'], active:true, on_request:false, sort:200, loading_pct:0 }),
+      cols:[ { k:'id', l:'ID', ro:true, w:110 }, { k:'group_name', l:'Group', w:150 }, { k:'name', l:'Name', w:200 },
+        { k:'class_factor', l:'Class factor', type:'num' },
+        { k:'allowed_covers', l:'Covers', type:'covers' },
+        { k:'sea_table', l:'Sea base rates', type:'select', options: tables },
+        { k:'air_class', l:'By air', type:'select', options:[['', 'no'], ['new', 'yes']] },
+        { k:'theft_attractive', l:'Theft-attractive', type:'bool' }, { k:'temp_controlled', l:'Temp.-controlled', type:'bool' },
+        { k:'loading_pct', l:'Extra loading %', type:'num' }, { k:'max_sum_insured', l:'Max. sum insured', type:'num' },
         { k:'on_request', l:'Always on request', type:'bool' }, { k:'active', l:'Active', type:'bool' }, { k:'sort', l:'Sort', type:'num' },
-        { k:'description', l:'Description (shown to clients)', w:200 }, { k:'conditions', l:'Special conditions', w:240 } ],
-      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; return r; } });
+        { k:'deductible', l:'Deductible (shown to clients)', w:240 },
+        { k:'description', l:'Description (shown to clients)', w:220 }, { k:'conditions', l:'Special conditions', w:280 } ],
+      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; return r; } });
   }
   function rtCountries(host){
     const zs = n => [['', '— none —']].concat(Array.from({ length:n }, (_, i) => [String(i + 1), String(i + 1)]));
@@ -745,31 +757,46 @@
       clean: r => { r.sea_zone = r.sea_zone === '' || r.sea_zone == null ? null : Number(r.sea_zone); r.air_zone = r.air_zone === '' || r.air_zone == null ? null : Number(r.air_zone); if(r.crisis_permille == null) r.crisis_permille = 0; return r; } });
   }
   function rtFactors(host){
-    const cf = setting('cover_factors', {}), al = setting('auto_limit', {});
-    const body = FC.el(`<div class="card card-pad" style="max-width:680px">
-      <h3 style="margin-bottom:10px">Cover factors (share of the schedule rate)</h3><div class="grid3">${['icc_a','icc_b','icc_c'].map(k => `<div class="field"><label>${esc(FC.COVER[k].clause)}</label><input data-cf="${k}" inputmode="decimal" value="${esc(cf[k])}"></div>`).join('')}</div>
-      <div class="grid2" style="margin-top:18px">
+    const cf = setting('cover_factors', {}), al = setting('auto_limit', {}), conv = setting('conveyance_factors', {}), pack = setting('packing_factors', {}), land = setting('land_rates', {});
+    const inp = (attr, k, v) => `<input data-${attr}="${esc(k)}" inputmode="decimal" value="${esc(v ?? '')}">`;
+    const body = FC.el(`<div class="card card-pad" style="max-width:820px">
+      <h3 style="margin-bottom:6px">Cover factors</h3><p class="xs muted" style="margin:0 0 10px">Share of the cargo rate. War &amp; strikes are not affected.</p>
+      <div class="grid3">${['icc_a','icc_b','icc_c'].map(k => `<div class="field"><label>${esc(FC.COVER[k].clause)}</label>${inp('cf', k, cf[k])}</div>`).join('')}</div>
+      <h3 style="margin:20px 0 6px">Conveyance factors</h3><div class="grid3">${Object.entries(FC.CONVEYANCE).map(([k, v]) => `<div class="field"><label>${esc(v.label)}</label>${inp('cv', k, conv[k] ?? 1)}</div>`).join('')}</div>
+      <h3 style="margin:20px 0 6px">Packing factors</h3><div class="grid3">${Object.keys(Object.assign({ '':1 }, pack)).map(k => `<div class="field"><label>${esc(k || 'Not stated')}</label>${inp('pk', k, pack[k] ?? 1)}</div>`).join('')}</div>
+      <h3 style="margin:20px 0 6px">Road &amp; rail base rates (‰)</h3><div class="grid3">
+        <div class="field"><label>Domestic (same country)</label>${inp('lr', 'domestic', land.domestic)}</div>
+        <div class="field"><label>Regional (same sea zone)</label>${inp('lr', 'regional', land.regional)}</div>
+        <div class="field"><label>Long-haul (other zone)</label>${inp('lr', 'long_haul', land.long_haul)}</div></div>
+      <div class="field" style="margin-top:12px"><label>Zones connected by land (JSON: group → sea zones)</label><input id="ffGroups" value="${esc(JSON.stringify(setting('land_groups', {})))}"></div>
+      <h3 style="margin:20px 0 6px">War, strikes &amp; loadings</h3><div class="grid3">
+        <div class="field"><label>War &amp; strikes sea (‰)</label><input id="ffSeaWar" inputmode="decimal" value="${esc(setting('sea_war_permille', 0.5))}"></div>
+        <div class="field"><label>War &amp; strikes air (‰)</label><input id="ffAirWar" inputmode="decimal" value="${esc(setting('air_war_permille', 0.5))}"></div>
+        <div class="field"><label>Strikes road / rail (‰)</label><input id="ffLandSt" inputmode="decimal" value="${esc(setting('land_strikes_permille', 0.1))}"></div>
         <div class="field"><label>On-deck loading %</label><input id="ffDeck" inputmode="decimal" value="${esc(setting('deck_loading_pct', 50))}"></div>
-        <div class="field"><label>Seller's / buyer's interest factor</label><input id="ffCont" inputmode="decimal" value="${esc(setting('contingency_factor', 0.4))}"><span class="hint">0.4 = 40 % of the rate</span></div>
-        <div class="field"><label>War &amp; strikes on air (‰)</label><input id="ffAirWar" inputmode="decimal" value="${esc(setting('air_war_permille', 0.5))}"></div>
-        <div class="field"><label>Road / rail factor on the sea schedule</label><input id="ffLand" inputmode="decimal" value="${esc(setting('land_factor', 1))}"></div>
-      </div>
-      <h3 style="margin:18px 0 10px">Automatic limit (highest sum insured priced online)</h3><div class="grid2">${['EUR','USD'].map(c => `<div class="field"><label>${c}</label><input data-al="${c}" inputmode="decimal" value="${esc(al[c])}"></div>`).join('')}</div>
-      <div class="grid2" style="margin-top:18px"><div class="field"><label>Default uplift %</label><input id="ffUp" inputmode="decimal" value="${esc(setting('uplift_pct', 10))}"></div>
+        <div class="field"><label>Theft loading on land (factor)</label><input id="ffTheft" inputmode="decimal" value="${esc(setting('theft_land_factor', 1.5))}"></div>
+        <div class="field"><label>Seller's / buyer's interest factor</label><input id="ffCont" inputmode="decimal" value="${esc(setting('contingency_factor', 0.4))}"></div></div>
+      <h3 style="margin:20px 0 6px">Limits &amp; defaults</h3><div class="grid3">
+        ${['EUR','USD'].map(c => `<div class="field"><label>Automatic limit ${c}</label>${inp('al', c, al[c])}</div>`).join('')}
+        <div class="field"><label>Minimum premium road / rail</label><input id="ffLandMin" inputmode="decimal" value="${esc(setting('land_min_premium', 75))}"></div>
+        <div class="field"><label>Default uplift %</label><input id="ffUp" inputmode="decimal" value="${esc(setting('uplift_pct', 10))}"></div>
         <div class="field"><label>Referral discount %</label><input id="ffRef" inputmode="decimal" value="${esc(setting('referral_discount_pct', 5))}"></div></div>
-      <div class="field" style="margin-top:12px"><label>Deductible text</label><input id="ffDed" maxlength="200" value="${esc(setting('deductible_text', ''))}"></div>
-      <p class="xs muted">Minimum premiums are set per schedule (tab Schedules).</p>
+      <div class="field" style="margin-top:12px"><label>Default deductible (if the cargo type has none)</label><input id="ffDed" maxlength="200" value="${esc(setting('deductible_text', ''))}"></div>
+      <p class="xs muted">Sea and air minimum premiums are set per schedule (tab Schedules). Cargo class factors, deductibles and limits per cargo type (tab Cargo types).</p>
       <div class="err-msg" id="ffErr"></div><div id="ffSave" style="margin-top:12px"></div></div>`);
     host.appendChild(body);
     body.querySelector('#ffSave').appendChild(btn('Save', 'primary', async b => {
-      const num = el => FC.parseNum(el.value), obj = attr => { const o = {}; body.querySelectorAll(`[data-${attr}]`).forEach(i => { o[i.dataset[attr]] = num(i); }); return o; };
-      const vals = { cover_factors: obj('cf'), auto_limit: obj('al'), deck_loading_pct: num(body.querySelector('#ffDeck')), contingency_factor: num(body.querySelector('#ffCont')),
-        air_war_permille: num(body.querySelector('#ffAirWar')), land_factor: num(body.querySelector('#ffLand')), uplift_pct: num(body.querySelector('#ffUp')),
-        referral_discount_pct: num(body.querySelector('#ffRef')), deductible_text: body.querySelector('#ffDed').value.trim() };
-      const nums = [vals.deck_loading_pct, vals.contingency_factor, vals.air_war_permille, vals.land_factor, vals.uplift_pct, vals.referral_discount_pct, ...Object.values(vals.cover_factors), ...Object.values(vals.auto_limit)];
-      if(nums.some(v => !(v >= 0))){ body.querySelector('#ffErr').textContent = 'All fields need a number of 0 or more.'; return; }
+      const num = el => FC.parseNum(el.value), obj = attr => { const o = {}; body.querySelectorAll(`[data-${attr}]`).forEach(i => { o[i.getAttribute('data-' + attr)] = num(i); }); return o; };
+      let groups; try{ groups = JSON.parse(body.querySelector('#ffGroups').value); }catch(e){ body.querySelector('#ffErr').textContent = 'Zones connected by land: not valid JSON.'; return; }
+      const vals = { cover_factors: obj('cf'), conveyance_factors: obj('cv'), packing_factors: obj('pk'), land_rates: obj('lr'), auto_limit: obj('al'), land_groups: groups,
+        sea_war_permille: num(body.querySelector('#ffSeaWar')), air_war_permille: num(body.querySelector('#ffAirWar')), land_strikes_permille: num(body.querySelector('#ffLandSt')),
+        deck_loading_pct: num(body.querySelector('#ffDeck')), theft_land_factor: num(body.querySelector('#ffTheft')), contingency_factor: num(body.querySelector('#ffCont')),
+        land_min_premium: num(body.querySelector('#ffLandMin')), uplift_pct: num(body.querySelector('#ffUp')), referral_discount_pct: num(body.querySelector('#ffRef')),
+        deductible_text: body.querySelector('#ffDed').value.trim() };
+      const nums = Object.entries(vals).filter(([k]) => !['land_groups','deductible_text'].includes(k)).flatMap(([, v]) => typeof v === 'object' ? Object.values(v) : [v]);
+      if(nums.some(v => !(v >= 0))){ body.querySelector('#ffErr').textContent = 'All number fields need a value of 0 or more.'; return; }
       busy(b, true);
-      const { error } = await sb.from('settings').upsert(Object.entries(vals).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() })));
+      const { error } = await sb.from('settings').upsert(Object.entries(vals).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() })), { onConflict: 'key' });
       busy(b, false);
       if(error) return toast(error.message, 'error'); toast('Saved.'); await loadAll();
     }));
@@ -784,20 +811,21 @@
         <div class="field"><label>To</label><select id="ttD">${cty.map(c => `<option value="${c.iso2}" ${c.iso2 === 'CN' ? 'selected' : ''}>${esc(c.name)}${c.sea_zone || c.air_zone ? ' (S' + (c.sea_zone || '–') + ' / A' + (c.air_zone || '–') + ')' : ''}</option>`).join('')}</select></div>
         <div class="field"><label>Invoice value (EUR)</label><input id="ttI" value="100000" inputmode="decimal"></div>
         <div class="field"><label>Cover</label><select id="ttK"><option value="icc_a">ICC A</option><option value="icc_b">ICC B</option><option value="icc_c">ICC C</option></select></div>
+        <div class="field"><label>Packaging</label><select id="ttP">${Object.keys(Object.assign({ '':1 }, setting('packing_factors', {}))).map(k => `<option value="${esc(k)}">${esc(k || 'Not stated')}</option>`).join('')}</select></div>
       </div><div class="small" style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap"><label><input type="checkbox" id="ttW" checked> War &amp; strikes</label><label><input type="checkbox" id="ttDk"> On deck</label><label><input type="checkbox" id="ttIn"> Interest only</label></div>
       <div id="ttRun" style="margin-top:12px"></div><div id="ttOut" style="margin-top:14px"></div></div>`);
     host.appendChild(body);
     body.querySelector('#ttRun').appendChild(btn('Calculate', 'primary', async b => {
       busy(b, true);
       const v = id => body.querySelector(id).value, c = id => body.querySelector(id).checked;
-      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:'EUR', uplift_pct:10, cover:v('#ttK'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
+      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:'EUR', uplift_pct:10, cover:v('#ttK'), packaging:v('#ttP'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
       busy(b, false);
       if(error){ body.querySelector('#ttOut').innerHTML = `<div class="notice danger" style="margin:0">${esc(error.message)}</div>`; return; }
       await sb.from('indications').update({ is_test:true, hidden_by_user:true }).eq('id', data.id);
       loadAll();
       const d = data.calc_detail || {};
       body.querySelector('#ttOut').innerHTML = data.status === 'quoted'
-        ? `<div class="notice ok" style="margin:0"><b>${esc(money2(data.premium, 'EUR'))} at ${esc(pm(d.rate_permille))} ‰</b>${esc(d.table_name)}, zone ${esc(d.zone_from)} → ${esc(d.zone_to)}: schedule ${esc(pm(d.schedule_permille))} ‰ × factor ${esc(pm(d.factor))}${Number(d.crisis_permille) ? ' + crisis ' + esc(pm(d.crisis_permille)) + ' ‰' : ''}. Sum insured ${esc(money2(data.sum_insured, 'EUR'))}${data.min_applied ? ', minimum premium applied' : ''}${Number(data.discount_pct) ? ', your own discount ' + esc(Number(data.discount_pct)) + ' % applied' : ''}.</div>`
+        ? `<div class="notice ok" style="margin:0"><b>${esc(money2(data.premium, 'EUR'))} at ${esc(pm(d.rate_permille))} ‰</b>${esc(explain(d))}. Sum insured ${esc(money2(data.sum_insured, 'EUR'))}${data.min_applied ? ', minimum premium applied' : ''}${Number(data.discount_pct) ? ', your own discount ' + esc(Number(data.discount_pct)) + ' % applied' : ''}. Deductible: ${esc(data.deductible_text || '')}.</div>`
         : `<div class="notice warn" style="margin:0"><b>${esc(FC.STATUS[data.status])}</b>${esc((data.reasons || []).join('; '))}</div>`;
     }));
   }
