@@ -12,7 +12,7 @@
     .replace(/[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
   P.text = T;
 
-  const C = { harbour:[12,54,64], teal:[19,124,131], amber:[233,162,59], steel:[94,110,117], ink:[18,35,42], line:[214,222,225], fog:[237,241,242], white:[255,255,255] };
+  const C = { harbour:[10,64,39], teal:[30,107,60], amber:[144,194,71], steel:[94,110,117], ink:[18,35,42], line:[214,222,225], fog:[237,241,242], white:[255,255,255] };
 
   async function ensure(){ if(!window.PDFLib) await FC.loadScript(LIB); return window.PDFLib; }
 
@@ -30,14 +30,11 @@
       // header band
       pg.drawRectangle({ x:0, y:H-78, width:W, height:78, color:col(C.harbour) });
       pg.drawRectangle({ x:0, y:H-82, width:W, height:4, color:col(C.amber) });
-      // logo: three containers
-      const lx = M, ly = H-58;
-      pg.drawRectangle({ x:lx, y:ly, width:14, height:10, color:col(C.white) });
-      pg.drawRectangle({ x:lx+16, y:ly, width:14, height:10, color:rgb(.5,.83,.85) });
-      pg.drawRectangle({ x:lx+8, y:ly+12, width:14, height:10, color:col(C.white), opacity:.85 });
-      pg.drawRectangle({ x:lx-2, y:ly-6, width:34, height:4, color:col(C.amber) });
-      pg.drawText(T(FC.brand), { x:lx+42, y:H-46, size:17, font:f.b, color:col(C.white) });
-      pg.drawText(T('Cargo insurance indications, quotations & cover'), { x:lx+42, y:H-60, size:7.5, font:f.r, color:rgb(.75,.86,.87) });
+      // official wordmark as vector paths: white letters, lime square
+      const L = FC.LOGO, sc = 150 / L.w;
+      pg.drawSvgPath(L.letters, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.white) });
+      pg.drawSvgPath(L.square, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.amber) });
+      pg.drawText(T('Cargo insurance indications, quotations & cover'), { x: M, y: H - 62, size: 7.5, font: f.r, color: rgb(.72, .85, .76) });
       const tt = T(meta.title).toUpperCase(), tw = f.b.widthOfTextAtSize(tt, 12);
       pg.drawText(tt, { x:W-M-tw, y:H-44, size:12, font:f.b, color:col(C.white) });
       if(meta.ref){ const rw = f.r.widthOfTextAtSize(T(meta.ref), 9); pg.drawText(T(meta.ref), { x:W-M-rw, y:H-58, size:9, font:f.r, color:rgb(.85,.92,.93) }); }
@@ -181,7 +178,7 @@
       ctx.kv(rows, { labelWidth: 200 });
       ctx.box('This is an indication, not an offer of cover', 'The figures are non-binding and based on the details above. Cover is only in place once a quotation has been accepted and confirmed in writing. Insurance tax is added where applicable.', C.teal);
     }else if(r.status === 'on_request'){
-      ctx.box('Quoted individually', 'This shipment cannot be priced automatically: ' + (r.reasons || []).join('; ') + '. Please request a quotation, we come back to you promptly.');
+      ctx.box('Quoted individually', 'This shipment cannot be priced automatically: ' + (r.reasons || []).join('; ') + '. Please request a quotation, we come back to you promptly.', [224,160,48]);
     }else{
       ctx.box('Compliance review required', (r.reasons || []).join('; ') + '. No indication can be given. Please contact us.', [178,59,50]);
     }
@@ -207,7 +204,7 @@
     if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
     if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
     if(Number(d.taxPct) > 0) rows.push(['Insurance tax ' + Number(d.taxPct) + ' %', '', '', FC.money2(d.tax, d.currency)]);
-    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[233,162,59] });
+    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[144,194,71] });
     ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
     if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
     if(d.note){ ctx.heading('Notes'); ctx.para(d.note); }
