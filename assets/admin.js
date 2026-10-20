@@ -646,9 +646,9 @@
     if(o.add) tbar.querySelector('[data-add]').addEventListener('click', () => { const r = Object.assign({ __new:true }, o.add()); rows.unshift(r); paint(); });
     tbar.querySelector('[data-save]').addEventListener('click', async e => {
       const b = e.currentTarget; busy(b, true);
-      const payload = Array.from(dirty.values()).map(r => { let x = {}; o.cols.forEach(c => { if(!c.virtual) x[c.k] = r[c.k]; }); x[o.key] = r[o.key]; if(o.clean) x = o.clean(x); return x; });
+      const payload = Array.from(dirty.values()).map(r => { let x = {}; o.cols.forEach(c => { if(!c.virtual && r[c.k] !== undefined) x[c.k] = r[c.k]; }); x[o.key] = r[o.key]; if(o.clean) x = o.clean(x); return x; });
       if(payload.some(x => !x[o.key])){ busy(b, false); toast('Every row needs an ID.', 'error'); return; }
-      const { error } = await sb.from(o.table).upsert(payload, { onConflict: o.key });
+      const { error } = await sb.from(o.table).upsert(payload, { onConflict: o.key, defaultToNull: false });
       busy(b, false);
       if(error){ toast('Could not save: ' + error.message, 'error'); return; }
       dirty.clear(); toast('Saved ' + payload.length + ' row(s).'); await loadAll(); render();
@@ -744,7 +744,7 @@
         { k:'on_request', l:'Always on request', type:'bool' }, { k:'active', l:'Active', type:'bool' }, { k:'sort', l:'Sort', type:'num' },
         { k:'deductible', l:'Deductible (shown to clients)', w:240 },
         { k:'description', l:'Description (shown to clients)', w:220 }, { k:'conditions', l:'Special conditions', w:280 } ],
-      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; return r; } });
+      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; ['theft_attractive','temp_controlled','on_request','active'].forEach(k => { if(k in r && r[k] == null) r[k] = k === 'active'; }); return r; } });
   }
   function rtCountries(host){
     const zs = n => [['', '— none —']].concat(Array.from({ length:n }, (_, i) => [String(i + 1), String(i + 1)]));
