@@ -3,6 +3,9 @@
   'use strict';
   const { $, $$, sb, esc, money, money2, busy, toast } = FC;
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
+  // app.html and app.js must come from the same release; a stale app.html would break the form
+  { const m = document.querySelector('meta[name="fc-version"]');
+    if(!m || m.content !== '2026-10-20b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();

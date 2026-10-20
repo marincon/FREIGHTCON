@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="fc-version" content="2026-10-20b">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
@@ -60,6 +61,7 @@
         <div class="form-sec">
           <h2><span id="icRoute"></span>Route</h2>
           <div class="field"><span class="lbl" id="convLbl">Conveyance</span><div class="seg" id="fConv" role="radiogroup" aria-labelledby="convLbl"></div><span class="hint" id="convHint"></span></div>
+          <div class="field" id="vesselField" style="margin-top:14px"><label for="fVessel">Vessel <span class="muted">(name or IMO number, optional)</span></label><input id="fVessel" maxlength="100" placeholder="e.g. MSC ANNA or 9428437"><span class="hint">Not known yet? Leave it empty. We check the vessel's age, class and flag before we quote.</span></div>
           <div class="grid2" style="margin-top:14px">
             <div class="field"><label for="fOrigin">From (country)</label><select id="fOrigin" required></select><span class="err">Choose the origin country.</span></div>
             <div class="field"><label for="fOriginPlace">City / port</label><input id="fOriginPlace" maxlength="100" placeholder="e.g. Hamburg"></div>
@@ -78,6 +80,14 @@
           </div>
           <div class="field" style="margin-top:12px;max-width:240px"><label for="fUplift">Uplift on invoice value</label><div class="with-unit"><input id="fUplift" inputmode="decimal" value="10"><span class="unit">%</span></div><span class="hint">Usually 10 % to cover freight and costs.</span><span class="err">Between 0 and 30 %.</span></div>
           <div class="si-line"><span>Sum insured</span><b id="siOut">—</b></div>
+        </div>
+        <div class="form-sec">
+          <h2><span id="icDoc"></span>Terms of sale</h2>
+          <div class="grid2">
+            <div class="field"><label for="fInco">Incoterm</label><select id="fInco"><option value="">Not known</option></select></div>
+            <div class="field"><span class="lbl" id="partyLbl">Your client is the</span><div class="seg" id="fParty" role="radiogroup" aria-labelledby="partyLbl"><button type="button" role="radio" data-v="seller" aria-checked="true">Seller (exporter)</button><button type="button" role="radio" data-v="buyer" aria-checked="false">Buyer (importer)</button></div></div>
+          </div>
+          <div id="incoExplain" class="inco" aria-live="polite"></div>
         </div>
         <div class="form-sec">
           <h2><span id="icShield"></span>Cover</h2>
