@@ -79,6 +79,46 @@
     icc_b: { label:'Named perils, extended', clause:'Institute Cargo Clauses (B)', text:'Named perils incl. heavy weather water entry, earthquake and loss overboard.' },
     icc_c: { label:'Named perils, basic', clause:'Institute Cargo Clauses (C)', text:'Major casualties only: fire, sinking, stranding, collision, overturning, general average.' }
   };
+  // Incoterms 2020: where the risk passes from seller to buyer (pt on a 0–3 journey line) and who must insure.
+  // Texts speak to a freight forwarder about "your client".
+  // stops on the 0–3 risk line: [position, label]
+  FC.JOURNEY = [[0, "Seller's premises"], [1, 'Handover to carrier'], [2, 'On board vessel'], [3, 'Destination']];
+  FC.INCOTERMS = {
+    EXW: { name:'Ex Works', pt:0, sea:false, point:"at the seller's premises, before loading",
+      seller:"Your client hands the goods over at its own premises. It carries no transport risk, so cargo insurance is normally not needed.",
+      buyer:"Your client carries the risk for the whole journey, from the seller's premises to the destination. Insure warehouse to warehouse." },
+    FCA: { name:'Free Carrier', pt:1, sea:false, point:'when the goods are handed to the first carrier at the named place',
+      seller:"Your client carries the risk only until the goods are handed to the first carrier, e.g. the trucking to your warehouse. The main journey is the buyer's risk.",
+      buyer:"Your client carries the risk from the handover to the first carrier until the destination, so practically the whole journey." },
+    FAS: { name:'Free Alongside Ship', pt:1.6, sea:true, point:'alongside the vessel at the port of loading',
+      seller:"Your client carries the risk until the goods are placed alongside the vessel in the port of loading. Loading and the sea voyage are the buyer's risk.",
+      buyer:"Your client carries the risk from the quay in the port of loading, including loading and the sea voyage." },
+    FOB: { name:'Free On Board', pt:2, sea:true, point:'on board the vessel at the port of loading',
+      seller:"Your client carries the risk until the goods are loaded on board, including the inland transport to the port. The sea voyage is the buyer's risk.",
+      buyer:"Your client carries the risk from the moment the goods are on board until the destination. The pre-carriage to the port is not its risk." },
+    CFR: { name:'Cost and Freight', pt:2, sea:true, point:'on board the vessel at the port of loading',
+      seller:"Your client pays the sea freight, but the risk passes to the buyer once the goods are on board. Your client only needs cover until loading.",
+      buyer:"The seller pays the freight, but your client carries the risk from loading on board. This is often overlooked: the sea voyage needs your client's insurance." },
+    CIF: { name:'Cost, Insurance and Freight', pt:2, sea:true, point:'on board the vessel at the port of loading', insure:'C',
+      seller:"Your client must buy insurance for the buyer: at least ICC (C), for 110 % of the invoice value, covering the sea voyage. The risk itself passes to the buyer once loaded.",
+      buyer:"The seller has to insure, but only at the minimum level ICC (C). Your client may want extra cover up to ICC (A), or for the inland transport after discharge." },
+    CPT: { name:'Carriage Paid To', pt:1, sea:false, point:'when the goods are handed to the first carrier',
+      seller:"Your client pays the carriage to the destination, but the risk passes to the buyer at the handover to the first carrier.",
+      buyer:"The seller pays the carriage, but your client carries the risk from the handover to the first carrier. Insure the main journey." },
+    CIP: { name:'Carriage and Insurance Paid To', pt:1, sea:false, point:'when the goods are handed to the first carrier', insure:'A',
+      seller:"Your client must buy insurance for the buyer at the highest level, ICC (A), for 110 % of the invoice value, up to the destination.",
+      buyer:"The seller must insure at ICC (A), 110 %. Check the seller's certificate; extra cover is usually not needed." },
+    DAP: { name:'Delivered At Place', pt:3, sea:false, point:'at the named destination, ready for unloading',
+      seller:"Your client carries the risk for the whole journey up to the destination. Insure from its warehouse to the destination.",
+      buyer:"Your client only carries the risk from unloading at the destination. Cargo insurance is normally not needed." },
+    DPU: { name:'Delivered at Place Unloaded', pt:3, sea:false, point:'after unloading at the named destination',
+      seller:"Your client carries the risk for the whole journey, including unloading at the destination. Insure the full transit.",
+      buyer:"The seller carries all transport risk including unloading. Cargo insurance is normally not needed." },
+    DDP: { name:'Delivered Duty Paid', pt:3, sea:false, point:'at the destination, cleared for import',
+      seller:"Your client carries the risk and all costs up to the destination, including import clearance. Insure the full transit.",
+      buyer:"The seller carries all transport risk and duties. Cargo insurance is normally not needed." }
+  };
+  FC.noRisk = (term, party) => term && party && ((FC.INCOTERMS[term] || {}).pt === 0 ? party === 'seller' : (FC.INCOTERMS[term] || {}).pt === 3 ? party === 'buyer' : false);
   FC.STATUS = { quoted:'Indication', on_request:'On request', sanctioned:'Compliance review' };
   FC.STAGE = { new:'New', in_progress:'In progress', quoted:'Quoted', accepted:'Accepted', declined:'Declined', bound:'Bound', lost:'Lost', closed:'Closed' };
 

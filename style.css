@@ -379,3 +379,26 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
   .menu{right:12px}
   #toasts{bottom:80px}
 }
+
+/* ---------- Incoterms explanation ---------- */
+.inco:empty{display:none}
+.inco{margin-top:14px;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 12px;background:var(--fog)}
+.inco .inco-head{font-weight:700;font-size:var(--fs-sm)}
+.inco .inco-head span{font-weight:500;color:var(--steel)}
+.inco p{margin:6px 0 0;font-size:var(--fs-sm);line-height:1.5}
+.inco .inco-tip{margin-top:10px;padding:8px 10px;border-radius:var(--r-sm);font-size:var(--fs-xs);line-height:1.5;background:var(--paper);border-left:3px solid var(--teal)}
+.inco .inco-tip.warn{border-left-color:var(--warn-line)}
+.jr{position:relative;height:22px;margin:30px 6px 34px}
+.jr .seg-a,.jr .seg-b{position:absolute;top:8px;height:6px;border-radius:3px}
+.jr .seg-a{left:0}
+.jr .mine{background:var(--amber)}
+.jr .theirs{background:var(--line)}
+.jr .lbl-a,.jr .lbl-b{position:absolute;top:-24px;font-size:var(--fs-xs);font-weight:700;white-space:nowrap;transform:translateX(-50%)}
+.jr .lbl-a.mine-t,.jr .lbl-b.mine-t{color:var(--harbour)}
+.jr .lbl-a.theirs-t,.jr .lbl-b.theirs-t{color:var(--steel);font-weight:500}
+.jr .stop{position:absolute;top:5px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--steel);transform:translateX(-50%)}
+.jr .stop span{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--steel);white-space:nowrap}
+.jr .stop.first span{left:-2px;transform:none}
+.jr .stop.last span{left:auto;right:-2px;transform:none}
+.jr .pass{position:absolute;top:1px;width:14px;height:14px;background:var(--harbour);transform:translateX(-50%) rotate(45deg);border-radius:2px;margin-top:3px}
+@media (max-width: 760px){ .jr .stop span{font-size:10px;max-width:70px;white-space:normal;text-align:center;line-height:1.2} .jr .stop.first span,.jr .stop.last span{text-align:inherit} }
