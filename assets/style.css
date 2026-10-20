@@ -409,3 +409,16 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .jr .pass{position:absolute;top:1px;width:14px;height:14px;background:var(--harbour);transform:translateX(-50%) rotate(45deg);border-radius:2px;margin-top:3px}
 @media (max-width: 760px){ .jr .stop span{font-size:10px;max-width:70px;white-space:normal;text-align:center;line-height:1.2} .jr .stop.first span,.jr .stop.last span{text-align:inherit} }
 .field input[type=checkbox],.field input[type=radio]{width:auto;min-height:0;padding:0;accent-color:var(--teal)}
+
+/* bulk upload */
+.up-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:18px}
+.up-step{display:flex;gap:14px;align-items:flex-start}
+.up-step h3{margin:2px 0 4px}
+.up-step p{margin:0 0 12px}
+.up-n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--harbour);color:var(--paper);display:grid;place-items:center;font-weight:800}
+.up-drop{display:block;border:2px dashed var(--line);border-radius:var(--r);padding:22px 14px;text-align:center;cursor:pointer;color:var(--steel);font-size:var(--fs-sm)}
+.up-drop:hover,.up-drop.over,.up-drop:focus-visible{border-color:var(--harbour);color:var(--ink)}
+.up-bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;margin:10px 0}
+.up-bar i{display:block;height:100%;background:var(--teal);width:0;transition:width .2s}
+.up-err{color:var(--danger);font-size:var(--fs-xs)}
+.tbl td.up-err{max-width:260px}

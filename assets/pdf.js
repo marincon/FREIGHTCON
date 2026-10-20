@@ -155,6 +155,10 @@
     const conv = (FC.CONVEYANCE[r.conveyance] || {}).short || r.conveyance;
     ctx.para('Issued ' + FC.dateTime(r.issued_at || new Date()) + (r.company ? ' for ' + r.company : ''), { color:C.steel, size:9 });
     ctx.lane({ iso:r.origin_country, place: r.origin_place || r.origin_name || '' }, { iso:r.dest_country, place: r.dest_place || r.dest_name || '' }, conv);
+    if(r.insured_name || r.customer_ref){
+      ctx.heading('Assured');
+      ctx.kv([['Assured', r.insured_name ? r.insured_name + (r.insured_address ? ', ' + r.insured_address : '') : ''], ['Policyholder', r.insured_name ? r.company : ''], ['Your reference', r.customer_ref]]);
+    }
     ctx.heading('Shipment');
     ctx.kv([
       ['Goods', r.goods_description], ['Cargo type', r.commodity_name], ['Packaging', r.packaging],
@@ -197,7 +201,7 @@
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.heading('Assured & shipment');
     ctx.kv([
-      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Goods', d.goods], ['Packaging', d.packaging],
+      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Goods', d.goods], ['Packaging', d.packaging],
       ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period], ['Incoterm', d.incoterm]
     ]);
     ctx.heading('Cover');
@@ -226,7 +230,7 @@
     ctx.para('We confirm that insurance has been effected as follows:', { bold:true });
     ctx.heading('Insurance');
     ctx.kv([
-      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
+      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
     ]);
     ctx.heading('Shipment');
     ctx.kv([
