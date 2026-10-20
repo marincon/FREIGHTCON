@@ -9,7 +9,7 @@
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=2026-10-20j">
 </head>
 <body>
 <div class="auth">
@@ -21,19 +21,13 @@
     </div>
     <svg class="stack" viewBox="0 0 420 300" aria-hidden="true">
       <g stroke="#062816" stroke-width="2">
-        <rect x="20"  y="190" width="180" height="70" rx="3" fill="#90C247"/>
-        <rect x="210" y="190" width="180" height="70" rx="3" fill="#C9E3A3"/>
-        <rect x="110" y="112" width="180" height="70" rx="3" fill="#F1F5F2"/>
-        <rect x="300" y="112" width="110" height="70" rx="3" fill="#90C247" opacity=".75"/>
-        <rect x="200" y="34"  width="180" height="70" rx="3" fill="#2E7D46"/>
+        <g class="box" style="--d:.15s"><rect x="20" y="190" width="180" height="70" rx="3" fill="#90C247"/><path stroke-opacity=".35" d="M44 196v58M68 196v58M92 196v58M116 196v58M140 196v58M164 196v58"/></g>
+        <g class="box" style="--d:.35s"><rect x="210" y="190" width="180" height="70" rx="3" fill="#C9E3A3"/><path stroke-opacity=".35" d="M234 196v58M258 196v58M282 196v58M306 196v58M330 196v58M354 196v58"/></g>
+        <g class="box" style="--d:.55s"><rect x="110" y="112" width="180" height="70" rx="3" fill="#F1F5F2"/><path stroke-opacity=".35" d="M134 118v58M158 118v58M182 118v58M206 118v58M230 118v58M254 118v58"/></g>
+        <g class="box" style="--d:.75s"><rect x="300" y="112" width="110" height="70" rx="3" fill="#90C247" opacity=".75"/></g>
+        <g class="box top" style="--d:.95s"><path class="hook" d="M290 -40V34" stroke="#90C247" stroke-opacity=".8"/><rect x="200" y="34" width="180" height="70" rx="3" fill="#2E7D46"/><path stroke-opacity=".35" d="M224 40v58M248 40v58M272 40v58M296 40v58M320 40v58M344 40v58"/></g>
       </g>
-      <g stroke="#062816" stroke-opacity=".35" stroke-width="2">
-        <path d="M44 196v58M68 196v58M92 196v58M116 196v58M140 196v58M164 196v58"/>
-        <path d="M234 196v58M258 196v58M282 196v58M306 196v58M330 196v58M354 196v58"/>
-        <path d="M134 118v58M158 118v58M182 118v58M206 118v58M230 118v58M254 118v58"/>
-        <path d="M224 40v58M248 40v58M272 40v58M296 40v58M320 40v58M344 40v58"/>
-      </g>
-      <path d="M0 272h420" stroke="#90C247" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+      <path class="quay" d="M0 272h420" stroke="#90C247" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
     </svg>
     <div class="xs" style="color:#A8C9CD" id="artFoot"></div>
   </aside>
@@ -106,7 +100,7 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js"></script>
+<script src="assets/core.js?v=2026-10-20j"></script>
 <script>
 (async () => {
   const { $, sb, busy, esc } = FC;
