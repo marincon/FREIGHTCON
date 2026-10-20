@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-20c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -128,7 +128,9 @@
       war_strikes: $('#fWar').checked,
       vessel: isSea(segVal(convHost)) ? $('#fVessel').value.trim() : '',
       incoterm: $('#fInco').value || null,
-      insured_party: $('#fInco').value ? segVal(partyHost) : null
+      insured_party: $('#fInco').value ? segVal(partyHost) : null,
+      on_deck: segVal(convHost) === 'sea_breakbulk' && !$('#deckField').hidden && $('#fDeck').checked,
+      interest_only: !$('#interestField').hidden && $('#fInterest').checked
     };
   }
   function writeForm(r){
@@ -141,7 +143,7 @@
     segSet($('#fCur'), r.currency || 'EUR'); $('#fUplift').value = r.uplift_pct != null ? Number(r.uplift_pct) : (settings.uplift_pct || 10);
     const c = form.querySelector(`input[name=cover][value="${r.cover || 'icc_a'}"]`); if(c) c.checked = true;
     $('#fWar').checked = r.war_strikes !== false;
-    $('#fVessel').value = r.vessel || ''; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
+    $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
     $$('.field.invalid', form).forEach(f => f.classList.remove('invalid'));
     onFormChange();
   }
@@ -158,11 +160,20 @@
     $('#convHint').textContent = com && v.conveyance && !com.on_request && !(com.conveyances || []).includes(v.conveyance) ? 'This cargo is quoted individually for this conveyance.' : '';
     const land = v.conveyance === 'road' || v.conveyance === 'rail';
     $('#warLbl').textContent = land ? 'Strikes, riots & civil commotion' : 'War & strikes';
-    $('#warTxt').textContent = land ? 'Institute Strikes Clauses (Cargo). War risks are not insurable on land transit.' : 'Institute War and Strikes Clauses (Cargo), sea and air transit.';
+    $('#warTxt').textContent = land ? 'Institute Strikes Clauses (Cargo). War risks are not insurable on land transit.' : v.conveyance === 'air' || v.conveyance === 'air_charter' ? 'Institute War and Strikes Clauses (Air Cargo). Added to the premium.' : 'Institute War and Strikes Clauses (Cargo). Included in sea rates; untick to leave it out.';
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
     $('#siOut').textContent = isFinite(si) ? money2(si, v.currency) : '—';
     $('#vesselField').hidden = !isSea(v.conveyance);
+    $('#deckField').hidden = !(v.conveyance === 'sea_breakbulk' && (!com || com.deck_allowed));
+    const air = v.conveyance === 'air' || v.conveyance === 'air_charter';
     paintIncoterm(v);
+    // contingency cover makes sense when the chosen party carries no risk on the main transit
+    const t = FC.INCOTERMS[v.incoterm], party = v.insured_party || 'seller';
+    const noMain = !!t && ((party === 'seller' && t.pt <= 2 && !t.insure) || (party === 'buyer' && t.pt === 3));
+    $('#interestField').hidden = !noMain;
+    if(noMain) $('#interestTxt').textContent = party === 'seller'
+      ? `Under ${v.incoterm} the buyer insures the main transit. This cover protects the seller if the goods are damaged and the buyer does not pay or its insurance does not respond. Costs 40 % of full cover.`
+      : `Under ${v.incoterm} the seller carries the transit risk. This cover protects the buyer if the goods arrive damaged and the seller's insurance does not respond. Costs 40 % of full cover.`;
   }
   // Incoterms: who carries the risk where, in plain words, with a small journey line
   function paintIncoterm(v){
@@ -260,6 +271,7 @@
         <div><dt>Conveyance</dt><dd>${esc(conv.label || '')}${r.departure_date ? ', departs ' + esc(FC.date(r.departure_date)) : ''}</dd></div>
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
+        ${r.on_deck || r.interest_only ? `<div><dt>Special</dt><dd>${[r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Own interest only (contingency)" : ''].filter(Boolean).join(', ')}</dd></div>` : ''}
         ${isSea(r.conveyance) ? `<div><dt>Vessel</dt><dd>${esc(r.vessel || 'To be declared')}</dd></div>` : ''}
         ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}, cover for the ${esc(r.insured_party || 'seller')}</dd></div>` : ''}
       </dl>

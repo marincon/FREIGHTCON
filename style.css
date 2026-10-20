@@ -402,3 +402,4 @@ table.tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .jr .stop.last span{left:auto;right:-2px;transform:none}
 .jr .pass{position:absolute;top:1px;width:14px;height:14px;background:var(--harbour);transform:translateX(-50%) rotate(45deg);border-radius:2px;margin-top:3px}
 @media (max-width: 760px){ .jr .stop span{font-size:10px;max-width:70px;white-space:normal;text-align:center;line-height:1.2} .jr .stop.first span,.jr .stop.last span{text-align:inherit} }
+.field input[type=checkbox],.field input[type=radio]{width:auto;min-height:0;padding:0;accent-color:var(--teal)}

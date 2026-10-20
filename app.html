@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-10-20b">
+<meta name="fc-version" content="2026-10-20c">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
@@ -62,6 +62,7 @@
           <h2><span id="icRoute"></span>Route</h2>
           <div class="field"><span class="lbl" id="convLbl">Conveyance</span><div class="seg" id="fConv" role="radiogroup" aria-labelledby="convLbl"></div><span class="hint" id="convHint"></span></div>
           <div class="field" id="vesselField" style="margin-top:14px"><label for="fVessel">Vessel <span class="muted">(name or IMO number, optional)</span></label><input id="fVessel" maxlength="100" placeholder="e.g. MSC ANNA or 9428437"><span class="hint">Not known yet? Leave it empty. We check the vessel's age, class and flag before we quote.</span></div>
+          <label class="switch" id="deckField" hidden><input type="checkbox" id="fDeck"><span><b>Shipped on deck</b><span>Cargo stowed on deck instead of in the hold, common for large machinery and project cargo. Costs 50 % more.</span></span></label>
           <div class="grid2" style="margin-top:14px">
             <div class="field"><label for="fOrigin">From (country)</label><select id="fOrigin" required></select><span class="err">Choose the origin country.</span></div>
             <div class="field"><label for="fOriginPlace">City / port</label><input id="fOriginPlace" maxlength="100" placeholder="e.g. Hamburg"></div>
@@ -88,6 +89,7 @@
             <div class="field"><span class="lbl" id="partyLbl">Cover is for the</span><div class="seg" id="fParty" role="radiogroup" aria-labelledby="partyLbl"><button type="button" role="radio" data-v="seller" aria-checked="true">Seller (exporter)</button><button type="button" role="radio" data-v="buyer" aria-checked="false">Buyer (importer)</button></div></div>
           </div>
           <div id="incoExplain" class="inco" aria-live="polite"></div>
+          <label class="switch" id="interestField" hidden><input type="checkbox" id="fInterest"><span><b>Insure only this party's own interest</b><span id="interestTxt"></span></span></label>
         </div>
         <div class="form-sec">
           <h2><span id="icShield"></span>Cover</h2>

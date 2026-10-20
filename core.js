@@ -70,7 +70,8 @@
   FC.CONVEYANCE = {
     sea_container: { label:'Sea, container', short:'Sea (container)' },
     sea_breakbulk: { label:'Sea, breakbulk / RoRo', short:'Sea (breakbulk)' },
-    air:  { label:'Air', short:'Air' },
+    air:  { label:'Air freight', short:'Air' },
+    air_charter: { label:'Air charter', short:'Air charter' },
     road: { label:'Road', short:'Road' },
     rail: { label:'Rail', short:'Rail' }
   };
@@ -127,6 +128,7 @@
     sea_container: svg('<path d="M3 17h18l-2.5 4H5.5z"/><rect x="5" y="10" width="6" height="5"/><rect x="12" y="10" width="6" height="5"/><rect x="8.5" y="5" width="6" height="5"/>'),
     sea_breakbulk: svg('<path d="M3 16h18l-2.5 5H5.5z"/><path d="M12 3v13M12 6l6 6H6z"/>'),
     air:  svg('<path d="M2.5 13.5l19-7-5 15-3.5-6.5z"/><path d="M13 15l-3 5-1-6"/>'),
+    air_charter: svg('<path d="M2.5 13.5l19-7-5 15-3.5-6.5z"/><path d="M13 15l-3 5-1-6"/><circle cx="5" cy="5" r="2.5"/>'),
     road: svg('<rect x="2" y="7" width="12" height="9" rx="1"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>'),
     rail: svg('<rect x="5" y="3" width="14" height="13" rx="2"/><path d="M5 10h14M9 20l-2 2M15 20l2 2M8 16l-1 4h10l-1-4"/><circle cx="9" cy="13" r=".8"/><circle cx="15" cy="13" r=".8"/>'),
     box:  svg('<path d="M3 7.5l9-4.5 9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/>'),
@@ -221,8 +223,11 @@
     const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
-  FC.loadScript = src => new Promise((res, rej) => {
-    if(document.querySelector(`script[src="${src}"]`)) return res();
-    const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s);
-  });
+  // each script loads once; every caller waits for the same load (no race when called twice quickly)
+  const _scripts = {};
+  FC.loadScript = src => _scripts[src] || (_scripts[src] = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.onload = res;
+    s.onerror = () => { delete _scripts[src]; s.remove(); rej(new Error('Could not load ' + src)); };
+    document.head.appendChild(s);
+  }));
 })();
