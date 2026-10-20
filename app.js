@@ -182,7 +182,7 @@
     if(party === 'seller' && t.insure === 'A' && v.cover !== 'icc_a') tips.push(['warn', aOk ? 'Under CIP the seller must insure ICC (A). Please choose Institute Cargo Clauses (A) below.' : 'Under CIP the seller must insure ICC (A), which is not available online for this cargo. Request a quotation and we will find a solution.']);
     if(party === 'seller' && t.insure === 'C') tips.push(['', 'ICC (C) meets the minimum, but covers only major casualties. Most buyers expect ICC (A); it costs little more.']);
     if(party === 'seller' && t.insure && isFinite(v.uplift_pct) && v.uplift_pct < 10) tips.push(['warn', `Under ${v.incoterm} the sum insured must be at least 110 % of the invoice value. Set the uplift to 10 %.`]);
-    if(FC.noRisk(v.incoterm, party)) tips.push(['', 'You can still calculate cover, e.g. if your client wants to protect its own interest or the other party asks for it.']);
+    if(FC.noRisk(v.incoterm, party)) tips.push(['', 'You can still calculate cover, e.g. to protect your own interest or because the other party asks for it.']);
     host.innerHTML = `<div class="inco-head">${esc(v.incoterm)}, ${esc(t.name)}</div><p class="xs muted" style="margin-top:2px">The risk passes from seller to buyer ${esc(t.point)}.</p>
       <div class="jr" role="img" aria-label="${esc(`Seller carries the risk up to ${t.point}, the buyer from there`)}">${segA}${segB}${stops}<b class="pass" style="left:${pct}%"></b></div>
       <p>${esc(t[party])}</p>${tips.map(([k, x]) => `<div class="inco-tip${k ? ' ' + k : ''}">${esc(x)}</div>`).join('')}`;
@@ -238,7 +238,7 @@
           <div><div class="xs muted">Indicative premium</div><div class="amount">${esc(money2(r.premium, r.currency))}</div><div class="sub">excl. insurance tax${r.min_applied ? ', minimum premium' : ''}</div></div>
           <div class="rate">Rate on sum insured<b>${esc(FC.pct(r.rate_pct))}</b></div>
         </div>
-        ${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your client discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
+        ${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
         ${r.conditions ? `<div class="notice info"><b>Special conditions</b>${esc(r.conditions)}</div>` : ''}`;
     }else if(r.status === 'on_request'){
       body = `<div class="notice warn"><b>We quote this shipment individually</b>It cannot be priced automatically because:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>`;
@@ -261,7 +261,7 @@
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
         ${isSea(r.conveyance) ? `<div><dt>Vessel</dt><dd>${esc(r.vessel || 'To be declared')}</dd></div>` : ''}
-        ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}, your client is the ${esc(r.insured_party || 'seller')}</dd></div>` : ''}
+        ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}, cover for the ${esc(r.insured_party || 'seller')}</dd></div>` : ''}
       </dl>
       ${body}
       <div class="consign-actions">
