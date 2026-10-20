@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-10-20h">
+<meta name="fc-version" content="2026-10-20i">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=2026-10-20h">
+<link rel="stylesheet" href="assets/style.css?v=2026-10-20i">
 </head>
 <body>
 <div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
@@ -107,6 +107,11 @@
           <h2><span id="icShield"></span>Cover</h2>
           <div class="covers" id="fCover" role="radiogroup" aria-label="Cover"></div>
           <label class="switch"><input type="checkbox" id="fWar" checked><span><b id="warLbl">War &amp; strikes</b><span id="warTxt">Institute War and Strikes Clauses (Cargo), sea and air transit.</span></span></label>
+          <div id="extFields" hidden>
+            <div class="xs muted" style="margin:14px 0 2px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Optional extensions for this cargo</div>
+            <label class="switch" id="hsscField"><input type="checkbox" id="fHssc"><span><b id="hsscLbl">Heating, sweating &amp; spontaneous combustion (HSSC)</b><span>Covers self-heating, sweat damage from condensation and spontaneous combustion of the cargo. Standard clauses exclude these as inherent vice. Small surcharge on the rate.</span></span></label>
+            <label class="switch" id="liwField"><input type="checkbox" id="fLiw"><span><b id="liwLbl">Loss / difference in weight (LiW / DiW)</b><span id="liwTxt">Covers shortage between the weight loaded and the weight delivered. Deductible 0.5 % of the sum insured. Small surcharge on the rate.</span></span></label>
+          </div>
         </div>
         <div class="form-foot">
           <button class="btn btn-primary" type="submit" id="calcBtn"><span class="spin"></span>Calculate indication</button>
@@ -169,8 +174,8 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-10-20h"></script>
-<script src="assets/pdf.js?v=2026-10-20h"></script>
-<script src="assets/app.js?v=2026-10-20h"></script>
+<script src="assets/core.js?v=2026-10-20i"></script>
+<script src="assets/pdf.js?v=2026-10-20i"></script>
+<script src="assets/app.js?v=2026-10-20i"></script>
 </body>
 </html>
