@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-21s'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-21t'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -276,6 +276,10 @@
       if(!list.length) return;
       $('#nsRecentList').innerHTML = list.map((r, i) => `<button type="button" class="ns-again" data-i="${i}"><span class="mini-route"><b>${esc(r.origin_country)}</b><span class="mr-line"><i></i><em>${FC.icon[r.conveyance] || ''}</em><i></i></span><b>${esc(r.dest_country)}</b></span><span class="ns-again-t"><b>${esc(r.goods_description)}</b><span class="xs muted">${esc(money2(r.sum_insured, r.currency))} · ${esc(FC.date(r.created_at))}</span></span><span class="ns-again-go">Use</span></button>`).join('');
       $$('#nsRecentList .ns-again').forEach(b => b.addEventListener('click', () => { const r = list[+b.dataset.i]; writeForm(Object.assign({}, r, { departure_date: null })); toast('Details copied. Check value and date, then calculate.'); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
+      $('#nsAgainN').textContent = '(' + list.length + ')';
+      const setOpen = on => { $('#nsAgainBtn').setAttribute('aria-expanded', String(on)); $('#nsRecentList').hidden = !on; try{ localStorage.setItem('freightcon-again', on ? '1' : '0'); }catch(e){} };
+      let open0 = false; try{ open0 = localStorage.getItem('freightcon-again') === '1'; }catch(e){}
+      setOpen(open0); $('#nsAgainBtn').addEventListener('click', () => setOpen($('#nsAgainBtn').getAttribute('aria-expanded') !== 'true'));
       $('#nsRecent').hidden = false;
     }catch(e){}
   })();
@@ -611,7 +615,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21s');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21t');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -621,7 +625,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21s').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21t').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
