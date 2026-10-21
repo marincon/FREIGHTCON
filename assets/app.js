@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20m'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-20n'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -23,7 +23,10 @@
   $('#inviteBtn').innerHTML = FC.icon.gift; $('#feedbackBtn').innerHTML = FC.icon.chat;
   $$('[data-ic]').forEach(s => s.outerHTML = FC.icon[s.dataset.ic]);
   const paintTheme = () => { $('#themeBtn').innerHTML = FC.isDark() ? FC.icon.sun : FC.icon.moon; };
-  paintTheme(); $('#themeBtn').addEventListener('click', () => { FC.toggleTheme(); paintTheme(); });
+  FC.onTheme = paintTheme; paintTheme(); $('#themeBtn').addEventListener('click', e => FC.toggleTheme(e.currentTarget));
+  // animations: auto (system setting) → on → off
+  const paintMotion = () => { $('#motionBtn').textContent = 'Animations: ' + FC.motionPref(); };
+  paintMotion(); $('#motionBtn').addEventListener('click', e => { e.stopPropagation(); const n = { auto:'on', on:'off', off:'auto' }[FC.motionPref()]; FC.setMotion(n); paintMotion(); toast(n === 'auto' ? 'Animations follow your system setting.' : n === 'on' ? 'Animations are on.' : 'Animations are off.'); });
   $('#avatarBtn').textContent = FC.initials(profile.full_name || profile.email);
   $('#whoName').textContent = profile.full_name || profile.email; $('#whoCo').textContent = profile.company || '';
   const menu = $('#accMenu'), av = $('#avatarBtn');
@@ -162,6 +165,17 @@
     $$('.field.invalid', form).forEach(f => f.classList.remove('invalid'));
     onFormChange();
   }
+  // sum insured glides to the new value instead of jumping
+  let siShown = NaN, siRaf = 0;
+  function tweenSi(to, cur){
+    const el = $('#siOut'); cancelAnimationFrame(siRaf);
+    if(!isFinite(to)){ siShown = NaN; el.textContent = '—'; return; }
+    const from = isFinite(siShown) ? siShown : 0;
+    if(FC.reducedMotion() || from === to){ siShown = to; el.textContent = money2(to, cur); return; }
+    const t0 = performance.now(), D = 380;
+    const step = t => { const k = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - k, 3); siShown = from + (to - from) * e; el.textContent = money2(Math.round(siShown * 100) / 100, cur); if(k < 1) siRaf = requestAnimationFrame(step); else siShown = to; };
+    siRaf = requestAnimationFrame(step);
+  }
   function onFormChange(){
     const v = readForm();
     const com = commodities.find(c => c.id === v.commodity_id);
@@ -177,7 +191,7 @@
     $('#warLbl').textContent = land ? 'Strikes, riots & civil commotion' : 'War & strikes';
     $('#warTxt').textContent = land ? 'Institute Strikes Clauses (Cargo). War risks are not insurable on land transit.' : v.conveyance === 'air' || v.conveyance === 'air_charter' ? 'Institute War and Strikes Clauses (Air Cargo). Added to the premium.' : 'Institute War and Strikes Clauses (Cargo). Included in sea rates; untick to leave it out.';
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
-    $('#siOut').textContent = isFinite(si) ? money2(si, v.currency) : '—';
+    tweenSi(si, v.currency);
     $('#vesselField').hidden = !isSea(v.conveyance);
     $('#custFields').hidden = !$('#fForCust').checked;
     $('#hsscField').hidden = !(com && com.ext_hssc); $('#liwField').hidden = !(com && com.ext_liw); $('#extFields').hidden = $('#hsscField').hidden && $('#liwField').hidden;
@@ -279,7 +293,7 @@
       <div class="consign-top"><span class="ref">${esc(r.ref || FC.STATUS[r.status] || 'Indication')}</span><span class="when">${esc(FC.dateTime(r.created_at))}</span></div>
       <div class="lane${animate ? ' drawn' : ''}">
         <div class="end"><span class="iso">${esc(r.origin_country)}</span><span class="place">${esc(r.origin_place || r.origin_name)}</span><span class="cty">${esc(r.origin_place ? r.origin_name : '')}</span></div>
-        <div class="track"><i></i><span class="mode" title="${esc(conv.label)}">${FC.icon[r.conveyance] || ''}</span><i></i></div>
+        ${FC.routeArc(r.conveyance, FC.icon[r.conveyance], conv.label)}
         <div class="end to"><span class="iso">${esc(r.dest_country)}</span><span class="place">${esc(r.dest_place || r.dest_name)}</span><span class="cty">${esc(r.dest_place ? r.dest_name : '')}</span></div>
       </div>
       <dl class="facts">
@@ -308,6 +322,7 @@
       <p class="fine">Indications are non-binding. Cover is only in place once a quotation has been accepted and confirmed in writing. Deductible: ${esc(r.deductible_text)}.${isSea(r.conveyance) ? ' Sea transport is subject to the Institute Classification Clause: older or unclassed vessels may carry an additional premium. We check the vessel before we quote.' : ''}</p>
     </article>`);
     const host = $('#resultHost'); host.innerHTML = ''; host.appendChild(card);
+    FC.playRoute(card.querySelector('.track'), animate);
     if(animate && r.status === 'quoted') FC.countUp(card.querySelector('.premium .amount'), Number(r.premium), v => money2(Math.round(v * 100) / 100, r.currency), 800);
     const rb = card.querySelector('#reqBtn');
     if(rb) rb.addEventListener('click', async () => {
@@ -482,13 +497,22 @@
     const all = $('#upAll', wrap);
     if(all){ const able = done.filter(r => !r.res.error && !r.res.quote_requested_at && r.res.status !== 'sanctioned'); all.checked = able.length && able.every(r => r.sel); all.addEventListener('change', () => { able.forEach(r => r.sel = all.checked); paintUpload(); }); }
   }
+  // while calculating, each row flips to its result as soon as it is back
+  function liveRow(r){
+    const tr = Array.from(document.querySelectorAll('#upBody tbody tr')).find(x => x.children[1] && x.children[1].textContent.trim() === String(r.line));
+    if(!tr) return; const x = r.res, td = tr.lastElementChild;
+    td.innerHTML = x.error ? `<span class="up-err">${esc(x.error)}</span>` : `<span class="chip ${esc(x.status)}">${esc(FC.STATUS[x.status])}</span>${x.status === 'quoted' ? ' <b class="num">' + esc(money2(x.premium, x.currency)) + '</b>' : ''}`;
+    tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+  }
   async function pool(items, n, fn, onStep){ let i = 0, k = 0; await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while(i < items.length){ const it = items[i++]; await fn(it); onStep(++k); } })); }
   async function runUpload(b, todo){
     busy(b, true); const bar = $('#upBar'); bar.hidden = false;
     await pool(todo, 4, async r => {
       const { data, error } = await sb.rpc('calc_indication', { p: r.p });
-      r.res = error ? { error: FC.errText(error, 'Could not be calculated') } : data;
+      r.res = error ? { error: FC.errText(error, 'Could not be calculated') } : data; r.flash = true;
+      liveRow(r);
     }, k => { bar.firstChild.style.width = Math.round(k / todo.length * 100) + '%'; });
+    upRows.forEach(r => r.flash = false);
     loadInsureds(); paintUpload(); toast('Calculated ' + todo.length + ' shipment' + (todo.length > 1 ? 's' : '') + '.');
   }
   async function requestUpload(b){
@@ -536,7 +560,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20m');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20n');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -546,7 +570,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20m').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20n').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [];
@@ -559,12 +583,14 @@
     renderQuotes();
     sb.rpc('mark_quotations_seen').then(() => refreshBadges());
   }
+  let justStamped = null;
+  const stampSeen = id => { try{ const s = JSON.parse(localStorage.getItem('freightcon-stamps') || '[]'); if(s.includes(id)) return true; s.push(id); localStorage.setItem('freightcon-stamps', JSON.stringify(s.slice(-200))); }catch(e){} return false; };
   const qStatusLabel = { open:'Open', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' };
   function renderQuotes(){
     const host = $('#qList'); host.innerHTML = '';
     $('#waitBadge').hidden = !waiting.length; $('#waitBadge').textContent = waiting.length;
     if(qTab === 'quotations'){
-      if(!quotes.length){ host.innerHTML = `<div class="empty card"><h3>No quotations yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
+      if(!quotes.length){ host.innerHTML = `<div class="empty card">${FC.shipArt}<h3>No quotations yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
       quotes.forEach(q => {
         const d = q.data || {}, st = q.cover_note ? 'bound' : q.status;
         const it = FC.el(`<div class="item${!q.seen_at ? ' new' : ''}">
@@ -572,6 +598,11 @@
             <div class="t">${esc(d.goods || '')}</div>
             <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''}, ${esc(money2(d.total, d.currency))}${q.status === 'open' ? ', valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ', cover note ' + esc(q.cover_note.number) : ''}</div></div>
           <div class="acts"></div></div>`);
+        if(st === 'bound' || st === 'accepted'){
+          const key = st + ':' + q.id, fresh = justStamped === q.id || !stampSeen(key);
+          if(justStamped === q.id) stampSeen(key);
+          it.classList.add('has-stamp'); it.insertAdjacentHTML('beforeend', `<span class="stamp ${st}${fresh ? ' fresh' : ''}" aria-hidden="true">${st === 'bound' ? 'Covered' : 'Accepted'}</span>`);
+        }
         const acts = it.querySelector('.acts');
         acts.appendChild(btn(q.status === 'open' ? 'Review & accept' : 'View', q.status === 'open' ? 'primary' : 'ghost', () => openQuote(q)));
         acts.appendChild(btn('Quotation PDF', 'ghost', b => pdfQuote(q, b)));
@@ -579,7 +610,7 @@
         host.appendChild(it);
       });
     }else if(qTab === 'waiting'){
-      if(!waiting.length) host.innerHTML = '<div class="empty card"><h3>Nothing waiting</h3><p>Requests you send appear here until the quotation is ready.</p></div>';
+      if(!waiting.length) host.innerHTML = '<div class="empty card">' + FC.shipArt + '<h3>Nothing waiting</h3><p>Requests you send appear here until the quotation is ready.</p></div>';
       waiting.forEach(r => {
         const it = FC.el(`<div class="item"><div><div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} <span class="chip waiting">Waiting</span></div>
           <div class="t">${esc(r.goods_description)}</div>
@@ -657,6 +688,7 @@
     if(accept && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms for ' + money2(q.data.total, q.data.currency) + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
     const { error } = await sb.rpc('respond_to_quotation', { p_quotation_id: q.id, p_accept: accept, p_note: box.querySelector('#qrNote').value });
     if(error){ box.querySelector('#qrErr').textContent = FC.errText(error); return; }
+    if(accept) justStamped = q.id;
     close(true); toast(accept ? 'Accepted. We confirm the cover shortly.' : 'Quotation declined.'); loadQuotes();
   }
 
@@ -673,7 +705,7 @@
     const s = $('#hSearch').value.trim().toLowerCase();
     const rows = hist.filter(r => !s || [r.goods_description, r.ref, r.customer_ref, r.insured_name, r.origin_country, r.dest_country, countryName(r.origin_country), countryName(r.dest_country), r.origin_place, r.dest_place].join(' ').toLowerCase().includes(s));
     const host = $('#hList'); host.innerHTML = '';
-    if(!rows.length){ host.innerHTML = `<div class="empty card"><h3>${hist.length ? 'No matches' : 'No indications yet'}</h3><p>${hist.length ? 'Try another search term.' : 'Your calculations appear here.'}</p></div>`; return; }
+    if(!rows.length){ host.innerHTML = `<div class="empty card">${hist.length ? '' : FC.shipArt}<h3>${hist.length ? 'No matches' : 'No indications yet'}</h3><p>${hist.length ? 'Try another search term.' : 'Your calculations appear here.'}</p></div>`; return; }
     rows.forEach(r => {
       const it = FC.el(`<div class="item"><div>
           <div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} <span class="chip ${esc(r.status)}">${esc(FC.STATUS[r.status])}</span>${r.quote_requested_at ? ' <span class="chip neutral">Requested</span>' : ''}</div>
