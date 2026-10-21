@@ -22,7 +22,7 @@ Kunde gibt Ware, Route und Wert ein → sieht sofort eine Indikation → fordert
 
 ### 1. Supabase-Projekt
 1. Neues Projekt auf supabase.com anlegen, Region **Frankfurt (eu-central-1)**.
-2. SQL Editor → Inhalt von `supabase/schema.sql` einfügen → Run. Danach `supabase/seed.sql` → Run.
+2. SQL Editor → nacheinander ausführen: `supabase/schema.sql`, `supabase/seed.sql`, `supabase/update_2026-10-20c.sql`, `supabase/update_2026-10-20d.sql`, `supabase/update_2026-10-20e.sql`, `supabase/update_2026-10-20f.sql`, `supabase/update_2026-10-20g.sql`, `supabase/update_2026-10-20h.sql`, `supabase/update_2026-10-20i.sql`, `supabase/update_2026-10-20j.sql`, `supabase/update_2026-10-21k.sql`.
 3. Authentication → URL Configuration: *Site URL* = deine Domain (z. B. `https://freightcon.com`), unter *Redirect URLs* `https://freightcon.com/index.html` eintragen.
 4. Authentication → Providers → Email: „Confirm email“ an lassen.
 5. Authentication → SMTP Settings: IONOS-Postfach eintragen (`smtp.ionos.de`, Port 465), damit Bestätigungs- und Passwort-Mails von deiner Adresse kommen.
@@ -59,7 +59,19 @@ Welche Alerts es gibt: neue Registrierung, neue Quotation-Anfrage (Team + Eingan
 - Settings: `company_legal`, `default_insurer`, `deductible_text`, `quote_subjectivities`, `claims_text`.
 - Rechtstexte anwaltlich fertigstellen (insbesondere §34d-Status, Haftung, Impressum).
 
-## So rechnet die Indikation
+## So rechnet die Indikation (Stand 2026-10-20e)
+
+Siehe Kopf von `supabase/update_2026-10-20e.sql`: Routen-Grundrate × Warenklassen-Faktor × Deckung × Transportart × Verpackung × Zuschläge, War & Strikes separat, × Interest-Faktor.
+
+## Vorgängerstand 2026-10-20c (Bertling-Schema)
+
+Rate (‰) = Matrix-Rate des Zonenpaars (Abgangszone ↔ Zielzone) aus der Tabelle der Warengruppe
+× Deckungsfaktor (ICC A 1,0 / B 0,75 / C 0,5) × Zuschläge (an Deck +50 %, Luft gebraucht/Fahrzeuge +50 % bzw. Charter +25 %)
+× 0,4 bei Seller's/Buyer's Interest; War & Strikes: in Seeraten enthalten (0,5 ‰, abwählbar), bei Luft +0,5 ‰; plus Krisenzuschlag je Land.
+Mindestprämie je Tabelle (100). Länder ohne Zone (weiß auf der Karte) und *-Länder (lokale Versicherungsregeln) → on request.
+Straße/Schiene nutzen die Seetabelle der Warengruppe × land_factor (Annahme, in Factors & limits änderbar).
+
+## Alte Platzhalter-Logik (bis 2026-10-20b, nicht mehr aktiv)
 
 ```
 Rate = Basisrate (Warengruppe × Transportmittel)
