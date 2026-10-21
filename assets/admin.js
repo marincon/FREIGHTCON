@@ -4,13 +4,13 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{} };
+  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{} };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
   const setting = (k, d) => (S.settings[k] !== undefined ? S.settings[k] : d);
 
-  const TABS = [['requests','Requests'],['overview','Overview'],['customers','Customers'],['rates','Rates'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
+  const TABS = [['requests','Requests'],['claims','Claims'],['overview','Overview'],['customers','Customers'],['rates','Rates'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
 
   A.open = async (host) => {
     root = host;
@@ -29,7 +29,7 @@
   };
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -41,10 +41,18 @@
       sb.from('cover_notes').select('*').order('issued_at'),
       sb.from('rate_tables').select('*').order('sort'),
       sb.from('rate_cells').select('*'),
-      sb.from('quotation_internal').select('*')
+      sb.from('quotation_internal').select('*'),
+      sb.from('claims').select('*').order('created_at', { ascending:false }),
+      sb.from('claim_events').select('*').order('created_at'),
+      sb.from('claim_files').select('*').order('created_at'),
+      sb.from('claim_internal').select('*')
     ]);
     const err = [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc].find(r => r.error);
     S.qint = {}; (qi.data || []).forEach(x => S.qint[x.quotation_id] = x);
+    S.claims = cl.data || []; S.claimEvents = {}; S.claimFiles = {}; S.claimInt = {};
+    (ce.data || []).forEach(x => (S.claimEvents[x.claim_id] = S.claimEvents[x.claim_id] || []).push(x));
+    (cf.data || []).forEach(x => (S.claimFiles[x.claim_id] = S.claimFiles[x.claim_id] || []).push(x));
+    (cin.data || []).forEach(x => S.claimInt[x.claim_id] = x);
     if(err) toast('Some internal data could not be loaded: ' + err.error.message, 'error');
     S.rateTables = rt.data || []; S.rateCells = rc.data || [];
     S.rows = ind.data || []; S.commodities = com.data || []; S.regions = reg.data || []; S.countries = cty.data || []; S.insurers = ins.data || [];
@@ -58,16 +66,16 @@
   const acceptedNoCover = () => S.rows.filter(r => r.stage === 'accepted' && !(S.coverNotes[r.id] || []).length);
   const pendingUsers = () => Object.values(S.profiles).filter(p => !p.approved && !p.rejected);
   function paintBadges(){
-    const n = openRequests().length + acceptedNoCover().length, u = pendingUsers().length;
-    const set = (k, v) => { const b = root && root.querySelector(`[data-abadge="${k}"]`); if(b){ b.hidden = !v; b.textContent = v; } };
-    set('requests', n); set('customers', u);
-    const ib = document.getElementById('adminBadge'); if(ib){ ib.hidden = !(n + u); ib.textContent = n + u; }
+    const n = openRequests().length + acceptedNoCover().length, u = pendingUsers().length, k = S.claims.filter(claimNeedsAction).length;
+    const set = (key, v) => { const b = root && root.querySelector(`[data-abadge="${key}"]`); if(b){ b.hidden = !v; b.textContent = v; } };
+    set('requests', n); set('customers', u); set('claims', k);
+    const ib = document.getElementById('adminBadge'); if(ib){ ib.hidden = !(n + u + k); ib.textContent = n + u + k; }
   }
   A.paintBadges = paintBadges;
 
   function render(){
     const body = $('#admBody', root); body.innerHTML = '';
-    ({ requests: renderRequests, overview: renderOverview, customers: renderCustomers, rates: renderRates, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
+    ({ requests: renderRequests, claims: renderClaimsAdmin, overview: renderOverview, customers: renderCustomers, rates: renderRates, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
   }
   const chip = (cls, t) => `<span class="chip ${esc(cls)}">${esc(t)}</span>`;
   const btn = (label, kind, fn) => { const b = FC.el(`<button type="button" class="btn btn-${kind} btn-sm"><span class="spin"></span>${esc(label)}</button>`); b.addEventListener('click', e => fn(b, e)); return b; };
@@ -926,6 +934,114 @@
         ? `<div class="notice ok" style="margin:0"><b>${esc(money2(data.premium, 'EUR'))} at ${esc(pm(d.rate_permille))} ‰</b>${esc(explain(d))}. Sum insured ${esc(money2(data.sum_insured, 'EUR'))}${data.min_applied ? ', minimum premium applied' : ''}${Number(data.discount_pct) ? ', your own discount ' + esc(Number(data.discount_pct)) + ' % applied' : ''}. Deductible: ${esc(data.deductible_text || '')}.</div>`
         : `<div class="notice warn" style="margin:0"><b>${esc(FC.STATUS[data.status])}</b>${esc((data.reasons || []).join('; '))}</div>`;
     }));
+  }
+
+  // =================================================================== CLAIMS
+  const CLS = () => FC.CL_STATUS || {};
+  // a claim needs action when it is new, or when the client wrote last
+  const claimNeedsAction = c => c.status === 'reported' || (() => { const ev = (S.claimEvents[c.id] || []).filter(e => e.author_role !== 'system'); const l = ev[ev.length - 1]; return l && l.author_role === 'client'; })();
+  let clFilter = { q:'', scope:'open' };
+  function renderClaimsAdmin(body){
+    const all = S.claims, open = all.filter(c => !['settled','rejected','closed'].includes(c.status)), act = all.filter(claimNeedsAction);
+    const reserve = {}; open.forEach(c => { const r = S.claimInt[c.id]; if(r && r.reserve != null) reserve[c.currency] = (reserve[c.currency] || 0) + Number(r.reserve); });
+    const scopeBtn = (k, label, cnt, cls) => `<button type="button" class="stat stat-btn${cls ? ' ' + cls : ''}" data-cscope="${k}" aria-pressed="${clFilter.scope === k}"><b>${cnt}</b><span>${label}</span></button>`;
+    body.appendChild(FC.el(`<div class="stats">${scopeBtn('action', 'Need action (new or client wrote)', act.length, act.length ? 'alert' : '')}${scopeBtn('open', 'Open claims', open.length)}
+      ${scopeBtn('settled', 'Settled', all.filter(c => c.status === 'settled').length, 'won')}${scopeBtn('all', 'All claims', all.length)}
+      <div class="stat"><b class="num" style="font-size:20px">${esc(Object.keys(reserve).length ? Object.entries(reserve).map(([c, v]) => money2(v, c)).join(' · ') : '—')}</b><span>Reserves on open claims (internal)</span></div></div>`));
+    body.querySelectorAll('.stat-btn b').forEach(b => FC.countUp(b, Number(b.textContent), null, 500));
+    const tb = FC.el(`<div class="toolbar"><input class="input" type="search" id="clQ" placeholder="Search claim, customer, goods" value="${esc(clFilter.q)}" aria-label="Search"></div>`); body.appendChild(tb);
+    const wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(wrap);
+    const paint = () => {
+      body.querySelectorAll('[data-cscope]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cscope === clFilter.scope)));
+      const s = clFilter.q.trim().toLowerCase();
+      const rows = all.filter(c => clFilter.scope === 'all' || (clFilter.scope === 'open' && open.includes(c)) || (clFilter.scope === 'action' && act.includes(c)) || (clFilter.scope === 'settled' && c.status === 'settled'))
+        .filter(c => { if(!s) return true; const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}; return [c.ref, c.cover_note_no, c.insurer_claim_no, p.company, p.full_name, p.email, i.goods_description, i.ref].join(' ').toLowerCase().includes(s); });
+      if(!rows.length){ wrap.innerHTML = '<div class="empty"><h3>No claims here</h3><p>Reported claims appear here.</p></div>'; return; }
+      wrap.innerHTML = '<table class="tbl"><thead><tr><th>Claim</th><th>Reported</th><th>Customer</th><th>What happened</th><th>Shipment</th><th class="r">Estimated</th><th>Status</th><th>Handler</th></tr></thead><tbody></tbody></table>';
+      rows.forEach(c => {
+        const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}, ci = S.claimInt[c.id] || {};
+        const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(c.ref)}</b>${claimNeedsAction(c) ? ' ' + chip('pending', c.status === 'reported' ? 'New' : 'Client wrote') : ''}</td>
+          <td class="xs">${esc(FC.ago(c.created_at))}</td><td>${esc(p.company || '')}<br><span class="xs muted">${esc(p.full_name || p.email || '')}</span></td>
+          <td>${esc((FC.LOSS && FC.LOSS[c.loss_type] || {}).label || c.loss_type)}<br><span class="xs muted">${esc(c.place || '')}</span></td>
+          <td>${esc(i.ref || '')}<br><span class="xs muted">${esc((i.goods_description || '').slice(0, 40))}</span></td>
+          <td class="r num">${c.estimated_amount != null ? esc(money2(c.estimated_amount, c.currency)) : '—'}</td>
+          <td>${chip(c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending', CLS()[c.status] || c.status)}</td><td>${esc(ci.handler || '')}</td></tr>`);
+        tr.addEventListener('click', () => openClaimAdmin(c.id)); tr.addEventListener('keydown', e => { if(e.key === 'Enter') openClaimAdmin(c.id); });
+        wrap.querySelector('tbody').appendChild(tr);
+      });
+    };
+    body.querySelectorAll('[data-cscope]').forEach(b => b.addEventListener('click', () => { clFilter.scope = b.dataset.cscope; paint(); }));
+    $('#clQ', tb).addEventListener('input', e => { clFilter.q = e.target.value; paint(); });
+    paint();
+  }
+  async function openClaimAdmin(id){
+    const c = S.claims.find(x => x.id === id); if(!c) return;
+    const back = FC.el('<div class="drawer-back"></div>');
+    const dr = FC.el(`<aside class="drawer" role="dialog" aria-modal="true" aria-label="Claim ${esc(c.ref)}"><div class="dlg-head"><div><h2>${esc(c.ref)}</h2><div class="xs muted" id="cdSub"></div></div><button class="x" type="button" aria-label="Close" style="background:none;border:0;font-size:26px;cursor:pointer;color:var(--steel)">&times;</button></div><div class="drawer-body"></div></aside>`);
+    const close = () => { back.remove(); dr.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if(e.key === 'Escape' && !document.querySelector('.dlg-back')) close(); };
+    back.addEventListener('click', close); dr.querySelector('.x').addEventListener('click', close); document.addEventListener('keydown', onKey);
+    document.body.appendChild(back); document.body.appendChild(dr);
+    const body = dr.querySelector('.drawer-body');
+    const paint = async () => {
+      const cc = S.claims.find(x => x.id === id) || c, i = S.rows.find(x => x.id === cc.indication_id) || {}, p = S.profiles[cc.user_id] || {}, ci = S.claimInt[cc.id] || {};
+      const ev = S.claimEvents[cc.id] || [], files = S.claimFiles[cc.id] || [];
+      dr.querySelector('#cdSub').textContent = [p.company, p.full_name].filter(Boolean).join(', ');
+      body.innerHTML = `
+        <section><h3>Claim</h3><dl class="kv">
+          <dt>Status</dt><dd>${chip(cc.status === 'settled' ? 'paid' : 'pending', CLS()[cc.status] || cc.status)}</dd>
+          <dt>What happened</dt><dd>${esc((FC.LOSS && FC.LOSS[cc.loss_type] || {}).label || cc.loss_type)}${cc.transit_stage ? ', ' + esc(cc.transit_stage) : ''}</dd>
+          <dt>When / where</dt><dd>${esc([cc.incident_date ? 'incident ' + FC.date(cc.incident_date) : '', cc.discovered_date ? 'discovered ' + FC.date(cc.discovered_date) : '', cc.place].filter(Boolean).join(' · ') || '—')}</dd>
+          <dt>Description</dt><dd style="white-space:pre-wrap">${esc(cc.description)}</dd>
+          <dt>Estimated loss</dt><dd>${cc.estimated_amount != null ? esc(money2(cc.estimated_amount, cc.currency)) : 'Not stated'}</dd>
+          <dt>Goods are at</dt><dd>${esc(cc.goods_location || '—')}</dd>
+          <dt>Carrier</dt><dd>${cc.carrier_notified ? 'Notified in writing' : '<b style="color:var(--danger)">Not notified yet</b>'} · ${cc.receipt_remarks ? 'remarks on receipt' : 'no remarks on receipt'}</dd>
+          <dt>Contact</dt><dd>${esc([cc.contact_name, cc.contact_phone].filter(Boolean).join(', '))}${p.email ? ', <a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : ''}</dd>
+          <dt>Shipment</dt><dd>${esc(i.ref || '')} · ${esc(i.goods_description || '')}<br><span class="xs muted">${esc(i.origin_country || '')} → ${esc(i.dest_country || '')}, sum insured ${i.sum_insured ? esc(money2(i.sum_insured, i.currency)) : '—'}${cc.cover_note_no ? ', cover note ' + esc(cc.cover_note_no) : ''}${i.vessel ? ', vessel ' + esc(i.vessel) : ''}</span>${i.id ? ' <button type="button" class="linkbtn" id="cdCase">Open case</button>' : ''}</dd></dl></section>
+        <section><h3>Files (${files.length})</h3><div class="cl-thumbs" id="cdFiles">${files.length ? '' : '<p class="xs muted" style="margin:0">No files.</p>'}</div>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin-top:10px">${FC.icon.upload}Add file for the client<input type="file" id="cdUp" multiple hidden></label></section>
+        <section><h3>Update</h3><div class="grid2">
+            <div class="field"><label for="cdSt">Status</label><select id="cdSt">${Object.entries(CLS()).map(([k, v]) => `<option value="${k}" ${k === cc.status ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+            <div class="field"><label for="cdIns">Insurer's claim number</label><input id="cdIns" maxlength="60" value="${esc(cc.insurer_claim_no || '')}"></div>
+            <div class="field"><label for="cdSet">Settled amount (${esc(cc.currency || 'EUR')})</label><input id="cdSet" inputmode="decimal" value="${cc.settled_amount != null ? esc(cc.settled_amount) : ''}"></div>
+            <div class="field"><label for="cdInsr">Insurer</label><select id="cdInsr"><option value="">—</option>${S.insurers.map(x => `<option value="${x.id}" ${String(ci.insurer_id) === String(x.id) ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>
+          <div class="field" style="margin-top:12px"><label for="cdMsg">Message to the client <span class="muted">(e-mailed and shown in the claim)</span></label><textarea id="cdMsg" rows="3" maxlength="4000" placeholder="e.g. Surveyor X will inspect on Thursday. Please send the commercial invoice and packing list."></textarea></div>
+          <div class="qe-internal"><h4>Internal, never shown to the client</h4><div class="grid3">
+            <div class="field"><label for="cdH">Handler</label><input id="cdH" maxlength="20" value="${esc(ci.handler || myInitials())}"></div>
+            <div class="field"><label for="cdR">Reserve (${esc(cc.currency || 'EUR')})</label><input id="cdR" inputmode="decimal" value="${ci.reserve != null ? esc(ci.reserve) : ''}"></div>
+            <div class="field"><label for="cdSv">Surveyor</label><input id="cdSv" maxlength="120" value="${esc(ci.surveyor || '')}"></div></div>
+            <div class="field"><label for="cdN">Internal note</label><textarea id="cdN" rows="2" maxlength="4000">${esc(ci.internal_note || '')}</textarea></div></div>
+          <div id="cdSave" style="margin-top:12px"></div></section>
+        <section><h3>Messages &amp; timeline</h3><div class="chat">${ev.map(e => e.author_role === 'system' ? `<div class="sys">${esc(e.body || '')} · ${esc(FC.dateTime(e.created_at))}</div>`
+          : `<div class="msg ${e.author_role === 'staff' ? 'me' : 'them'}">${e.status ? chip('pending', CLS()[e.status] || e.status) : ''}${e.body ? `<p>${esc(e.body)}</p>` : ''}<span class="xs">${esc(e.author_role === 'client' ? (p.full_name || 'Client') : (e.author_name || 'Staff'))} · ${esc(FC.dateTime(e.created_at))}</span></div>`).join('')}</div></section>`;
+      const cb = body.querySelector('#cdCase'); if(cb) cb.addEventListener('click', () => { close(); openCase(i.id); });
+      if(files.length){
+        const sg = await sb.storage.from('claims').createSignedUrls(files.map(f => f.path), 600).catch(() => ({ data:[] }));
+        files.forEach((f, k) => { const u = ((sg.data || [])[k] || {}).signedUrl, img = /^image\//.test(f.mime || '');
+          body.querySelector('#cdFiles').appendChild(FC.el(`<a class="cl-thumb" target="_blank" rel="noopener" ${u ? `href="${esc(u)}"` : ''}>${img && u ? `<img alt="" src="${esc(u)}">` : `<span class="cl-doc">${esc((f.name.split('.').pop() || 'file').toUpperCase().slice(0, 4))}</span>`}<span class="cl-fn">${esc(f.name)}</span><span class="xs muted">${esc(f.uploaded_by === 'staff' ? 'staff · ' : '')}${esc(FC.date(f.created_at))}</span></a>`)); });
+      }
+      body.querySelector('#cdUp').addEventListener('change', async e => {
+        const fs = Array.from(e.target.files); if(!fs.length) return;
+        let n = 0;
+        for(const f of fs){ const path = `${cc.user_id}/${cc.id}/${Date.now()}_staff_${f.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+          const up = await sb.storage.from('claims').upload(path, f, { contentType: f.type || 'application/octet-stream' });
+          if(!up.error && !(await sb.rpc('add_claim_file', { p_claim_id: cc.id, p_path: path, p_name: f.name, p_size: f.size, p_mime: f.type || '' })).error) n++; }
+        toast(n + ' file(s) added.'); await loadAll(); paint();
+      });
+      body.querySelector('#cdSave').appendChild(btn('Save and notify', 'primary', async b => {
+        const v = id => body.querySelector('#' + id).value.trim(), num = id => { const t = v(id); return t === '' ? '' : FC.parseNum(t); };
+        const st = v('cdSt'), msg = v('cdMsg');
+        if(st === 'settled' && num('cdSet') === ''){ toast('Enter the settled amount.', 'error'); return; }
+        busy(b, true);
+        const { error } = await sb.rpc('admin_update_claim', { p_claim_id: cc.id, p_status: st, p_message: msg, p_data: { insurer_claim_no: v('cdIns'), settled_amount: num('cdSet'),
+          internal: { handler: v('cdH'), reserve: num('cdR'), insurer_id: v('cdInsr'), surveyor: v('cdSv'), internal_note: v('cdN') } } });
+        busy(b, false);
+        if(error){ toast('Could not save: ' + error.message, 'error'); return; }
+        toast(st !== cc.status || msg ? 'Saved. The client is notified.' : 'Saved.'); await loadAll(); paint(); if(tab === 'claims') render();
+      }));
+      const chat = body.querySelector('.chat'); if(chat) chat.scrollTop = chat.scrollHeight;
+    };
+    paint();
   }
 
   // =================================================================== INSURERS

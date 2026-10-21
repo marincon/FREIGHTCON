@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-20o'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-21p'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -548,6 +548,7 @@
   // ---------- views & routing ----------
   const views = ['new', 'quotes', 'history', 'upload', 'admin'];
   async function go(v){
+    if(v === 'shipments' || v === 'claims'){ if(v === 'claims') qTab = 'claims'; v = 'quotes'; }
     if(!views.includes(v) || (v === 'admin' && !profile.is_admin)) v = 'new';
     if(v !== 'admin') FC.lastExternal = v;
     const inAdm = v === 'admin', il = document.getElementById('internalLbl'), ml = document.getElementById('mobInternalLbl');
@@ -560,7 +561,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-20o');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21p');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -570,33 +571,59 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-20o').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21p').catch(() => {}); }
 
   // ---------- my quotations ----------
-  let qTab = 'quotations', quotes = [], waiting = [], invoices = [];
-  $$('[data-qtab]').forEach(b => b.addEventListener('click', () => { qTab = b.dataset.qtab; $$('[data-qtab]').forEach(x => x.setAttribute('aria-selected', String(x === b))); renderQuotes(); }));
+  let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
+  const setQTab = t => { qTab = t; $$('[data-qtab]').forEach(x => x.setAttribute('aria-selected', String(x.dataset.qtab === t))); renderQuotes(); };
+  $$('[data-qtab]').forEach(b => b.addEventListener('click', () => setQTab(b.dataset.qtab)));
+  $('#claimBtn').addEventListener('click', () => claimWizard(null));
   async function loadQuotes(){
     $('#qList').innerHTML = '<div class="empty">Loading…</div>';
-    const [a, w, inv] = await Promise.all([sb.rpc('my_quotations'), sb.rpc('my_pending_requests'), sb.from('invoices').select('*').order('created_at', { ascending:false })]);
-    if(a.error || w.error){ $('#qList').innerHTML = '<div class="empty">Could not load your quotations. Please reload the page.</div>'; return; }
-    quotes = a.data || []; waiting = w.data || []; invoices = inv.data || [];
-    renderQuotes();
+    const [a, w, inv, cl] = await Promise.all([sb.rpc('my_quotations'), sb.rpc('my_pending_requests'), sb.from('invoices').select('*').order('created_at', { ascending:false }), sb.rpc('my_claims')]);
+    if(a.error || w.error){ $('#qList').innerHTML = '<div class="empty">Could not load your shipments. Please reload the page.</div>'; return; }
+    quotes = a.data || []; waiting = w.data || []; invoices = inv.data || []; claims = cl.error ? [] : (cl.data || []);
+    paintHub(); renderQuotes();
     sb.rpc('mark_quotations_seen').then(() => refreshBadges());
   }
+  // ---- hub header: greeting and key figures ----
+  function paintHub(){
+    const h = new Date().getHours(), first = (profile.first_name || (profile.full_name || '').split(' ')[0] || '').trim();
+    $('#hubHi').textContent = (h < 11 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
+    const covered = quotes.filter(q => q.cover_note), open = quotes.filter(q => q.status === 'open'), openCl = claims.filter(c => !['settled','rejected','closed'].includes(c.status));
+    const val = {}; covered.forEach(q => { const d = q.data || {}; val[d.currency] = (val[d.currency] || 0) + Number(d.sumInsured || 0); });
+    const tile = (n, label, sub, tab, ic) => `<button type="button" class="kpi" data-kpi="${tab}"><span class="kpi-ic">${FC.icon[ic]}</span><b data-count="${n}">${n}</b><span>${esc(label)}</span>${sub ? `<i>${esc(sub)}</i>` : ''}</button>`;
+    $('#hubKpis').innerHTML = tile(covered.length, 'Covered shipments', Object.keys(val).length ? Object.entries(val).map(([c, v]) => money(v, c)).join(' · ') + ' insured' : '', 'quotations', 'shield')
+      + tile(open.length, 'Quotations to review', open.length ? 'Accept them before they expire' : '', 'quotations', 'doc')
+      + tile(waiting.length, 'Waiting for quotation', '', 'waiting', 'clock')
+      + tile(openCl.length, 'Open claims', claims.length ? claims.length + ' reported in total' : '', 'claims', 'claim');
+    $$('#hubKpis [data-kpi]').forEach(b => b.addEventListener('click', () => setQTab(b.dataset.kpi)));
+    $$('#hubKpis b[data-count]').forEach(b => FC.countUp(b, Number(b.dataset.count), null, 600));
+    $('#claimBadge').hidden = !openCl.length; $('#claimBadge').textContent = openCl.length;
+  }
+  const qStatusLabel = { open:'Open', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' };
   let justStamped = null;
   const stampSeen = id => { try{ const s = JSON.parse(localStorage.getItem('freightcon-stamps') || '[]'); if(s.includes(id)) return true; s.push(id); localStorage.setItem('freightcon-stamps', JSON.stringify(s.slice(-200))); }catch(e){} return false; };
-  const qStatusLabel = { open:'Open', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' };
+  // small route strip used on shipment and claim cards
+  const miniRoute = (o, d, conv) => `<div class="mini-route"><b>${esc(o || '')}</b><span class="mr-line"><i></i><em>${FC.icon[conv] || FC.icon.sea_container}</em><i></i></span><b>${esc(d || '')}</b></div>`;
+  const shipSteps = (q) => {
+    const st = q.cover_note ? 3 : q.status === 'accepted' ? 2 : ['declined','withdrawn','expired'].includes(q.status) ? -1 : 1;
+    if(st < 0) return `<div class="steps off"><span class="on">Quoted</span><span class="x">${esc(qStatusLabel[q.status] || q.status)}</span></div>`;
+    return `<div class="steps">${['Quoted','Accepted','Covered'].map((l, i) => `<span class="${i < st ? 'on' : ''}${i === st - 1 ? ' cur' : ''}">${l}</span>`).join('')}</div>`;
+  };
+  const coverable = q => q.cover_note || q.status === 'accepted';
   function renderQuotes(){
     const host = $('#qList'); host.innerHTML = '';
     $('#waitBadge').hidden = !waiting.length; $('#waitBadge').textContent = waiting.length;
     if(qTab === 'quotations'){
-      if(!quotes.length){ host.innerHTML = `<div class="empty card">${FC.shipArt}<h3>No quotations yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
+      if(!quotes.length){ host.innerHTML = `<div class="empty card">${FC.shipArt}<h3>No shipments yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
       quotes.forEach(q => {
-        const d = q.data || {}, st = q.cover_note ? 'bound' : q.status;
-        const it = FC.el(`<div class="item${!q.seen_at ? ' new' : ''}">
-          <div><div class="route">${esc(d.originCountry || '')} → ${esc(d.destCountry || '')} <span class="chip ${esc(st)}">${esc(q.cover_note ? 'Covered' : qStatusLabel[q.status] || q.status)}</span></div>
-            <div class="t">${esc(d.goods || '')}</div>
-            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''}, ${esc(money2(d.total, d.currency))}${q.status === 'open' ? ', valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ', cover note ' + esc(q.cover_note.number) : ''}</div></div>
+        const d = q.data || {}, st = q.cover_note ? 'bound' : q.status, cls = claims.filter(c => c.indication_id === q.indication_id);
+        const it = FC.el(`<div class="item ship${!q.seen_at ? ' new' : ''}">
+          <div class="ship-main">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}
+            <div><div class="t">${esc(d.goods || '')}</div>
+            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''} · <b class="num">${esc(money2(d.total, d.currency))}</b>${q.status === 'open' ? ' · valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}${cls.length ? ' · <span class="chip pending">' + cls.length + ' claim' + (cls.length > 1 ? 's' : '') + '</span>' : ''}</div>
+            ${shipSteps(q)}</div></div>
           <div class="acts"></div></div>`);
         if(st === 'bound' || st === 'accepted'){
           const key = st + ':' + q.id, fresh = justStamped === q.id || !stampSeen(key);
@@ -607,19 +634,22 @@
         acts.appendChild(btn(q.status === 'open' ? 'Review & accept' : 'View', q.status === 'open' ? 'primary' : 'ghost', () => openQuote(q)));
         acts.appendChild(btn('Quotation PDF', 'ghost', b => pdfQuote(q, b)));
         if(q.cover_note) acts.appendChild(btn('Cover note PDF', 'ghost', b => pdfCover(q, b)));
+        if(coverable(q)) acts.appendChild(btn('Report a claim', 'claim', () => claimWizard(q)));
         host.appendChild(it);
       });
     }else if(qTab === 'waiting'){
       if(!waiting.length) host.innerHTML = '<div class="empty card">' + FC.shipArt + '<h3>Nothing waiting</h3><p>Requests you send appear here until the quotation is ready.</p></div>';
       waiting.forEach(r => {
-        const it = FC.el(`<div class="item"><div><div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} <span class="chip waiting">Waiting</span></div>
-          <div class="t">${esc(r.goods_description)}</div>
-          <div class="meta">${esc(r.ref || '')}, sum insured ${esc(money2(r.sum_insured, r.currency))}, requested ${esc(FC.ago(r.quote_requested_at))}</div></div><div class="acts"></div></div>`);
+        const it = FC.el(`<div class="item ship"><div class="ship-main">${miniRoute(r.origin_country, r.dest_country, r.conveyance)}<div><div class="t">${esc(r.goods_description)} <span class="chip waiting">Waiting</span></div>
+          <div class="meta">${esc(r.ref || '')} · sum insured ${esc(money2(r.sum_insured, r.currency))} · requested ${esc(FC.ago(r.quote_requested_at))}</div>
+          <div class="steps"><span class="on cur">Requested</span><span>Quoted</span><span>Accepted</span><span>Covered</span></div></div></div><div class="acts"></div></div>`);
         it.querySelector('.acts').appendChild(btn('Open', 'ghost', () => { go('new'); writeForm(r); current = r; renderResult(r, false); }));
         host.appendChild(it);
       });
+    }else if(qTab === 'claims'){
+      renderClaims(host);
     }else{
-      if(!invoices.length) host.innerHTML = '<div class="empty card"><h3>No invoices</h3><p>Premium invoices for bound shipments appear here.</p></div>';
+      if(!invoices.length) host.innerHTML = '<div class="empty card">' + FC.shipArt + '<h3>No invoices</h3><p>Premium invoices for bound shipments appear here.</p></div>';
       invoices.forEach(inv => {
         const it = FC.el(`<div class="item"><div><div class="t">Invoice ${esc(inv.number)} <span class="chip ${inv.paid_at ? 'paid' : 'pending'}">${inv.paid_at ? 'Paid' : 'Open'}</span></div>
           <div class="meta">${esc(money2(inv.amount, inv.currency))}${inv.due_date ? ', due ' + esc(FC.date(inv.due_date)) : ''}, issued ${esc(FC.date(inv.created_at))}</div></div><div class="acts"></div></div>`);
@@ -634,6 +664,232 @@
       });
     }
     const gn = host.querySelector('[data-go-new]'); if(gn) gn.addEventListener('click', () => go('new'));
+  }
+
+  // =================================================================== CLAIMS (customer)
+  const LOSS = {
+    damage:      { label:'Damage',               hint:'Broken, dented, crushed, scratched', ic:'<path d="M4 7l8-4 8 4v10l-8 4-8-4z"/><path d="M9 9l2 3-2 3M13 8l1 4 2 1"/>' },
+    wet:         { label:'Wet damage',           hint:'Rain, sea water, condensation', ic:'<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>' },
+    theft:       { label:'Theft / missing',      hint:'Packages or whole load missing', ic:'<rect x="4" y="10" width="16" height="10" rx="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/>' },
+    shortage:    { label:'Shortage',             hint:'Less weight or quantity delivered', ic:'<path d="M4 18h16M7 18V9M12 18V6M17 18v-4"/><path d="M17 8l2 2-2 2"/>' },
+    temperature: { label:'Temperature',          hint:'Reefer failure, spoiled goods', ic:'<path d="M10 14V5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 10v6"/>' },
+    total_loss:  { label:'Total loss',           hint:'Fire, sinking, accident, overboard', ic:'<path d="M12 3c2 3 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-8z"/>' },
+    other:       { label:'Something else',       hint:'Describe it in your own words', ic:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5M12 16.5h.01"/>' }
+  };
+  const lossIc = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${(LOSS[k] || LOSS.other).ic}</svg>`;
+  const CL_STATUS = { reported:'Reported', in_review:'In review', documents_requested:'Documents requested', surveyor_appointed:'Surveyor appointed', with_insurer:'With insurer', settled:'Settled', rejected:'Declined by insurer', closed:'Closed' };
+  FC.CL_STATUS = CL_STATUS; FC.LOSS = LOSS; FC.lossIc = lossIc;
+  const CL_FLOW = ['reported','in_review','with_insurer','settled'];
+  const clStep = s => s === 'documents_requested' || s === 'surveyor_appointed' ? 1 : s === 'rejected' || s === 'closed' ? 3 : Math.max(0, CL_FLOW.indexOf(s));
+  const STAGES = { loading:'At loading', transit:'During transport', transhipment:'At transhipment', storage:'In storage', delivery:'At delivery', unknown:'Not sure' };
+  const fmtSize = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+  function renderClaims(host){
+    const intro = FC.el(`<div class="claim-intro card"><div><h3>Something went wrong with a shipment?</h3><p class="small muted" style="margin:4px 0 0">Report it here in a few minutes, with photos. We guide you through the next steps and keep you updated.</p></div></div>`);
+    intro.appendChild(btn('Report a claim', 'claim', () => claimWizard(null)));
+    host.appendChild(intro);
+    if(!claims.length){ host.appendChild(FC.el(`<div class="empty card">${FC.shipArt}<h3>No claims</h3><p>Good news: nothing reported so far.</p></div>`)); return; }
+    claims.forEach(c => {
+      const s = c.shipment || {}, step = clStep(c.status), done = ['settled','rejected','closed'].includes(c.status), last = (c.events || []).slice(-1)[0];
+      const it = FC.el(`<div class="item claim-card click" tabindex="0">
+        <div class="cl-ic t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div>
+        <div><div class="t">${esc((LOSS[c.loss_type] || {}).label || 'Claim')} · ${esc(s.goods || '')} <span class="chip ${done ? (c.status === 'settled' ? 'paid' : 'neutral') : 'pending'}">${esc(CL_STATUS[c.status] || c.status)}</span></div>
+          <div class="meta">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''} · reported ${esc(FC.date(c.created_at))}${last ? ' · last update ' + esc(FC.ago(last.created_at)) : ''}</div>
+          <div class="cl-track"><i style="width:${[8, 40, 72, 100][step]}%"></i>${['Reported','In review','With insurer', c.status === 'rejected' ? 'Declined' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<span class="${i <= step ? 'on' : ''}" style="left:${[0, 34, 67, 100][i]}%">${l}</span>`).join('')}</div></div>
+        <div class="acts"></div></div>`);
+      it.querySelector('.acts').appendChild(btn('Open', 'ghost', () => openClaim(c.id)));
+      it.addEventListener('click', e => { if(!e.target.closest('button')) openClaim(c.id); });
+      it.addEventListener('keydown', e => { if(e.key === 'Enter' && e.target === it) openClaim(c.id); });
+      host.appendChild(it);
+    });
+  }
+  // upload files to storage and register them on the claim
+  async function uploadClaimFiles(claimId, files, onProgress){
+    let ok = 0;
+    for(let i = 0; i < files.length; i++){
+      const f = files[i], safe = f.name.replace(/[^\w.\-]+/g, '_').slice(-80), path = `${profile.id}/${claimId}/${Date.now()}_${i}_${safe}`;
+      const up = await sb.storage.from('claims').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert:false });
+      if(!up.error){ const r = await sb.rpc('add_claim_file', { p_claim_id: claimId, p_path: path, p_name: f.name, p_size: f.size, p_mime: f.type || '' }); if(!r.error) ok++; }
+      if(onProgress) onProgress(i + 1, files.length);
+    }
+    return ok;
+  }
+  const fileDrop = (onAdd) => {
+    const el = FC.el(`<label class="up-drop cl-drop" tabindex="0"><input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.txt,.heic" hidden>
+      <span class="cl-drop-ic">${FC.icon.upload}</span><b>Add photos and documents</b><span class="xs muted">Drop files here or tap to choose · photos of the damage, packing and labels, delivery receipt with remarks, bill of lading / CMR / AWB, invoice, survey report · max. 20 MB each</span></label>`);
+    const inp = el.querySelector('input');
+    el.addEventListener('keydown', e => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); inp.click(); } });
+    ['dragenter','dragover'].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.add('over'); }));
+    ['dragleave','drop'].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.remove('over'); }));
+    el.addEventListener('drop', e => onAdd(Array.from(e.dataTransfer.files)));
+    inp.addEventListener('change', () => { onAdd(Array.from(inp.files)); inp.value = ''; });
+    return el;
+  };
+  const thumbs = (files, onRemove) => {
+    const g = FC.el('<div class="cl-thumbs"></div>');
+    files.forEach((f, i) => {
+      const isImg = /^image\//.test(f.type) && !/heic/i.test(f.type);
+      const t = FC.el(`<div class="cl-thumb">${isImg ? '<img alt="">' : `<span class="cl-doc">${esc((f.name.split('.').pop() || 'file').toUpperCase().slice(0, 4))}</span>`}<span class="cl-fn">${esc(f.name)}</span><span class="xs muted">${esc(fmtSize(f.size))}</span>${onRemove ? '<button type="button" class="cl-x" aria-label="Remove">&times;</button>' : ''}</div>`);
+      if(isImg){ const u = URL.createObjectURL(f); const img = t.querySelector('img'); img.src = u; img.onload = () => URL.revokeObjectURL(u); }
+      if(onRemove) t.querySelector('.cl-x').addEventListener('click', () => onRemove(i));
+      g.appendChild(t);
+    });
+    return g;
+  };
+  // ---- the claim wizard ----
+  function claimWizard(preQ){
+    const eligible = quotes.filter(coverable);
+    if(!eligible.length){
+      FC.dialog({ title:'Report a claim', body:`<div class="empty" style="padding:10px 0">${FC.shipArt}<h3>No covered shipment yet</h3><p>Claims can be reported for shipments with an accepted quotation or a cover note. If your shipment was insured another way, write to us via the feedback button and we help right away.</p></div>`, actions:[{ label:'Close', kind:'primary', value:null }] });
+      return;
+    }
+    const st = { step: preQ ? 1 : 0, q: preQ || (eligible.length === 1 ? eligible[0] : null), loss_type:'', transit_stage:'', incident_date:'', discovered_date:FC.today(), place:'',
+      description:'', estimated_amount:'', currency: ((preQ || eligible[0]).data || {}).currency || 'EUR', goods_location:'', carrier_notified:false, receipt_remarks:false,
+      contact_name: profile.full_name || '', contact_phone: profile.phone || '', files:[] };
+    if(!preQ && st.q) st.step = 1;
+    const STEPS = ['Shipment', 'What happened', 'Details', 'Photos & documents', 'Review'];
+    const body = FC.el('<div class="wiz"></div>');
+    let box, closeFn, foot;
+    const err = t => { const e = body.querySelector('.wiz-err'); if(e) e.textContent = t || ''; return !t; };
+    const val = id => (body.querySelector('#' + id) || {}).value;
+    const save = () => {
+      const g = id => body.querySelector('#' + id);
+      if(st.step === 1){ st.incident_date = val('wzInc') || ''; st.discovered_date = val('wzDis') || ''; st.place = (val('wzPlace') || '').trim(); }
+      if(st.step === 2){ st.description = (val('wzDesc') || '').trim(); st.estimated_amount = val('wzAmt') ? FC.parseNum(val('wzAmt')) : ''; st.currency = val('wzCur') || st.currency;
+        st.goods_location = (val('wzLoc') || '').trim(); st.carrier_notified = g('wzCarr').checked; st.receipt_remarks = g('wzRem').checked;
+        st.contact_name = (val('wzCN') || '').trim(); st.contact_phone = (val('wzCP') || '').trim(); }
+    };
+    const check = () => {
+      if(st.step === 0 && !st.q) return err('Choose the shipment.');
+      if(st.step === 1){ if(!st.loss_type) return err('Choose what happened.'); if(st.incident_date && st.incident_date > FC.today()) return err('The date of the incident cannot lie in the future.'); }
+      if(st.step === 2){ if(st.description.length < 10) return err('Please describe in a few words what happened.'); if(st.estimated_amount !== '' && !(st.estimated_amount >= 0)) return err('Check the estimated amount.'); }
+      return err('');
+    };
+    const paint = () => {
+      const q = st.q, d = (q && q.data) || {};
+      const head = `<ol class="wiz-steps">${STEPS.map((l, i) => `<li class="${i < st.step ? 'done' : i === st.step ? 'cur' : ''}"><span>${i < st.step ? '✓' : i + 1}</span><em>${l}</em></li>`).join('')}</ol>`;
+      let inner = '';
+      if(st.step === 0){
+        inner = `<h3>Which shipment is affected?</h3><div class="wiz-ships">${eligible.map(x => { const dd = x.data || {}; return `<button type="button" class="wiz-ship${st.q && st.q.id === x.id ? ' sel' : ''}" data-q="${x.id}">${miniRoute(dd.originCountry, dd.destCountry, dd.conveyance)}<span><b>${esc(dd.goods || '')}</b><span class="xs muted">${esc(x.ref || '')}${x.cover_note ? ' · cover note ' + esc(x.cover_note.number) : ' · accepted'}</span></span></button>`; }).join('')}</div>`;
+      }else if(st.step === 1){
+        inner = `<div class="wiz-ctx">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}<span><b>${esc(d.goods || '')}</b><span class="xs muted">${esc(q.ref || '')}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}</span></span></div>
+          <h3>What happened?</h3><div class="loss-grid">${Object.entries(LOSS).map(([k, v]) => `<button type="button" class="loss${st.loss_type === k ? ' sel' : ''}" data-loss="${k}"><span class="loss-ic t-${k}">${lossIc(k)}</span><b>${esc(v.label)}</b><span>${esc(v.hint)}</span></button>`).join('')}</div>
+          <h3 style="margin-top:18px">When and where?</h3>
+          <div class="grid3"><div class="field"><label for="wzInc">Date of the incident <span class="muted">(if known)</span></label><input id="wzInc" type="date" max="${FC.today()}" value="${esc(st.incident_date)}"></div>
+            <div class="field"><label for="wzDis">Discovered on</label><input id="wzDis" type="date" max="${FC.today()}" value="${esc(st.discovered_date)}"></div>
+            <div class="field"><label for="wzPlace">Place</label><input id="wzPlace" maxlength="200" placeholder="e.g. Port of Hamburg, consignee's warehouse" value="${esc(st.place)}"></div></div>
+          <div class="field"><span class="lbl">Stage of the transport</span><div class="seg" id="wzStage">${Object.entries(STAGES).map(([k, l]) => `<button type="button" role="radio" data-v="${k}" aria-checked="${st.transit_stage === k}">${esc(l)}</button>`).join('')}</div></div>`;
+      }else if(st.step === 2){
+        inner = `<h3>Tell us more</h3>
+          <div class="field"><label for="wzDesc">What happened, and what is affected?</label><textarea id="wzDesc" rows="5" maxlength="4000" placeholder="e.g. On unloading at the consignee 3 of 12 crates showed fork-lift damage, one machine has a broken housing. Remarks were noted on the CMR.">${esc(st.description)}</textarea><span class="hint">Short and factual is perfect. You can add more later.</span></div>
+          <div class="grid3"><div class="field" style="grid-column:span 2"><label for="wzAmt">Estimated loss <span class="muted">(rough figure is fine)</span></label><input id="wzAmt" inputmode="decimal" placeholder="e.g. 12,500" value="${st.estimated_amount !== '' ? esc(st.estimated_amount) : ''}"></div>
+            <div class="field"><label for="wzCur">Currency</label><select id="wzCur"><option ${st.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${st.currency === 'USD' ? 'selected' : ''}>USD</option></select></div></div>
+          <div class="field"><label for="wzLoc">Where are the goods now?</label><input id="wzLoc" maxlength="300" placeholder="Address where a surveyor can inspect them" value="${esc(st.goods_location)}"></div>
+          <label class="switch"><input type="checkbox" id="wzCarr" ${st.carrier_notified ? 'checked' : ''}><span><b>The carrier has been notified in writing</b><span>Shipping line, trucker, airline or forwarder who had the goods.</span></span></label>
+          <label class="switch"><input type="checkbox" id="wzRem" ${st.receipt_remarks ? 'checked' : ''}><span><b>Remarks were noted on the delivery receipt</b><span>e.g. "3 crates damaged" on the CMR, POD or interchange.</span></span></label>
+          <div class="grid2" style="margin-top:12px"><div class="field"><label for="wzCN">Contact person</label><input id="wzCN" maxlength="120" value="${esc(st.contact_name)}"></div>
+            <div class="field"><label for="wzCP">Phone</label><input id="wzCP" maxlength="60" value="${esc(st.contact_phone)}" placeholder="for the surveyor"></div></div>`;
+      }else if(st.step === 3){
+        inner = `<h3>Photos and documents</h3><p class="small muted" style="margin:2px 0 12px">The more we see, the faster the insurer can decide. You can also add files later.</p>`;
+      }else{
+        const t = LOSS[st.loss_type] || {};
+        inner = `<h3>Check and send</h3><div class="wiz-review">
+          <div class="wiz-ctx">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}<span><b>${esc(d.goods || '')}</b><span class="xs muted">${esc(q.ref || '')}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}</span></span></div>
+          <dl class="kv"><dt>What happened</dt><dd>${esc(t.label || '')}${st.transit_stage ? ', ' + esc(STAGES[st.transit_stage].toLowerCase()) : ''}</dd>
+          <dt>When / where</dt><dd>${esc([st.incident_date ? FC.date(st.incident_date) : '', st.discovered_date ? 'discovered ' + FC.date(st.discovered_date) : '', st.place].filter(Boolean).join(' · ') || '—')}</dd>
+          <dt>Description</dt><dd>${esc(st.description)}</dd>
+          <dt>Estimated loss</dt><dd>${st.estimated_amount !== '' ? esc(money2(st.estimated_amount, st.currency)) : 'Not known yet'}</dd>
+          ${st.goods_location ? `<dt>Goods are at</dt><dd>${esc(st.goods_location)}</dd>` : ''}
+          <dt>Carrier / receipt</dt><dd>${st.carrier_notified ? 'Carrier notified' : '<span class="warn-t">Carrier not yet notified</span>'} · ${st.receipt_remarks ? 'remarks on receipt' : 'no remarks noted'}</dd>
+          <dt>Contact</dt><dd>${esc([st.contact_name, st.contact_phone].filter(Boolean).join(', '))}</dd>
+          <dt>Files</dt><dd>${st.files.length ? st.files.length + ' file' + (st.files.length > 1 ? 's' : '') : 'None yet'}</dd></dl></div>
+          ${!st.carrier_notified ? '<div class="notice warn" style="margin:14px 0 0"><b>Please notify the carrier in writing today</b>Hold them liable for the loss. Time limits are short: sea 3 days, road (CMR) 7 days, air 14 days after delivery for damage that was not visible.</div>' : ''}`;
+      }
+      body.innerHTML = head + `<div class="wiz-pane">${inner}</div><div class="wiz-err err-msg"></div>`;
+      if(st.step === 3){
+        const pane = body.querySelector('.wiz-pane');
+        pane.appendChild(fileDrop(fs => { const big = fs.filter(f => f.size > 20971520); st.files = st.files.concat(fs.filter(f => f.size <= 20971520)).slice(0, 30); paint(); if(big.length) err(big.length + ' file(s) larger than 20 MB were skipped.'); }));
+        if(st.files.length) pane.appendChild(thumbs(st.files, i => { st.files.splice(i, 1); paint(); }));
+      }
+      body.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { st.q = eligible.find(x => String(x.id) === b.dataset.q); st.currency = (st.q.data || {}).currency || st.currency; paint(); }));
+      body.querySelectorAll('[data-loss]').forEach(b => b.addEventListener('click', () => { save(); st.loss_type = b.dataset.loss; body.querySelectorAll('[data-loss]').forEach(x => x.classList.toggle('sel', x === b)); err(''); }));
+      const sg = body.querySelector('#wzStage'); if(sg) sg.addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; st.transit_stage = st.transit_stage === b.dataset.v ? '' : b.dataset.v; sg.querySelectorAll('button').forEach(x => x.setAttribute('aria-checked', String(x.dataset.v === st.transit_stage))); });
+      const amt = body.querySelector('#wzAmt'); if(amt) FC.groupInput(amt);
+      paintFoot();
+    };
+    const paintFoot = () => {
+      if(!foot) return; foot.innerHTML = '';
+      const mk = (l, k, fn) => { const b = FC.el(`<button type="button" class="btn btn-${k}"><span class="spin"></span>${esc(l)}</button>`); b.addEventListener('click', () => fn(b)); foot.appendChild(b); return b; };
+      if(st.step > (preQ ? 1 : 0)) mk('Back', 'ghost', () => { save(); st.step--; paint(); });
+      else mk('Cancel', 'ghost', () => closeFn(null));
+      if(st.step < 4) mk(st.step === 3 ? (st.files.length ? 'Continue' : 'Skip for now') : 'Continue', 'primary', () => { save(); if(!check()) return; st.step++; paint(); box.querySelector('.dlg-body').scrollTop = 0; });
+      else mk('Send claim report', 'claim', submit);
+    };
+    const submit = async (b) => {
+      busy(b, true);
+      const p = { indication_id: st.q.indication_id, loss_type: st.loss_type, transit_stage: st.transit_stage, incident_date: st.incident_date, discovered_date: st.discovered_date, place: st.place,
+        description: st.description, estimated_amount: st.estimated_amount === '' ? '' : st.estimated_amount, currency: st.currency, goods_location: st.goods_location,
+        carrier_notified: st.carrier_notified, receipt_remarks: st.receipt_remarks, contact_name: st.contact_name, contact_phone: st.contact_phone };
+      const { data, error } = await sb.rpc('report_claim', { p });
+      if(error){ busy(b, false); err(FC.errText(error, 'The claim could not be sent. Please try again.')); return; }
+      let up = 0;
+      if(st.files.length){ b.lastChild.textContent = 'Uploading files…'; up = await uploadClaimFiles(data.id, st.files, (k, n) => { b.lastChild.textContent = `Uploading ${k} / ${n}…`; }); }
+      busy(b, false);
+      body.innerHTML = `<div class="wiz-done"><svg class="tick big" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
+        <h2>Claim reported</h2><p>Your reference is <b>${esc(data.ref)}</b>${st.files.length ? ` · ${up} of ${st.files.length} file${st.files.length > 1 ? 's' : ''} uploaded` : ''}. We are on it and get back to you shortly.</p>
+        <ol class="next-steps"><li><b>Keep the goods and the packing</b><span>Do not dispose of or repair anything before the surveyor or we agree.</span></li>
+          <li><b>Hold the carrier liable in writing</b><span>Short letter or e-mail to the carrier that had the goods. We can send you a template.</span></li>
+          <li><b>We appoint a surveyor if needed</b><span>You see every step and message under My shipments → Claims.</span></li></ol></div>`;
+      foot.innerHTML = '';
+      const cb = FC.el('<button type="button" class="btn btn-primary">View my claim</button>'); cb.addEventListener('click', async () => { closeFn(true); await loadQuotes(); setQTab('claims'); openClaim(data.id); }); foot.appendChild(cb);
+    };
+    FC.dialog({ title:'Report a claim', wide:true, body, actions:[], onOpen: (b, c) => { box = b; closeFn = c; foot = b.querySelector('.dlg-foot'); b.classList.add('wiz-dlg'); paint(); } })
+      .then(v => { if(v) return; if(qTab === 'claims') loadQuotes(); });
+  }
+  // ---- claim detail with messages and files ----
+  async function openClaim(id){
+    const c = claims.find(x => x.id === id); if(!c) return;
+    const s = c.shipment || {}, step = clStep(c.status);
+    const body = FC.el('<div class="claim-view"></div>');
+    let extra = [];
+    const paint = async () => {
+      const files = c.files || [];
+      body.innerHTML = `<div class="cv-head"><div class="cl-ic big t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div><div><b>${esc((LOSS[c.loss_type] || {}).label || 'Claim')}</b> · ${esc(s.goods || '')}<div class="xs muted">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''}${c.insurer_claim_no ? ' · insurer claim no. ' + esc(c.insurer_claim_no) : ''}</div></div><span class="chip ${c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending'}">${esc(CL_STATUS[c.status])}</span></div>
+        <ol class="cv-steps">${['Reported','In review','With insurer', c.status === 'rejected' ? 'Declined' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span></span>${l}</li>`).join('')}</ol>
+        ${c.settled_amount != null ? `<div class="notice ok" style="margin:0 0 14px"><b>Settled: ${esc(money2(c.settled_amount, c.currency))}</b>The insurer has agreed the claim.</div>` : ''}
+        <div class="cv-grid"><div><h3>Messages</h3><div class="chat">${(c.events || []).map(e => e.author_role === 'system' ? `<div class="sys">${esc(e.body || '')} · ${esc(FC.dateTime(e.created_at))}</div>`
+            : `<div class="msg ${e.author_role === 'client' ? 'me' : 'them'}">${e.status ? `<span class="chip pending">${esc(CL_STATUS[e.status] || e.status)}</span>` : ''}${e.body ? `<p>${esc(e.body)}</p>` : ''}<span class="xs">${esc(e.author_role === 'client' ? 'You' : (e.author_name || 'FREIGHTCON'))} · ${esc(FC.dateTime(e.created_at))}</span></div>`).join('')}</div>
+          ${['closed','rejected','settled'].includes(c.status) ? '' : `<div class="composer"><textarea id="cvMsg" rows="2" maxlength="4000" placeholder="Write to us, e.g. new information or the survey date"></textarea><div class="composer-row"><label class="btn btn-ghost btn-sm" style="cursor:pointer">${FC.icon.upload}Attach<input type="file" id="cvFiles" multiple hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.txt,.heic"></label><span class="xs muted" id="cvPicked"></span><span style="flex:1"></span><button type="button" class="btn btn-primary btn-sm" id="cvSend"><span class="spin"></span>${FC.icon.send}Send</button></div></div>`}</div>
+          <div><h3>Details</h3><dl class="kv"><dt>Reported</dt><dd>${esc(FC.dateTime(c.created_at))}</dd>
+            ${c.incident_date ? `<dt>Incident</dt><dd>${esc(FC.date(c.incident_date))}</dd>` : ''}${c.place ? `<dt>Place</dt><dd>${esc(c.place)}</dd>` : ''}
+            ${c.transit_stage ? `<dt>Stage</dt><dd>${esc(STAGES[c.transit_stage] || c.transit_stage)}</dd>` : ''}
+            <dt>Description</dt><dd>${esc(c.description)}</dd>
+            <dt>Estimated loss</dt><dd>${c.estimated_amount != null ? esc(money2(c.estimated_amount, c.currency)) : 'Not stated'}</dd>
+            ${c.goods_location ? `<dt>Goods at</dt><dd>${esc(c.goods_location)}</dd>` : ''}</dl>
+            <h3 style="margin-top:14px">Files (${files.length})</h3><div class="cl-thumbs" id="cvThumbs">${files.length ? '' : '<p class="xs muted" style="margin:0">No files yet.</p>'}</div></div></div>`;
+      // thumbnails with signed links
+      const th = body.querySelector('#cvThumbs');
+      if(files.length){
+        const signed = await sb.storage.from('claims').createSignedUrls(files.map(f => f.path), 600).catch(() => ({ data:[] }));
+        files.forEach((f, i) => {
+          const u = ((signed.data || [])[i] || {}).signedUrl, img = /^image\//.test(f.mime || '') && !/heic/i.test(f.mime || '');
+          const a = FC.el(`<a class="cl-thumb" target="_blank" rel="noopener" ${u ? `href="${esc(u)}"` : ''}>${img && u ? `<img alt="" src="${esc(u)}">` : `<span class="cl-doc">${esc((f.name.split('.').pop() || 'file').toUpperCase().slice(0, 4))}</span>`}<span class="cl-fn">${esc(f.name)}</span><span class="xs muted">${f.uploaded_by === 'staff' ? 'from us · ' : ''}${f.size ? esc(fmtSize(f.size)) : ''}</span></a>`);
+          th.appendChild(a);
+        });
+      }
+      const chat = body.querySelector('.chat'); if(chat) chat.scrollTop = chat.scrollHeight;
+      const fin = body.querySelector('#cvFiles'); if(fin) fin.addEventListener('change', () => { extra = Array.from(fin.files).filter(f => f.size <= 20971520); body.querySelector('#cvPicked').textContent = extra.length ? extra.length + ' file(s) ready' : ''; });
+      const sendB = body.querySelector('#cvSend');
+      if(sendB) sendB.addEventListener('click', async () => {
+        const msg = body.querySelector('#cvMsg').value.trim(); if(!msg && !extra.length) return;
+        busy(sendB, true);
+        let n = 0; if(extra.length) n = await uploadClaimFiles(c.id, extra);
+        const { error } = await sb.rpc('add_claim_message', { p_claim_id: c.id, p_body: msg, p_files: n });
+        busy(sendB, false);
+        if(error){ toast(FC.errText(error, 'Could not send.'), 'error'); return; }
+        extra = []; const r = await sb.rpc('my_claims'); claims = r.data || claims; Object.assign(c, claims.find(x => x.id === c.id) || {}); paint(); toast('Sent.');
+      });
+    };
+    FC.dialog({ title: 'Claim ' + c.ref, wide:true, body, actions:[{ label:'Close', kind:'ghost', value:null }], onOpen: () => paint() }).then(() => { if(qTab === 'claims') renderQuotes(); });
   }
   function btn(label, kind, fn){
     const b = FC.el(`<button type="button" class="btn btn-${kind} btn-sm"><span class="spin"></span>${esc(label)}</button>`);
