@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-21x'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-22a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -176,7 +176,7 @@
     const step = t => { const k = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - k, 3); siShown = from + (to - from) * e; el.textContent = money2(Math.round(siShown * 100) / 100, cur); if(k < 1) siRaf = requestAnimationFrame(step); else siShown = to; };
     siRaf = requestAnimationFrame(step);
   }
-  let liveReady = false;
+  let liveReady = false, current = null;   // current: last result row
   function onFormChange(){
     const v = readForm();
     const com = commodities.find(c => c.id === v.commodity_id);
@@ -237,24 +237,38 @@
   { const h = new Date().getHours(), first = (profile.first_name || (profile.full_name || '').split(' ')[0] || '').trim();
     $('#nsHi').textContent = (h < 11 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : ''); }
   let laneKey = ''; liveReady = true;
+  // ---- geography: a point per country, exact points for known places (autocomplete list) ----
+  let CPTS = {}, PLACES = null, placesP = null;
+  fetch('assets/geo/country-points.json').then(r => r.json()).then(j => { CPTS = j; laneKey = ''; onFormChange(); }).catch(() => {});
+  const loadPlaces = () => placesP || (placesP = fetch('assets/geo/places.json').then(r => r.json()).then(j => { PLACES = j; laneKey = ''; onFormChange(); return j; }).catch(() => { placesP = null; return null; }));
+  const fold = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss').trim();
+  const findPlace = (cc, name) => { if(!PLACES || !cc || !name) return null; const n = fold(name), list = PLACES[cc] || []; return list.find(p => fold(p[0]) === n) || null; };
+  const pointOf = (cc, place) => { const p = findPlace(cc, place); if(p) return { lat:p[1], lon:p[2], exact:true }; const c = CPTS[cc]; return c ? { lat:c[0], lon:c[1], exact:false } : null; };
+  const globe = FC.Globe && $('#globeCv') ? FC.Globe.mount($('#globeCv')) : null;
+  const MODE = c => /^air/.test(c) ? 'air' : c === 'road' || c === 'rail' ? 'land' : 'sea';
   function paintLive(v){
-    if(!document.getElementById('nsLive')) return;   // the result card is showing instead
     const com = commodities.find(c => c.id === v.commodity_id);
     const need = [!!v.commodity_id, v.goods_description.length >= 2, !!v.origin_country, !!v.dest_country, isFinite(v.invoice_value) && v.invoice_value > 0];
-    const n = need.filter(Boolean).length;
-    $('#nsProg').style.width = (n / need.length * 100) + '%'; $('#nsProgTxt').textContent = n === need.length ? 'Ready to calculate' : n + ' of ' + need.length + ' details';
-    $('#nsLive').classList.toggle('ready', n === need.length); $('#nsCalc').disabled = n !== need.length;
-    // section ticks
+    const n = need.filter(Boolean).length, ready = n === need.length;
     const done = [need[0] && need[1], need[2] && need[3], need[4], !$('#fForCust').checked || v.insured_name.length >= 2, true, !!v.cover];
-    secs.forEach((x, i) => x.classList.toggle('done', !!done[i] && (i < 3 || n === need.length)));
-    // route: redraw only when it changes
-    const key = [v.origin_country, v.dest_country, v.conveyance].join('|');
-    if(key !== laneKey){
-      const was = laneKey; laneKey = key; const conv = FC.CONVEYANCE[v.conveyance] || {};
-      const end = (iso, place, to) => `<div class="end${to ? ' to' : ''}"><span class="iso${iso ? '' : ' ph'}">${esc(iso || '···')}</span><span class="place">${esc(place || (iso ? countryName(iso) : (to ? 'Destination' : 'Origin')))}</span></div>`;
-      $('#nsLane').innerHTML = end(v.origin_country, '', false) + FC.routeArc(v.conveyance, FC.icon[v.conveyance], conv.label) + end(v.dest_country, '', true);
-      FC.playRoute($('#nsLane .track'), !!(v.origin_country && v.dest_country) && was !== '' && was.split('|').slice(0, 2).join('|') !== key.split('|').slice(0, 2).join('|'));
+    secs.forEach((x, i) => x.classList.toggle('done', !!done[i] && (i < 3 || ready)));
+    // hero: route text, mode, distance
+    const end = (iso, place, b, sub, ph, phSub) => { $(b).textContent = iso ? (place || countryName(iso)) : ph; $(b).classList.toggle('ph', !iso); $(sub).textContent = iso ? (place ? countryName(iso) : iso) : phSub; };
+    end(v.origin_country, v.origin_place, '#glFrom', '#glFromP', 'From', 'Choose the origin');
+    end(v.dest_country, v.dest_place, '#glTo', '#glToP', 'To', 'Choose the destination');
+    $('#glMode').textContent = (FC.CONVEYANCE[v.conveyance] || {}).label || '';
+    const A = v.origin_country ? pointOf(v.origin_country, v.origin_place) : null, B = v.dest_country ? pointOf(v.dest_country, v.dest_place) : null;
+    $('#glDist').textContent = A && B && window.d3 && window.d3.geoDistance ? '≈ ' + Math.round(window.d3.geoDistance([A.lon, A.lat], [B.lon, B.lat]) * 6371 / 1.852).toLocaleString('en-GB') + ' nm great-circle' : '';
+    const key = [A && A.lat, A && A.lon, B && B.lat, B && B.lon, MODE(v.conveyance)].join('|');
+    if(globe && key !== laneKey){
+      laneKey = key;
+      const lab = (iso, place) => ({ label: place || countryName(iso), sub: place ? countryName(iso) : '' });
+      if(A && B) globe.setRoute(Object.assign({}, A, lab(v.origin_country, v.origin_place)), Object.assign({}, B, lab(v.dest_country, v.dest_place)), MODE(v.conveyance));
+      else { globe.clear(); if(A || B) globe.focus(A || B); }
     }
+    if(!document.getElementById('nsLive')) return;   // the result card is showing instead
+    $('#nsProg').style.width = (n / need.length * 100) + '%'; $('#nsProgTxt').textContent = ready ? 'Ready to calculate' : n + ' of ' + need.length + ' details';
+    $('#nsLive').classList.toggle('ready', ready); $('#nsCalc').disabled = !ready;
     const ph = t => `<span class="ph">${esc(t)}</span>`, cov = FC.COVER[v.cover] || {};
     const row = (l, val) => `<div><dt>${esc(l)}</dt><dd>${val}</dd></div>`;
     $('#nsFacts').innerHTML = row('Cargo', com ? esc(com.name) : ph('Choose the type of cargo'))
@@ -266,6 +280,40 @@
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
     $('#nsSi').textContent = isFinite(si) ? money2(si, v.currency) : '—';
   }
+  // ---- city / port suggestions: type a few letters, pick the place; free text is still fine ----
+  function attachPlaces(input, select){
+    const box = document.createElement('div'); box.className = 'ac'; box.hidden = true; box.setAttribute('role', 'listbox');
+    input.parentNode.style.position = 'relative'; input.parentNode.appendChild(box);
+    input.setAttribute('autocomplete', 'off'); input.setAttribute('aria-autocomplete', 'list');
+    let items = [], act = -1;
+    const close = () => { box.hidden = true; act = -1; input.setAttribute('aria-expanded', 'false'); };
+    const pick = it => { if(it.cc !== select.value){ select.value = it.cc; } input.value = it.name; close(); onFormChange(); input.dispatchEvent(new Event('change', { bubbles:true })); };
+    const paint = () => {
+      box.innerHTML = items.map((it, i) => `<button type="button" role="option" class="ac-it${i === act ? ' on' : ''}" data-i="${i}"><b>${esc(it.name)}</b><span>${esc(countryName(it.cc))}</span></button>`).join('');
+      box.hidden = !items.length; input.setAttribute('aria-expanded', String(!!items.length));
+    };
+    const search = async () => {
+      const q = fold(input.value); if(q.length < 2){ items = []; paint(); return; }
+      const P = PLACES || await loadPlaces(); if(!P) return;
+      const cc = select.value, out = [], seen = new Set();
+      const scan = (code, list) => { for(const p of list){ const f = fold(p[0]); if(f.startsWith(q) && !seen.has(code + f)){ seen.add(code + f); out.push({ name:p[0], cc:code }); if(out.length >= 8) return true; } } return false; };
+      if(cc){ scan(cc, P[cc] || []); if(out.length < 8){ for(const p of (P[cc] || [])){ const f = fold(p[0]); if(!f.startsWith(q) && f.includes(q) && !seen.has(cc + f)){ seen.add(cc + f); out.push({ name:p[0], cc }); if(out.length >= 8) break; } } } }
+      else { for(const code of Object.keys(P)){ if(scan(code, P[code])) break; } }
+      items = out; act = -1; paint();
+    };
+    input.addEventListener('focus', () => { loadPlaces(); });
+    input.addEventListener('input', search);
+    input.addEventListener('keydown', e => {
+      if(box.hidden) return;
+      if(e.key === 'ArrowDown'){ act = Math.min(items.length - 1, act + 1); paint(); e.preventDefault(); }
+      else if(e.key === 'ArrowUp'){ act = Math.max(0, act - 1); paint(); e.preventDefault(); }
+      else if(e.key === 'Enter' && act >= 0){ pick(items[act]); e.preventDefault(); }
+      else if(e.key === 'Escape'){ close(); }
+    });
+    box.addEventListener('mousedown', e => { const b = e.target.closest('[data-i]'); if(b){ e.preventDefault(); pick(items[+b.dataset.i]); } });
+    input.addEventListener('blur', () => setTimeout(close, 120));
+  }
+  attachPlaces($('#fOriginPlace'), $('#fOrigin')); attachPlaces($('#fDestPlace'), $('#fDest'));
   $('#nsCalc').addEventListener('click', () => form.requestSubmit());
   $('#nsHelp').addEventListener('click', () => { const fb = $('#feedbackBtn'); if(fb) fb.click(); });
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
@@ -287,7 +335,6 @@
   }
 
   // ---------- calculation ----------
-  let current = null;       // last result row
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const v = readForm(); if(!validate(v)) return;
@@ -602,7 +649,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21x');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-22a');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -612,7 +659,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21x').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-22a').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];

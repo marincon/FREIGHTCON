@@ -39,8 +39,11 @@
   // route arc for the result card: air flies a high arc, sea a flat one, road and rail a straight line
   FC.routeArc = (conv, iconSvg, label) => {
     const d = /^air/.test(conv) ? 'M8 54 Q130 -18 252 54' : /^sea/.test(conv) ? 'M8 46 Q130 12 252 46' : 'M8 38 L252 38';
+    const id = 'rc' + (FC._rc = (FC._rc || 0) + 1);
+    // the drawn part of the route is revealed by a clip rectangle (dash tricks break with non-scaling strokes)
     return `<div class="track arc" data-conv="${FC.esc(conv)}"><svg viewBox="0 0 260 64" preserveAspectRatio="none" aria-hidden="true">
-      <path class="base" d="${d}" pathLength="100" vector-effect="non-scaling-stroke"/><path class="trail" d="${d}" pathLength="100" vector-effect="non-scaling-stroke"/>
+      <defs><clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect class="rc" x="0" y="-40" width="260" height="140"/></clipPath></defs>
+      <path class="base" d="${d}" vector-effect="non-scaling-stroke"/><path class="trail" d="${d}" clip-path="url(#${id})" vector-effect="non-scaling-stroke"/>
       ${/^sea/.test(conv) ? '<path class="waves" d="M70 60q8-5 16 0t16 0 16 0 16 0 16 0 16 0 16 0 16 0" vector-effect="non-scaling-stroke"/>' : ''}
       </svg><i class="dot a"></i><i class="dot b"></i><span class="mode" title="${FC.esc(label || '')}">${iconSvg || ''}</span></div>`;
   };
@@ -50,7 +53,7 @@
     const L = path.getTotalLength(), vb = svg.viewBox.baseVal;
     const place = (el, t) => { const p = path.getPointAtLength(L * t); el.style.left = (p.x / vb.width * 100) + '%'; el.style.top = (p.y / vb.height * 100) + '%'; };
     place(dotA, 0); place(dotB, 1);
-    const draw = (k) => { path.style.strokeDasharray = '100'; path.style.strokeDashoffset = String(100 - 100 * k); };
+    const rc = track.querySelector('.rc'); const draw = (k) => { if(rc) rc.setAttribute('width', String(Math.max(0, 260 * k))); };
     // signature animation: runs unless animations are switched off in the account menu (slow, no flashing)
     if(!animate || FC.motionPref() === 'off'){ draw(1); place(mode, .5); return; }
     const t0 = performance.now(), D = 1300, ease = x => 1 - Math.pow(1 - x, 3);
