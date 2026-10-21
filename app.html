@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-10-21q">
+<meta name="fc-version" content="2026-10-21s">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-10-21q">
+<link rel="stylesheet" href="assets/style.css?v=2026-10-21s">
 </head>
 <body>
 <div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
@@ -43,10 +43,25 @@
 <main>
   <!-- ============ NEW SHIPMENT ============ -->
   <section id="view-new" data-view-panel="new">
-    <div class="view-head">
-      <div><h1>New shipment</h1><p>Describe the cargo and route. The indication appears as soon as you calculate.</p></div>
-      <div class="toolbar" style="margin:0"><button class="btn btn-ghost btn-sm" data-view="upload" type="button">Upload Excel / CSV</button><button class="btn btn-ghost btn-sm" id="clearBtn" type="button">Start over</button></div>
+    <div class="hub-hero ns-hero">
+      <svg class="hub-art" viewBox="0 0 600 220" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <path class="hub-route" d="M-20 150 C 140 40, 280 190, 420 80 S 570 40, 640 60" />
+        <path class="hub-route r2" d="M-20 190 C 170 110, 310 220, 470 130 S 590 100, 640 110" />
+        <circle class="hub-blip" r="5"><animateMotion dur="10s" repeatCount="indefinite" path="M-20 150 C 140 40, 280 190, 420 80 S 570 40, 640 60"/></circle>
+        <circle class="hub-blip b2" r="4"><animateMotion dur="13s" begin="-5s" repeatCount="indefinite" path="M-20 190 C 170 110, 310 220, 470 130 S 590 100, 640 110"/></circle>
+      </svg>
+      <div class="hub-top">
+        <div><span class="hub-hi" id="nsHi">New shipment</span><h1>Insure a shipment</h1><p>Describe cargo, route and value. Your indication appears in seconds, the binding quotation follows with one click.</p></div>
+        <div class="hub-acts"><button class="btn btn-light" type="button" data-view="upload">Upload Excel / CSV</button><button class="btn btn-ghost-light" id="clearBtn" type="button">Start over</button></div>
+      </div>
+      <div class="ns-trust">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg><b>Indication in seconds</b></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><b>Institute Cargo Clauses 2009</b></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg><b>Sea, air, road &amp; rail worldwide</b></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg><b>Cover note online</b></span>
+      </div>
     </div>
+    <div class="ns-again-strip" id="nsRecent" hidden><span class="ns-again-lbl">Ship it again</span><div id="nsRecentList"></div></div>
     <div class="workspace">
       <form class="card" id="shipForm" novalidate>
         <div class="form-sec">
@@ -120,13 +135,15 @@
       </form>
 
       <div id="resultHost">
-        <div class="card howto" id="howto">
-          <h2>How it works</h2>
-          <ol>
-            <li><div><b>Describe the shipment</b><span>Cargo, route, value and the cover you need.</span></div></li>
-            <li><div><b>See the indication</b><span>The premium appears right away. Download it as a PDF for your records or your customer.</span></div></li>
-            <li><div><b>Request a quotation</b><span>One click sends it to us. You accept the quotation here and receive the cover note.</span></div></li>
-          </ol>
+        <div class="ns-side" id="howto">
+          <div class="card ns-live" id="nsLive">
+            <div class="ns-live-top"><span>Your shipment</span><span class="ns-prog-txt" id="nsProgTxt">0 of 5 details</span></div>
+            <div class="ns-prog"><i id="nsProg"></i></div>
+            <div class="lane ns-lane" id="nsLane"></div>
+            <dl class="ns-facts" id="nsFacts"></dl>
+            <div class="ns-live-foot"><div><span class="xs muted">Sum insured</span><b id="nsSi">—</b></div><button class="btn btn-primary" type="button" id="nsCalc" disabled><span class="spin"></span>Calculate indication</button></div>
+          </div>
+          <div class="card ns-help"><span class="ns-help-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6A8 8 0 1 1 21 12z"/></svg></span><div><b>Not sure about something?</b><span class="xs muted">Unusual cargo, high values or special routes: write to us, a cargo broker answers personally.</span></div><button class="btn btn-ghost btn-sm" type="button" id="nsHelp">Ask us</button></div>
         </div>
       </div>
     </div>
@@ -187,8 +204,8 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-10-21q"></script>
-<script src="assets/pdf.js?v=2026-10-21q"></script>
-<script src="assets/app.js?v=2026-10-21q"></script>
+<script src="assets/core.js?v=2026-10-21s"></script>
+<script src="assets/pdf.js?v=2026-10-21s"></script>
+<script src="assets/app.js?v=2026-10-21s"></script>
 </body>
 </html>
