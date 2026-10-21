@@ -883,3 +883,19 @@ a.cl-thumb:hover{border-color:var(--amber)}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) body{background:radial-gradient(1100px 650px at 80% 0%,#0B2E5C 0%,transparent 60%),radial-gradient(900px 600px at 0% 100%,#071D3D 0%,transparent 70%),var(--fog);background-attachment:fixed}}
 :root[data-theme="dark"] .topbar{background:rgba(3,18,42,.82);backdrop-filter:blur(10px)}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .topbar{background:rgba(3,18,42,.82);backdrop-filter:blur(10px)}}
+
+/* premium panel: one piece with the card header instead of a box floating inside the card */
+#resultHost .premium.pr-hero{margin:0;border-radius:0;box-shadow:none;padding:24px 26px 22px;
+  background:radial-gradient(520px 260px at 100% 0%,rgba(0,159,227,.28),transparent 70%),linear-gradient(180deg,#003A79 0%,#022C5E 100%)}
+:root[data-theme="dark"] #resultHost .premium.pr-hero{background:radial-gradient(520px 260px at 100% 0%,rgba(0,159,227,.25),transparent 70%),linear-gradient(180deg,#0B3466 0%,#082A55 100%)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) #resultHost .premium.pr-hero{background:radial-gradient(520px 260px at 100% 0%,rgba(0,159,227,.25),transparent 70%),linear-gradient(180deg,#0B3466 0%,#082A55 100%)}}
+#resultHost .consign-top{border-bottom:1px solid rgba(255,255,255,.1)}
+#resultHost .pr-hero::after{display:none}
+#resultHost .pr-lbl{text-transform:none;letter-spacing:0;font-size:var(--fs-sm);font-weight:700;color:#9FD7F5}
+#resultHost .pr-hero .amount{text-shadow:none;margin:4px 0 6px}
+#resultHost .pr-side{gap:0;align-self:stretch;align-content:center;border-left:1px solid rgba(255,255,255,.14);padding-left:22px}
+#resultHost .pr-side div{background:none;border:0;border-radius:0;border-bottom:1px solid rgba(255,255,255,.12);padding:9px 0}
+#resultHost .pr-side div:last-child{border-bottom:0}
+#resultHost .lane.drawn ~ .pr-hero .amount{animation:none}
+@media (max-width:640px){#resultHost .pr-side{border-left:0;padding-left:0;border-top:1px solid rgba(255,255,255,.14)}}
+#resultHost .pr-hero + .facts{margin-top:0;border-top:0}
