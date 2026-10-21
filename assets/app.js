@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-21t'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-21x'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -268,21 +268,6 @@
   }
   $('#nsCalc').addEventListener('click', () => form.requestSubmit());
   $('#nsHelp').addEventListener('click', () => { const fb = $('#feedbackBtn'); if(fb) fb.click(); });
-  // "ship it again": the last three different shipments
-  (async () => {
-    try{
-      const { data } = await sb.rpc('my_history', { p_limit: 20 }); const seen = new Set(), list = [];
-      (data || []).forEach(r => { const k = [r.commodity_id, r.origin_country, r.dest_country, r.conveyance].join('|'); if(!seen.has(k) && list.length < 3){ seen.add(k); list.push(r); } });
-      if(!list.length) return;
-      $('#nsRecentList').innerHTML = list.map((r, i) => `<button type="button" class="ns-again" data-i="${i}"><span class="mini-route"><b>${esc(r.origin_country)}</b><span class="mr-line"><i></i><em>${FC.icon[r.conveyance] || ''}</em><i></i></span><b>${esc(r.dest_country)}</b></span><span class="ns-again-t"><b>${esc(r.goods_description)}</b><span class="xs muted">${esc(money2(r.sum_insured, r.currency))} · ${esc(FC.date(r.created_at))}</span></span><span class="ns-again-go">Use</span></button>`).join('');
-      $$('#nsRecentList .ns-again').forEach(b => b.addEventListener('click', () => { const r = list[+b.dataset.i]; writeForm(Object.assign({}, r, { departure_date: null })); toast('Details copied. Check value and date, then calculate.'); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
-      $('#nsAgainN').textContent = '(' + list.length + ')';
-      const setOpen = on => { $('#nsAgainBtn').setAttribute('aria-expanded', String(on)); $('#nsRecentList').hidden = !on; try{ localStorage.setItem('freightcon-again', on ? '1' : '0'); }catch(e){} };
-      let open0 = false; try{ open0 = localStorage.getItem('freightcon-again') === '1'; }catch(e){}
-      setOpen(open0); $('#nsAgainBtn').addEventListener('click', () => setOpen($('#nsAgainBtn').getAttribute('aria-expanded') !== 'true'));
-      $('#nsRecent').hidden = false;
-    }catch(e){}
-  })();
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
   form.addEventListener('input', e => { const f = e.target.closest('.field'); if(f) f.classList.remove('invalid'); });
   onFormChange();
@@ -329,13 +314,13 @@
     decorate(r);
     const conv = FC.CONVEYANCE[r.conveyance] || {}, cov = FC.COVER[r.cover] || {};
     const land = r.conveyance === 'road' || r.conveyance === 'rail';
-    let body = '';
+    let body = '', hero = '';
     if(r.status === 'quoted'){
-      body = `<div class="premium">
-          <div><div class="xs muted">Indicative premium</div><div class="amount">${esc(money2(r.premium, r.currency))}</div><div class="sub">excl. insurance tax${r.min_applied ? ', minimum premium' : ''}</div></div>
-          <div class="rate">Rate on sum insured<b>${esc(FC.pct(r.rate_pct))}</b></div>
-        </div>
-        ${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
+      hero = `<div class="premium pr-hero">
+          <div class="pr-main"><span class="pr-lbl">Your indicative premium</span><div class="amount">${esc(money2(r.premium, r.currency))}</div><span class="pr-sub">excl. insurance tax${r.min_applied ? ' · minimum premium applies' : ''}${Number(r.discount_pct) > 0 ? ' · incl. your ' + esc(Number(r.discount_pct)) + ' % discount' : ''}</span></div>
+          <div class="pr-side"><div><span>Rate on sum insured</span><b>${esc(FC.pct(r.rate_pct))}</b></div><div><span>Sum insured</span><b>${esc(money2(r.sum_insured, r.currency))}</b></div><div><span>Cover</span><b>${esc((cov.clause || '').replace('Institute Cargo Clauses', 'ICC'))}</b></div></div>
+        </div>`;
+      body = `${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
         ${r.conditions ? `<div class="notice info"><b>Special conditions</b>${esc(r.conditions)}</div>` : ''}`;
     }else if(r.status === 'on_request'){
       body = `<div class="notice warn"><b>We quote this shipment individually</b>It cannot be priced automatically because:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>`;
@@ -350,6 +335,7 @@
         ${FC.routeArc(r.conveyance, FC.icon[r.conveyance], conv.label)}
         <div class="end to"><span class="iso">${esc(r.dest_country)}</span><span class="place">${esc(r.dest_place || r.dest_name)}</span><span class="cty">${esc(r.dest_place ? r.dest_name : '')}</span></div>
       </div>
+      ${hero}
       <dl class="facts">
         ${r.insured_name ? `<div><dt>Assured</dt><dd>${esc(r.insured_name)}<span class="xs muted" style="display:block">You are the policyholder</span></dd></div>` : ''}
         ${r.customer_ref ? `<div><dt>Your reference</dt><dd>${esc(r.customer_ref)}</dd></div>` : ''}
@@ -612,10 +598,11 @@
     $$('[data-view]').forEach(b => { if(b.classList.contains('internal-pill')) b.setAttribute('aria-pressed', String(v === 'admin')); else if(b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     if(location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
     if(v === 'quotes') loadQuotes();
+    paintQuoteFly();
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21t');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21x');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -625,7 +612,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21t').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21x').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -648,7 +635,7 @@
     const val = {}; covered.forEach(q => { const d = q.data || {}; val[d.currency] = (val[d.currency] || 0) + Number(d.sumInsured || 0); });
     const tile = (n, label, sub, tab, ic) => `<button type="button" class="kpi" data-kpi="${tab}"><span class="kpi-ic">${FC.icon[ic]}</span><b data-count="${n}">${n}</b><span>${esc(label)}</span>${sub ? `<i>${esc(sub)}</i>` : ''}</button>`;
     $('#hubKpis').innerHTML = tile(covered.length, 'Covered shipments', Object.keys(val).length ? Object.entries(val).map(([c, v]) => money(v, c)).join(' · ') + ' insured' : '', 'quotations', 'shield')
-      + tile(open.length, 'Quotations to review', open.length ? 'Accept them before they expire' : '', 'quotations', 'doc')
+      + tile(open.length, 'Quotations to review', open.length ? 'Valid for a limited time' : '', 'quotations', 'doc')
       + tile(waiting.length, 'Waiting for quotation', '', 'waiting', 'clock')
       + tile(openCl.length, 'Open claims', claims.length ? claims.length + ' reported in total' : '', 'claims', 'claim');
     $$('#hubKpis [data-kpi]').forEach(b => b.addEventListener('click', () => setQTab(b.dataset.kpi)));
@@ -685,7 +672,7 @@
           it.classList.add('has-stamp'); it.insertAdjacentHTML('beforeend', `<span class="stamp ${st}${fresh ? ' fresh' : ''}" aria-hidden="true">${st === 'bound' ? 'Covered' : 'Accepted'}</span>`);
         }
         const acts = it.querySelector('.acts');
-        acts.appendChild(btn(q.status === 'open' ? 'Review & accept' : 'View', q.status === 'open' ? 'primary' : 'ghost', () => openQuote(q)));
+        acts.appendChild(btn(q.status === 'open' ? 'Review' : 'View', q.status === 'open' ? 'primary' : 'ghost', () => openQuote(q)));
         acts.appendChild(btn('Quotation PDF', 'ghost', b => pdfQuote(q, b)));
         if(q.cover_note) acts.appendChild(btn('Cover note PDF', 'ghost', b => pdfCover(q, b)));
         if(coverable(q)) acts.appendChild(btn('Report a claim', 'claim', () => claimWizard(q)));
@@ -1040,8 +1027,35 @@
     const { data } = await sb.rpc('my_quotations');
     const n = (data || []).filter(q => !q.seen_at || q.status === 'open').length;
     $('#quoteBadge').hidden = !n; $('#quoteBadge').textContent = n;
+    openQuotes = (data || []).filter(q => q.status === 'open' && new Date(q.valid_until) > Date.now());
+    paintQuoteFly();
   }
-  refreshBadges(); setInterval(refreshBadges, 120000);
+  // ---------- floating card on the start page: "you have a quotation to review" ----------
+  let openQuotes = [];
+  const flyDismissed = () => { try{ return JSON.parse(sessionStorage.getItem('freightcon-qfly') || '[]'); }catch(e){ return []; } };
+  const leftTime = t => { const ms = new Date(t) - Date.now(), h = Math.floor(ms / 36e5), d = Math.floor(h / 24);
+    return ms <= 0 ? 'expired' : d >= 1 ? `valid for ${d} day${d > 1 ? 's' : ''}${h % 24 ? ' ' + (h % 24) + ' h' : ''}` : h >= 1 ? `expires in ${h} h` : `expires in ${Math.max(1, Math.round(ms / 6e4))} min`; };
+  function paintQuoteFly(){
+    let el = document.getElementById('qFly');
+    const onStart = !$('#view-new').hidden, gone = flyDismissed(), show = onStart && openQuotes.length && openQuotes.some(q => !gone.includes(q.id));
+    if(!show){ if(el){ el.classList.add('out'); setTimeout(() => el && el.remove(), 260); } return; }
+    const q = openQuotes.slice().sort((a, b) => new Date(a.valid_until) - new Date(b.valid_until))[0], d = q.data || {}, more = openQuotes.length - 1;
+    const soon = new Date(q.valid_until) - Date.now() < 864e5;
+    const html = `<button type="button" class="qf-x" aria-label="Remind me later">&times;</button>
+      <div class="qf-head"><span class="qf-ic">${FC.icon.doc}<i></i></span><div><span class="qf-kicker">${openQuotes.length > 1 ? openQuotes.length + ' quotations are ready' : 'Your quotation is ready'}</span><b>Take a look at your offer</b></div></div>
+      <div class="qf-ship">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}<div class="qf-goods"><b>${esc(d.goods || '')}</b><span class="xs">${esc(q.ref || '')}</span></div></div>
+      <div class="qf-price"><div><span>Total premium</span><b>${esc(money2(d.total, d.currency))}</b></div><span class="qf-time${soon ? ' soon' : ''}">${FC.icon.clock}${esc(leftTime(q.valid_until))}</span></div>
+      <div class="qf-acts"><button type="button" class="btn btn-light qf-go">Review quotation</button>${more > 0 ? `<button type="button" class="btn btn-ghost-light qf-all">+${more} more</button>` : `<button type="button" class="btn btn-ghost-light qf-later">Later</button>`}</div>`;
+    const fresh = !el;
+    if(fresh){ el = document.createElement('aside'); el.id = 'qFly'; el.className = 'qfly'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+    el.innerHTML = html; el.classList.remove('out');
+    const dismiss = () => { try{ sessionStorage.setItem('freightcon-qfly', JSON.stringify(Array.from(new Set(flyDismissed().concat(openQuotes.map(x => x.id)))))); }catch(e){} paintQuoteFly(); };
+    el.querySelector('.qf-x').addEventListener('click', dismiss);
+    const later = el.querySelector('.qf-later'); if(later) later.addEventListener('click', dismiss);
+    const all = el.querySelector('.qf-all'); if(all) all.addEventListener('click', () => { go('quotes'); });
+    el.querySelector('.qf-go').addEventListener('click', async () => { await go('quotes'); openQuote(q); });
+  }
+  refreshBadges(); setInterval(refreshBadges, 60000);
 
   // ---------- account dialogs ----------
   async function openAccount(kind){
