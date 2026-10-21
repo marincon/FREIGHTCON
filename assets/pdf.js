@@ -6,22 +6,37 @@
 
   // Standard PDF fonts only cover WinAnsi: transliterate Cyrillic, map arrows, drop the rest
   const CYR = {'А':'A','Б':'B','В':'V','Г':'H','Ґ':'G','Д':'D','Е':'E','Є':'Ye','Ж':'Zh','З':'Z','И':'Y','І':'I','Ї':'Yi','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch','Ь':'','Ю':'Yu','Я':'Ya','Ы':'Y','Э':'E','Ё':'Yo','Ъ':''};
+  let RICH = false;   // true once the Calibri-compatible font (Carlito) is embedded: keeps ș, ł, ğ …
   const T = s => String(s == null ? '' : s)
     .replace(/[Ѐ-ӿ]/g, ch => { const u = ch.toUpperCase(); const t = CYR[u]; if(t == null) return '?'; return ch === u ? t : t.toLowerCase(); })
     .replace(/[→⟶➔]/g, '>').replace(/[←]/g, '<').replace(/[≥]/g, '>=').replace(/[≤]/g, '<=').replace(/[   ]/g, ' ')
-    .replace(/[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
+    .replace(RICH ? /[^\x20-\x7E\u00A0-\u024F€–—‘’“”•…·‰]/g : /[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
   P.text = T;
 
   const C = { harbour:[0,58,121], teal:[0,58,121], amber:[0,159,227], steel:[102,104,107], ink:[14,27,44], line:[212,217,224], fog:[241,244,248], white:[255,255,255] };
 
   async function ensure(){ if(!window.PDFLib) await FC.loadScript(LIB); return window.PDFLib; }
+  // Calibri-compatible font (Carlito, metric-identical, SIL OFL) embedded in every PDF; falls back to Helvetica
+  let FONTS = null;
+  async function brandFonts(){
+    if(FONTS !== null) return FONTS;
+    try{
+      if(!window.fontkit) await FC.loadScript('assets/fontkit.umd.min.js');
+      const get = u => fetch(u).then(x => { if(!x.ok) throw new Error(u); return x.arrayBuffer(); });
+      const [r, b] = await Promise.all([get('assets/fonts/carlito-400.ttf'), get('assets/fonts/carlito-700.ttf')]);
+      FONTS = { r, b };
+    }catch(e){ console.warn('PDF font fallback', e); FONTS = false; }
+    return FONTS;
+  }
 
   // A tiny layout engine: pages, cursor, wrapping
   async function newDoc(meta){
     const { PDFDocument, StandardFonts, rgb } = await ensure();
     const doc = await PDFDocument.create();
     doc.setTitle(T(meta.title)); doc.setAuthor(T(FC.brand)); doc.setCreator(T(FC.brand)); doc.setProducer(T(FC.brand));
-    const f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) };
+    const bf = await brandFonts(); let f;
+    if(bf){ doc.registerFontkit(window.fontkit); f = { r: await doc.embedFont(bf.r, { subset:true }), b: await doc.embedFont(bf.b, { subset:true }) }; RICH = true; }
+    else{ f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) }; RICH = false; }
     const col = a => rgb(a[0]/255, a[1]/255, a[2]/255);
     const W = 595.28, H = 841.89, M = 46;
     const ctx = { doc, f, col, W, H, M, page:null, y:0, pages:[], meta };
