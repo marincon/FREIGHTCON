@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-21q'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-21s'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -176,6 +176,7 @@
     const step = t => { const k = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - k, 3); siShown = from + (to - from) * e; el.textContent = money2(Math.round(siShown * 100) / 100, cur); if(k < 1) siRaf = requestAnimationFrame(step); else siShown = to; };
     siRaf = requestAnimationFrame(step);
   }
+  let liveReady = false;
   function onFormChange(){
     const v = readForm();
     const com = commodities.find(c => c.id === v.commodity_id);
@@ -205,6 +206,7 @@
     if(noMain) $('#interestTxt').textContent = party === 'seller'
       ? `Under ${v.incoterm} the buyer insures the main transit. This cover protects the seller if the goods are damaged and the buyer does not pay or its insurance does not respond. Costs 40 % of full cover.`
       : `Under ${v.incoterm} the seller carries the transit risk. This cover protects the buyer if the goods arrive damaged and the seller's insurance does not respond. Costs 40 % of full cover.`;
+    if(liveReady) paintLive(readForm());
   }
   // Incoterms: who carries the risk where, in plain words, with a small journey line
   function paintIncoterm(v){
@@ -229,6 +231,54 @@
       <div class="jr" role="img" aria-label="${esc(`Seller carries the risk up to ${t.point}, the buyer from there`)}">${segA}${segB}${stops}<b class="pass" style="left:${pct}%"></b></div>
       <p>${esc(t[party])}</p>${tips.map(([k, x]) => `<div class="inco-tip${k ? ' ' + k : ''}">${esc(x)}</div>`).join('')}`;
   }
+  // ---------- live summary beside the form ----------
+  const secs = Array.from(form.querySelectorAll('.form-sec'));
+  secs.forEach((x, i) => { const h = x.querySelector('h2'); if(h) h.dataset.n = i + 1; });
+  { const h = new Date().getHours(), first = (profile.first_name || (profile.full_name || '').split(' ')[0] || '').trim();
+    $('#nsHi').textContent = (h < 11 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : ''); }
+  let laneKey = ''; liveReady = true;
+  function paintLive(v){
+    if(!document.getElementById('nsLive')) return;   // the result card is showing instead
+    const com = commodities.find(c => c.id === v.commodity_id);
+    const need = [!!v.commodity_id, v.goods_description.length >= 2, !!v.origin_country, !!v.dest_country, isFinite(v.invoice_value) && v.invoice_value > 0];
+    const n = need.filter(Boolean).length;
+    $('#nsProg').style.width = (n / need.length * 100) + '%'; $('#nsProgTxt').textContent = n === need.length ? 'Ready to calculate' : n + ' of ' + need.length + ' details';
+    $('#nsLive').classList.toggle('ready', n === need.length); $('#nsCalc').disabled = n !== need.length;
+    // section ticks
+    const done = [need[0] && need[1], need[2] && need[3], need[4], !$('#fForCust').checked || v.insured_name.length >= 2, true, !!v.cover];
+    secs.forEach((x, i) => x.classList.toggle('done', !!done[i] && (i < 3 || n === need.length)));
+    // route: redraw only when it changes
+    const key = [v.origin_country, v.dest_country, v.conveyance].join('|');
+    if(key !== laneKey){
+      const was = laneKey; laneKey = key; const conv = FC.CONVEYANCE[v.conveyance] || {};
+      const end = (iso, place, to) => `<div class="end${to ? ' to' : ''}"><span class="iso${iso ? '' : ' ph'}">${esc(iso || '···')}</span><span class="place">${esc(place || (iso ? countryName(iso) : (to ? 'Destination' : 'Origin')))}</span></div>`;
+      $('#nsLane').innerHTML = end(v.origin_country, '', false) + FC.routeArc(v.conveyance, FC.icon[v.conveyance], conv.label) + end(v.dest_country, '', true);
+      FC.playRoute($('#nsLane .track'), !!(v.origin_country && v.dest_country) && was !== '' && was.split('|').slice(0, 2).join('|') !== key.split('|').slice(0, 2).join('|'));
+    }
+    const ph = t => `<span class="ph">${esc(t)}</span>`, cov = FC.COVER[v.cover] || {};
+    const row = (l, val) => `<div><dt>${esc(l)}</dt><dd>${val}</dd></div>`;
+    $('#nsFacts').innerHTML = row('Cargo', com ? esc(com.name) : ph('Choose the type of cargo'))
+      + row('Goods', v.goods_description ? esc(v.goods_description) : ph('Describe the goods'))
+      + row('Conveyance', esc((FC.CONVEYANCE[v.conveyance] || {}).label || '') + (v.vessel ? ' · ' + esc(v.vessel) : ''))
+      + row('Cover', esc(cov.clause || '') + (v.war_strikes ? ' · war &amp; strikes' : '') + (v.ext_hssc ? ' · HSSC' : '') + (v.ext_liw ? ' · LiW/DiW' : ''))
+      + (v.incoterm ? row('Incoterm', esc(v.incoterm) + ', for the ' + esc(v.insured_party || 'seller')) : '')
+      + (v.insured_name ? row('Assured', esc(v.insured_name)) : '');
+    const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
+    $('#nsSi').textContent = isFinite(si) ? money2(si, v.currency) : '—';
+  }
+  $('#nsCalc').addEventListener('click', () => form.requestSubmit());
+  $('#nsHelp').addEventListener('click', () => { const fb = $('#feedbackBtn'); if(fb) fb.click(); });
+  // "ship it again": the last three different shipments
+  (async () => {
+    try{
+      const { data } = await sb.rpc('my_history', { p_limit: 20 }); const seen = new Set(), list = [];
+      (data || []).forEach(r => { const k = [r.commodity_id, r.origin_country, r.dest_country, r.conveyance].join('|'); if(!seen.has(k) && list.length < 3){ seen.add(k); list.push(r); } });
+      if(!list.length) return;
+      $('#nsRecentList').innerHTML = list.map((r, i) => `<button type="button" class="ns-again" data-i="${i}"><span class="mini-route"><b>${esc(r.origin_country)}</b><span class="mr-line"><i></i><em>${FC.icon[r.conveyance] || ''}</em><i></i></span><b>${esc(r.dest_country)}</b></span><span class="ns-again-t"><b>${esc(r.goods_description)}</b><span class="xs muted">${esc(money2(r.sum_insured, r.currency))} · ${esc(FC.date(r.created_at))}</span></span><span class="ns-again-go">Use</span></button>`).join('');
+      $$('#nsRecentList .ns-again').forEach(b => b.addEventListener('click', () => { const r = list[+b.dataset.i]; writeForm(Object.assign({}, r, { departure_date: null })); toast('Details copied. Check value and date, then calculate.'); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
+      $('#nsRecent').hidden = false;
+    }catch(e){}
+  })();
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
   form.addEventListener('input', e => { const f = e.target.closest('.field'); if(f) f.classList.remove('invalid'); });
   onFormChange();
@@ -257,9 +307,9 @@
     busy(b, false);
     if(error){ $('#formMsg').textContent = FC.errText(error, 'The indication could not be calculated. Check the details and try again.'); return; }
     current = data; renderResult(current, true); if(v.insured_name) loadInsureds();
-    if(window.matchMedia('(max-width: 1040px)').matches) $('#resultHost').scrollIntoView({ behavior:'smooth', block:'start' });
+    { const rh = $('#resultHost'); rh.scrollTop = 0; if(rh.getBoundingClientRect().top < 70 || window.matchMedia('(max-width: 1040px)').matches) rh.scrollIntoView({ behavior:'smooth', block:'start' }); }
   });
-  $('#clearBtn').addEventListener('click', () => { form.reset(); writeForm({}); current = null; $('#resultHost').innerHTML = ''; $('#resultHost').appendChild(howto); });
+  $('#clearBtn').addEventListener('click', () => { current = null; $('#resultHost').innerHTML = ''; $('#resultHost').appendChild(howto); form.reset(); laneKey = ''; writeForm({}); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   const howto = $('#howto');
 
   function decorate(r){
@@ -561,7 +611,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21q');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-21s');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -571,7 +621,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21q').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-21s').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];

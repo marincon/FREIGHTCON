@@ -111,7 +111,7 @@ main{max-width:1320px;margin:0 auto;padding:28px 24px 80px}
 .view-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
 .view-head p{margin:4px 0 0;color:var(--steel)}
 .workspace{display:grid;grid-template-columns:minmax(0,520px) minmax(0,1fr);gap:28px;align-items:start}
-#resultHost{position:sticky;top:84px;max-height:calc(100vh - 100px);overflow:auto;border-radius:16px}
+#resultHost{scroll-margin-top:84px;position:sticky;top:84px;max-height:calc(100vh - 100px);overflow:auto;border-radius:16px}
 .view-head .btn{white-space:nowrap}
 .menu .mob-only{display:none}
 .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow)}
@@ -733,3 +733,63 @@ a.cl-thumb:hover{border-color:var(--amber)}
 .composer textarea{width:100%;border:0;resize:vertical;background:transparent;padding:4px 6px;outline:none}
 .composer-row{display:flex;align-items:center;gap:8px}
 .composer-row svg{width:15px;height:15px}
+
+/* =================================================================== New shipment page */
+.ns-hero{padding:26px 30px 22px}
+.ns-hero .hub-top h1{margin-bottom:4px}
+.btn-ghost-light{background:transparent;color:#fff;border-color:rgba(255,255,255,.45)}
+.btn-ghost-light:hover{background:rgba(255,255,255,.12);border-color:#fff}
+.ns-trust{position:relative;display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:20px}
+.ns-trust span{display:inline-flex;align-items:center;gap:8px;padding:7px 12px 7px 9px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);font-size:var(--fs-sm);color:#E6F1FB;backdrop-filter:blur(4px);animation:rise .45s var(--ease-out) both}
+.ns-trust span:nth-child(2){animation-delay:.05s}.ns-trust span:nth-child(3){animation-delay:.1s}.ns-trust span:nth-child(4){animation-delay:.15s}
+.ns-trust svg{width:17px;height:17px;color:#7FD0F3}
+.ns-trust b{font-weight:700}
+
+/* numbered form sections that tick off */
+#shipForm{counter-reset:sec}
+#shipForm .form-sec h2{position:relative;padding-right:34px}
+#shipForm .form-sec h2::after{content:attr(data-n);position:absolute;right:0;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--steel);border:1.5px solid var(--line);transition:background .25s,border-color .25s,color .25s}
+#shipForm .form-sec.done h2::after{content:'✓';background:var(--amber);border-color:var(--amber);color:#fff;animation:pop .3s var(--ease-spring)}
+#shipForm .form-sec{transition:background .3s}
+#shipForm .form-sec:focus-within{background:linear-gradient(90deg,var(--amber-wash),transparent 60%)}
+#shipForm .form-sec:focus-within h2{color:var(--harbour)}
+
+/* side panel */
+.ns-side{display:grid;gap:14px}
+
+
+.ns-live{padding:20px 22px;position:relative;overflow:hidden;border-top:4px solid var(--amber)}
+.ns-live-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.ns-live-top > span:first-child{font-size:var(--fs-xs);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--steel)}
+.ns-prog-txt{font-size:var(--fs-xs);color:var(--steel);font-weight:700}
+.ns-live.ready .ns-prog-txt{color:var(--ok)}
+.ns-prog{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;margin:10px 0 4px}
+.ns-prog i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,var(--harbour),var(--amber));transition:width .45s var(--ease-out)}
+.ns-lane{padding:18px 0 14px}
+.ns-lane .iso{font-size:34px}
+.ns-lane .iso.ph{color:var(--line)}
+.ns-lane .place{color:var(--steel);font-weight:400}
+.ns-lane .track.arc{width:clamp(110px,16vw,220px)}
+.ns-facts{margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;border-top:1px solid var(--line-soft)}
+.ns-facts div{padding:10px 0;border-bottom:1px solid var(--line-soft);min-width:0}
+.ns-facts div:nth-child(odd){padding-right:12px}
+.ns-facts dt{font-size:var(--fs-xs);color:var(--steel)}
+.ns-facts dd{margin:2px 0 0;font-weight:700;font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis}
+.ns-facts .ph{font-weight:400;color:var(--line);font-style:italic}
+:root[data-theme="dark"] .ns-facts .ph,:root[data-theme="dark"] .ns-lane .iso.ph{color:var(--steel)}
+.ns-live-foot{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:16px;flex-wrap:wrap}
+.ns-live-foot b{display:block;font-size:var(--fs-xl);color:var(--harbour);font-variant-numeric:tabular-nums;line-height:1.1}
+.ns-live.ready #nsCalc{animation:ping 1.6s ease-out 2}
+.ns-again-strip{display:flex;align-items:center;gap:12px;margin:-6px 0 20px;flex-wrap:wrap;animation:rise .45s var(--ease-out) .1s both}
+.ns-again-lbl{font-size:var(--fs-xs);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--steel)}
+#nsRecentList{display:flex;gap:10px;flex-wrap:wrap;flex:1;min-width:0}
+.ns-again{width:auto;max-width:440px;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;text-align:left;font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px;cursor:pointer;transition:border-color .15s,transform .15s var(--ease-out),box-shadow .2s}
+.ns-again:hover{border-color:var(--amber);transform:translateY(-1px);box-shadow:var(--shadow)}
+.ns-again-t{min-width:0}.ns-again-t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--fs-sm)}
+.ns-again-go{font-size:var(--fs-xs);font-weight:700;color:var(--amber);border:1.5px solid var(--amber);border-radius:999px;padding:3px 10px}
+.ns-help{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:16px 18px;background:linear-gradient(135deg,var(--amber-wash),transparent 70%)}
+.ns-help b{display:block;font-size:var(--fs-sm)}
+.ns-help-ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--harbour);color:#fff}
+.ns-help-ic svg{width:20px;height:20px}
+
+@media (max-width:640px){.ns-again-strip{flex-direction:column;align-items:stretch}#nsRecentList{flex-direction:column}.ns-again{max-width:none;width:100%}.ns-hero{padding:22px 18px}.ns-trust span{font-size:var(--fs-xs)}.ns-facts{grid-template-columns:1fr}.ns-facts div:nth-child(odd){padding-right:0}.ns-help{grid-template-columns:auto 1fr}.ns-help .btn{grid-column:1 / -1}}
