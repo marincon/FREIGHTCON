@@ -12,7 +12,7 @@
     .replace(/[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
   P.text = T;
 
-  const C = { harbour:[10,64,39], teal:[30,107,60], amber:[144,194,71], steel:[94,110,117], ink:[18,35,42], line:[214,222,225], fog:[237,241,242], white:[255,255,255] };
+  const C = { harbour:[0,58,121], teal:[0,58,121], amber:[0,159,227], steel:[102,104,107], ink:[14,27,44], line:[212,217,224], fog:[241,244,248], white:[255,255,255] };
 
   async function ensure(){ if(!window.PDFLib) await FC.loadScript(LIB); return window.PDFLib; }
 
@@ -212,7 +212,7 @@
     if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
     if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
     if(Number(d.taxPct) > 0) rows.push(['Insurance tax ' + Number(d.taxPct) + ' %', '', '', FC.money2(d.tax, d.currency)]);
-    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[144,194,71] });
+    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
     ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
     if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
     if(d.note){ ctx.heading('Notes'); ctx.para(d.note); }
