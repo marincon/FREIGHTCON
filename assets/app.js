@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-10-22c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-10-22d'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -649,7 +649,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-22c');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-10-22d');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -659,7 +659,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-22c').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-10-22d').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -996,37 +996,70 @@
     busy(b, false);
   }
   function quoteBody(q){
-    const d = q.data || {};
-    const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<br><span class="xs muted">${esc(money2(l.sum, d.currency))} at ${esc(FC.pct(l.rate))}</span></td><td class="r">${esc(money2(l.premium, d.currency))}</td></tr>`).join('');
-    return `<dl class="kv">
-        <dt>Reference</dt><dd>${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''}</dd>
-        <dt>Assured</dt><dd>${esc(d.client || '')}</dd>
-        <dt>Goods</dt><dd>${esc(d.goods || '')}</dd>
-        <dt>Voyage</dt><dd>${esc(d.voyage || '')}</dd>
-        <dt>Conditions</dt><dd>${esc(d.conditions || '')}</dd>
-        ${d.insurer ? `<dt>Insurer</dt><dd>${esc(d.insurer)}</dd>` : ''}
-        ${d.deductible ? `<dt>Deductible</dt><dd>${esc(d.deductible)}</dd>` : ''}
-        ${d.special ? `<dt>Special conditions</dt><dd>${esc(d.special)}</dd>` : ''}
-        <dt>Valid until</dt><dd>${esc(FC.dateTime(q.valid_until))}</dd>
-      </dl>
-      <table class="qtable">${lines}
-        ${Number(d.discountPct) > 0 ? `<tr><td>Client discount ${esc(Number(d.discountPct))} %</td><td class="r">− ${esc(money2(d.discountAmount, d.currency))}</td></tr>` : ''}
-        ${Number(d.taxPct) > 0 ? `<tr><td>Insurance tax ${esc(Number(d.taxPct))} %</td><td class="r">${esc(money2(d.tax, d.currency))}</td></tr>` : ''}
-        <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(d.total, d.currency))}</td></tr></table>
-      ${(d.subjectivities || []).length ? `<h3 style="margin:14px 0 6px">Subject to</h3><ul class="small" style="margin:0;padding-left:18px">${d.subjectivities.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
-      ${d.note ? `<div class="notice info" style="margin:14px 0 0"><b>Note</b>${esc(d.note)}</div>` : ''}
-      ${q.response_note ? `<div class="notice ok" style="margin:14px 0 0"><b>Your message</b>${esc(q.response_note)}</div>` : ''}`;
+    const d = q.data || {}, cur = d.currency, cond = String(d.conditions || ''), lbl = (d.lines || []).map(l => l.label).join(' ');
+    const ck = /\(A\)/.test(cond) ? 'icc_a' : /\(B\)/.test(cond) ? 'icc_b' : /\(C\)/.test(cond) ? 'icc_c' : null, cv = FC.COVER[ck] || null;
+    const conv = FC.CONVEYANCE[d.conveyance] || null;
+    const st = q.cover_note ? 'covered' : q.status;
+    const stTxt = { covered:'Covered', open:'Open for review', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' }[st] || st;
+    const left = new Date(q.valid_until) - Date.now(), hrs = Math.floor(left / 36e5);
+    const validTxt = q.status !== 'open' ? FC.dateTime(q.valid_until) : left <= 0 ? 'expired' : (hrs >= 48 ? Math.floor(hrs / 24) + ' days left' : hrs >= 1 ? hrs + ' hours left' : 'less than an hour left') + ' · ' + FC.dateTime(q.valid_until);
+    const incl = [
+      ['War', /War Clauses/i.test(cond)], ['Strikes', /Strikes Clauses/i.test(cond)], ['Warehouse to warehouse', /warehouse to warehouse/i.test(cond)],
+      ['HSSC', /HSSC/.test(lbl)], ['Loss / difference in weight', /difference in weight/i.test(lbl)], ['On deck', /on deck/i.test(lbl)]
+    ].filter(x => x[1]).map(x => x[0]);
+    const special = String(d.special || '').split(/(?<=\.)\s+(?=[A-Z])/).map(x => x.trim()).filter(Boolean);
+    const place = (p, c) => `<b>${esc(p || countryName(c) || c || '')}</b><span>${esc(p ? countryName(c) || c || '' : '')}</span>`;
+    const fact = (k, v) => v ? `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>` : '';
+    const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<span>${esc(money2(l.sum, cur))} × ${esc(FC.pct(l.rate))}</span></td><td class="r">${esc(money2(l.premium, cur))}</td></tr>`).join('');
+    const next = q.cover_note ? `Your cover is in place. Cover note <b>${esc(q.cover_note.number)}</b> is ready to download. If something happens in transit, report it under <b>Claims</b>.`
+      : q.status === 'accepted' ? 'Thank you for your instruction. We are placing the cover with the insurer and send you the cover note shortly.'
+      : q.status === 'open' ? 'Take your time to review. If everything fits, accept the quotation and we place the cover and send you the cover note. Questions or changes? Just write us a message below.'
+      : 'This quotation is no longer open. Calculate the shipment again or contact us for a new offer.';
+    return `<div class="qv">
+      <div class="qv-hero st-${esc(st)}">
+        <div class="qv-amt"><span class="qv-lbl">Total premium payable</span><span class="amount num">${esc(money2(d.total, cur))}</span>
+          <span class="qv-sub">${Number(d.taxPct) > 0 ? 'incl. ' + esc(Number(d.taxPct)) + ' % insurance tax' : 'no insurance tax applied'}${(d.lines || [])[0] ? ' · sum insured ' + esc(money2(d.lines[0].sum, cur)) : ''}</span></div>
+        <div class="qv-st"><span class="qv-pill">${esc(stTxt)}</span><span class="qv-valid">${FC.icon.clock}<span>Valid until<br><b>${esc(validTxt)}</b></span></span>${shipSteps(q)}</div>
+      </div>
+      <div class="qv-route">
+        <div class="qv-pt">${place(d.originPlace, d.originCountry)}</div>
+        <div class="qv-line"><i></i><em>${FC.icon[d.conveyance] || FC.icon.sea_container}</em><i></i><small>${esc(conv ? conv.label : '')}${d.vessel ? ' · ' + esc(d.vessel) : ''}</small></div>
+        <div class="qv-pt r">${place(d.destPlace, d.destCountry)}</div>
+      </div>
+      <div class="qv-sec"><h3>${FC.icon.shield} Your cover</h3>
+        <div class="qv-cover">
+          <div class="qv-main"><b>${esc(cv ? cv.label : 'Cover')}</b><span>${esc(cv ? cv.clause : cond)}</span>${cv ? `<p>${esc(cv.text)}</p>` : ''}
+            ${incl.length ? `<div class="qv-chips">${incl.map(x => `<span>✓ ${esc(x)}</span>`).join('')}</div>` : ''}</div>
+          <dl class="qv-mini">${fact('Insurer', d.insurer)}${fact('Deductible', d.deductible && !/^n\/?a$/i.test(d.deductible.trim()) ? d.deductible : 'No standard deductible')}${fact('Period', d.period)}</dl>
+        </div>
+        ${special.length ? `<div class="qv-special"><b>Special conditions</b><ul>${special.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      </div>
+      <div class="qv-sec"><h3>${FC.icon.box} Shipment</h3>
+        <dl class="qv-facts">${fact('Goods', d.goods)}${fact('Packaging', d.packaging)}${fact('Assured', d.client)}${fact('Policyholder', d.policyholder)}${fact('Our reference', (q.ref || '') + (q.version > 1 ? ' (version ' + q.version + ')' : ''))}${fact('Your reference', d.customerRef)}${fact('Incoterm', d.incoterm)}</dl>
+      </div>
+      <div class="qv-sec"><h3>${FC.icon.coin} Premium</h3>
+        <table class="qv-tab">${lines}
+          ${Number(d.discountPct) > 0 ? `<tr><td>Client discount ${esc(Number(d.discountPct))} %</td><td class="r">− ${esc(money2(d.discountAmount, cur))}</td></tr>` : ''}
+          ${Number(d.taxPct) > 0 ? `<tr><td>Insurance tax ${esc(Number(d.taxPct))} %</td><td class="r">${esc(money2(d.tax, cur))}</td></tr>` : ''}
+          <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(d.total, cur))}</td></tr></table>
+      </div>
+      ${d.note ? `<div class="notice info"><b>Note from us</b>${esc(d.note)}</div>` : ''}
+      ${q.response_note ? `<div class="notice ok"><b>Your message</b>${esc(q.response_note)}</div>` : ''}
+      <div class="qv-next st-${esc(st)}">${FC.icon.send}<p>${next}</p></div>
+      ${(d.subjectivities || []).length ? `<details class="qv-subj"><summary>This offer is subject to ${d.subjectivities.length} standard terms</summary><ul>${d.subjectivities.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : ''}
+    </div>`;
   }
   function openQuote(q){
     const open = q.status === 'open';
-    const actions = [{ label:'Download PDF', kind:'ghost', onClick: async () => { await pdfQuote(q); } }];
+    const actions = [{ label:'Quotation PDF', kind:'ghost', onClick: async () => { await pdfQuote(q); } }];
+    if(q.cover_note) actions.push({ label:'Cover note PDF', kind:'primary', onClick: async () => { await pdfCover(q); } });
     if(open){
       actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, false, box, close) });
       actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, true, box, close) });
     }
-    FC.dialog({ title: open ? 'Quotation' : 'Quotation (' + (qStatusLabel[q.status] || q.status) + ')', wide:true,
+    FC.dialog({ title: 'Quotation ' + (q.ref || ''), wide:true,
       body: quoteBody(q) + (open ? `<div class="field" style="margin-top:16px"><label for="qrNote">Message <span class="muted">(optional)</span></label><textarea id="qrNote" maxlength="1000" placeholder="e.g. B/L number, vessel, or reason for declining"></textarea></div>${q.data && q.data.closing ? `<p class="xs muted">${esc(q.data.closing)}</p>` : ''}<div class="err-msg" id="qrErr"></div>` : ''),
-      actions });
+      actions, onOpen: box => { const x = box.querySelector('.x'); if(x) x.focus({ preventScroll:true }); box.scrollTop = 0; } });
   }
   async function respond(q, accept, box, close){
     if(accept && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms for ' + money2(q.data.total, q.data.currency) + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
