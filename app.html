@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-10-21x">
+<meta name="fc-version" content="2026-10-22a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-10-21x">
+<link rel="stylesheet" href="assets/style.css?v=2026-10-22a">
 </head>
 <body>
 <div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
@@ -43,23 +43,20 @@
 <main>
   <!-- ============ NEW SHIPMENT ============ -->
   <section id="view-new" data-view-panel="new">
-    <div class="hub-hero ns-hero">
-      <svg class="hub-art" viewBox="0 0 600 220" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
-        <path class="hub-route" d="M-20 150 C 140 40, 280 190, 420 80 S 570 40, 640 60" />
-        <path class="hub-route r2" d="M-20 190 C 170 110, 310 220, 470 130 S 590 100, 640 110" />
-        <circle class="hub-blip" r="5"><animateMotion dur="10s" repeatCount="indefinite" path="M-20 150 C 140 40, 280 190, 420 80 S 570 40, 640 60"/></circle>
-        <circle class="hub-blip b2" r="4"><animateMotion dur="13s" begin="-5s" repeatCount="indefinite" path="M-20 190 C 170 110, 310 220, 470 130 S 590 100, 640 110"/></circle>
-      </svg>
-      <div class="hub-top">
-        <div><span class="hub-hi" id="nsHi">New shipment</span><h1>Insure a shipment</h1><p>Describe cargo, route and value. Your indication appears in seconds, the binding quotation follows with one click.</p></div>
-        <div class="hub-acts"><button class="btn btn-light" type="button" data-view="upload">Upload Excel / CSV</button><button class="btn btn-ghost-light" id="clearBtn" type="button">Start over</button></div>
+    <div class="gl-hero" id="glHero">
+      <div class="gl-copy">
+        <span class="gl-hi" id="nsHi">New shipment</span>
+        <h1>Insure a shipment</h1>
+        <p>Enter cargo, route and value. The globe plots the voyage, the indication appears in seconds.</p>
+        <div class="gl-route" aria-live="polite">
+          <div class="gl-end"><b id="glFrom" class="ph">From</b><span id="glFromP">Choose the origin</span></div>
+          <span class="gl-arrow" aria-hidden="true"><i></i></span>
+          <div class="gl-end"><b id="glTo" class="ph">To</b><span id="glToP">Choose the destination</span></div>
+        </div>
+        <div class="gl-meta"><span id="glMode">Sea, container</span><span id="glDist"></span></div>
+        <div class="gl-acts"><button class="btn btn-light" type="button" data-view="upload">Upload Excel / CSV</button><button class="btn btn-ghost-light" id="clearBtn" type="button">Start over</button></div>
       </div>
-      <div class="ns-trust">
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg><b>Indication in seconds</b></span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><b>Institute Cargo Clauses 2009</b></span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg><b>Sea, air, road &amp; rail worldwide</b></span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg><b>Cover note online</b></span>
-      </div>
+      <div class="gl-stage"><canvas id="globeCv" aria-label="Globe with the voyage of this shipment"></canvas></div>
     </div>
     <div class="workspace">
       <form class="card" id="shipForm" novalidate>
@@ -138,7 +135,6 @@
           <div class="card ns-live" id="nsLive">
             <div class="ns-live-top"><span>Your shipment</span><span class="ns-prog-txt" id="nsProgTxt">0 of 5 details</span></div>
             <div class="ns-prog"><i id="nsProg"></i></div>
-            <div class="lane ns-lane" id="nsLane"></div>
             <dl class="ns-facts" id="nsFacts"></dl>
             <div class="ns-live-foot"><div><span class="xs muted">Sum insured</span><b id="nsSi">—</b></div><button class="btn btn-primary" type="button" id="nsCalc" disabled><span class="spin"></span>Calculate indication</button></div>
           </div>
@@ -203,8 +199,9 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-10-21x"></script>
-<script src="assets/pdf.js?v=2026-10-21x"></script>
-<script src="assets/app.js?v=2026-10-21x"></script>
+<script src="assets/core.js?v=2026-10-22a"></script>
+<script src="assets/pdf.js?v=2026-10-22a"></script>
+<script src="assets/globe.js?v=2026-10-22a"></script>
+<script src="assets/app.js?v=2026-10-22a"></script>
 </body>
 </html>
