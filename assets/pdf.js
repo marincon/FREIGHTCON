@@ -217,7 +217,7 @@
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.heading('Assured & shipment');
     ctx.kv([
-      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Goods', d.goods], ['Packaging', d.packaging],
+      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Open cover', d.policyNo], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Goods', d.goods], ['Packaging', d.packaging],
       ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period], ['Incoterm', d.incoterm]
     ]);
     ctx.heading('Cover');
@@ -229,6 +229,15 @@
     if(Number(d.taxPct) > 0) rows.push(['Insurance tax ' + Number(d.taxPct) + ' %', '', '', FC.money2(d.tax, d.currency)]);
     rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
     ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
+    // minimum premium and, where war & strikes are excluded, both rates side by side
+    const W = d.warExcl, terms = [];
+    if(Number(d.minPremium) > 0) terms.push(['Minimum premium', FC.money2(d.minPremium, d.currency)]);
+    if(W && W.offerBuyback){
+      terms.push(['Rate, W&S excluded', FC.pct(W.rateExcl) + '  (' + FC.money2(W.totalExcl, d.currency) + ' payable)']);
+      terms.push(['Rate, W&S re-included', FC.pct(W.rateIncl) + ' with war & strikes re-included for ' + W.areas.join(', ') + '  (' + FC.money2(W.totalIncl, d.currency) + ' payable)']);
+    }
+    if(terms.length) ctx.kv(terms);
+    if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for these areas at the rate shown, say so when you accept.' : ''), [224,160,48]);
     if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
     if(d.note){ ctx.heading('Notes'); ctx.para(d.note); }
     if(d.closing){ ctx.box('How to accept', d.closing, C.teal); }

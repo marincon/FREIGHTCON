@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-12a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-12b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -122,6 +122,15 @@
     fill($('#fCommodity'), groups.map(([g, list]) => `<optgroup label="${esc(g)}">` + list.map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.on_request ? ' (quoted individually)' : ''}</option>`).join('') + '</optgroup>'), 'Choose…'); }
   const countryOpts = countries.map(c => `<option value="${esc(c.iso2)}">${esc(c.name)}</option>`);
   fill($('#fOrigin'), countryOpts, 'Choose…'); fill($('#fDest'), countryOpts, 'Choose…');
+  fill($('#fTransitAdd'), countryOpts, '+ Add transit country'); fill($('#fInsCountry'), countryOpts, 'Same as my company');
+  FC.groupInput($('#fFreight'));
+  // transit countries: chips with a remove button
+  let transit = [];
+  const paintTransit = () => {
+    $('#transitChips').innerHTML = transit.map(cc => `<span class="tchip">${esc(countryName(cc))}<button type="button" data-rm="${cc}" aria-label="Remove ${esc(countryName(cc))}">×</button></span>`).join('');
+  };
+  $('#fTransitAdd').addEventListener('change', e => { const cc = e.target.value; if(cc && !transit.includes(cc) && transit.length < 8){ transit.push(cc); paintTransit(); onFormChange(); } e.target.value = ''; });
+  $('#transitChips').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if(b){ transit = transit.filter(x => x !== b.dataset.rm); paintTransit(); onFormChange(); } });
   $('#fDep').min = FC.today();
   FC.groupInput($('#fValue'));
   if(settings.uplift_pct != null) $('#fUplift').value = settings.uplift_pct;
@@ -146,15 +155,17 @@
   });
   const segVal = host => { const b = host.querySelector('[aria-checked="true"]'); return b ? b.dataset.v : undefined; };
   const segSet = (host, v) => host.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === v)));
-  [convHost, $('#fCur'), partyHost].forEach(h => h.addEventListener('click', e => { const b = e.target.closest('button'); if(b && !b.disabled){ segSet(h, b.dataset.v); onFormChange(); } }));
+  [convHost, $('#fCur'), partyHost, $('#fRed'), $('#fFtz')].forEach(h => h.addEventListener('click', e => { const b = e.target.closest('button'); if(b && !b.disabled){ segSet(h, b.dataset.v); onFormChange(); } }));
   // keyboard: arrows move within a radio group
-  [convHost, $('#fCur'), partyHost].forEach(h => h.addEventListener('keydown', e => {
+  [convHost, $('#fCur'), partyHost, $('#fRed'), $('#fFtz')].forEach(h => h.addEventListener('keydown', e => {
     if(!['ArrowLeft','ArrowRight'].includes(e.key)) return;
     const bs = Array.from(h.querySelectorAll('button')), i = bs.findIndex(b => b.getAttribute('aria-checked') === 'true');
     const n = bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length]; segSet(h, n.dataset.v); n.focus(); onFormChange(); e.preventDefault();
   }));
 
   const isSea = c => c === 'sea_container' || c === 'sea_breakbulk';
+  const DET = [['equipment', '#dEquip'], ['pieces', '#dPieces'], ['weight_kg', '#dWeight'], ['dimensions', '#dDims'], ['hs_code', '#dHs'], ['storage', '#dStorage'], ['parties', '#dParties'], ['vessel_year', '#dYear']];
+  function readDetails(){ const d = {}; DET.forEach(([k, id]) => { const v = $(id).value.trim(); if(v) d[k] = k === 'weight_kg' && isFinite(FC.parseNum(v)) ? String(FC.parseNum(v)) : v; }); return d; }
   function readForm(){
     return {
       commodity_id: $('#fCommodity').value,
@@ -179,7 +190,13 @@
       customer_ref: $('#fCustRef').value.trim(),
       ext_hssc: !$('#extFields').hidden && !$('#hsscField').hidden && $('#fHssc').checked,
       ext_liw: !$('#extFields').hidden && !$('#liwField').hidden && $('#fLiw').checked,
-      office_id: OC ? (Number($('#fOffice').value) || null) : null
+      office_id: OC ? (Number($('#fOffice').value) || null) : null,
+      transit_countries: transit.slice(),
+      red_sea: isSea(segVal(convHost)) ? segVal($('#fRed')) || 'auto' : 'auto',
+      freight_value: $('#fFreight').value.trim() ? FC.parseNum($('#fFreight').value) : null,
+      insured_country: $('#fInsCountry').value || null,
+      ftz: $('#ftzField').hidden || !segVal($('#fFtz')) ? null : segVal($('#fFtz')) === 'true',
+      details: readDetails()
     };
   }
   function writeForm(r){
@@ -196,6 +213,10 @@
     $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
     $('#fHssc').checked = !!r.ext_hssc; $('#fLiw').checked = !!r.ext_liw;
     $('#fForCust').checked = !!r.insured_name; $('#fInsName').value = r.insured_name || ''; $('#fInsAddr').value = r.insured_address || ''; $('#fCustRef').value = r.customer_ref || '';
+    transit = (r.transit_countries || []).slice(); paintTransit(); segSet($('#fRed'), r.red_sea || 'auto');
+    $('#fFreight').value = r.freight_value ? Number(r.freight_value).toLocaleString('en-GB', { maximumFractionDigits:2 }) : '';
+    $('#fInsCountry').value = r.insured_country || ''; segSet($('#fFtz'), r.ftz == null ? '' : String(r.ftz));
+    const dd = r.details || {}; DET.forEach(([k, id]) => { $(id).value = dd[k] || ''; }); $('#moreDetails').open = DET.some(([k]) => k !== 'vessel_year' && dd[k]);
     $$('.field.invalid', form).forEach(f => f.classList.remove('invalid'));
     onFormChange();
   }
@@ -220,15 +241,26 @@
       l.classList.toggle('off', !ok); l.querySelector('input').disabled = !ok;
     });
     if(com && !(com.allowed_covers || []).includes(v.cover)){ const first = coverHost.querySelector('input:not(:disabled)'); if(first) first.checked = true; }
-    $('#commodityHint').textContent = com ? (com.on_request ? 'This cargo is always quoted individually. You can still request a quotation.' : [com.description, com.deductible ? 'Deductible: ' + com.deductible : ''].filter(Boolean).join(' · ')) : '';
+    $('#commodityHint').textContent = com ? (com.on_request ? 'This cargo is always quoted individually. You can still request a quotation.' : [com.description, com.deductible && !OC ? 'Deductible: ' + com.deductible : ''].filter(Boolean).join(' · ')) : '';
     $('#convHint').textContent = com && v.conveyance && !com.on_request && !(com.conveyances || []).includes(v.conveyance) ? 'This cargo is quoted individually for this conveyance.' : '';
     const land = v.conveyance === 'road' || v.conveyance === 'rail';
     $('#warLbl').textContent = land ? 'Strikes, riots & civil commotion' : 'War & strikes';
     const ocSea = OC && !land && !(v.conveyance === 'air' || v.conveyance === 'air_charter');
     $('#warTxt').textContent = land ? 'Institute Strikes Clauses (Cargo). War risks are not insurable on land transit.' : ocSea ? 'Institute War and Strikes Clauses (Cargo). Part of your open cover for sea transit.' : v.conveyance === 'air' || v.conveyance === 'air_charter' ? 'Institute War and Strikes Clauses (Air Cargo).' + (INTAKE ? '' : ' Added to the premium.') : 'Institute War and Strikes Clauses (Cargo). Included in sea rates; untick to leave it out.';
     $('#fWar').disabled = ocSea; if(ocSea) $('#fWar').checked = true;
-    const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
+    const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? (v.invoice_value + (v.freight_value > 0 ? v.freight_value : 0)) * (1 + v.uplift_pct / 100) : NaN;
     tweenSi(si, v.currency);
+    // routing via Suez only matters at sea; free trade zone only for UAE interests
+    $('#redSeaField').hidden = !isSea(v.conveyance);
+    $('#redHint').textContent = v.red_sea === 'auto' ? 'Not sure? For Europe ↔ Asia we assume the route via Suez and the Red Sea.' : '';
+    const domAE = v.insured_country === 'AE' || (!v.insured_country && OC && officeOf(v.office_id) && officeOf(v.office_id).country === 'AE');
+    $('#ftzField').hidden = !domAE || !v.insured_country;
+    $('#insCountryLbl').textContent = $('#fForCust').checked ? "Your customer's country" : 'Country of the assured';
+    // freight: depends on what the Incoterm already contains
+    const inc = v.incoterm, nofreight = ['EXW','FCA','FAS','FOB'], withfreight = ['CFR','CIF','CPT','CIP','DAP','DPU','DDP'];
+    $('#freightHint').textContent = nofreight.includes(inc) ? `Under ${inc} the invoice value does not include the main freight — add freight and costs here, then the 10 % uplift.`
+      : withfreight.includes(inc) ? `Under ${inc} freight is already part of the invoice value — do not add it again.` : 'Add freight only if it is not already in the invoice value.';
+    $('#freightHint').classList.toggle('warn-txt', withfreight.includes(inc) && v.freight_value > 0);
     $('#vesselField').hidden = !isSea(v.conveyance);
     $('#custFields').hidden = !$('#fForCust').checked;
     $('#hsscField').hidden = !(com && com.ext_hssc); $('#liwField').hidden = !(com && com.ext_liw); $('#extFields').hidden = $('#hsscField').hidden && $('#liwField').hidden;
@@ -310,10 +342,11 @@
     $('#nsFacts').innerHTML = (OC ? row('Office', officeOf(v.office_id) ? esc(officeOf(v.office_id).name) : ph('Choose your office')) : '') + row('Cargo', com ? esc(com.name) : ph('Choose the type of cargo'))
       + row('Goods', v.goods_description ? esc(v.goods_description) : ph('Describe the goods'))
       + row('Conveyance', esc((FC.CONVEYANCE[v.conveyance] || {}).label || '') + (v.vessel ? ' · ' + esc(v.vessel) : ''))
+      + (v.transit_countries.length ? row('Via', esc(v.transit_countries.map(countryName).join(', '))) : '')
       + row('Cover', esc(cov.clause || '') + (v.war_strikes ? ' · war &amp; strikes' : '') + (v.ext_hssc ? ' · HSSC' : '') + (v.ext_liw ? ' · LiW/DiW' : ''))
       + (v.incoterm ? row('Incoterm', esc(v.incoterm) + ', for the ' + esc(v.insured_party || 'seller')) : '')
       + (v.insured_name ? row('Assured', esc(v.insured_name)) : '');
-    const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? v.invoice_value * (1 + v.uplift_pct / 100) : NaN;
+    const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? (v.invoice_value + (v.freight_value > 0 ? v.freight_value : 0)) * (1 + v.uplift_pct / 100) : NaN;
     $('#nsSi').textContent = isFinite(si) ? money2(si, v.currency) : '—';
   }
   // ---- city / port suggestions: type a few letters, pick the place; free text is still fine ----
@@ -366,6 +399,7 @@
     mark('#fDep', !v.departure_date || v.departure_date >= FC.today());
     mark('#fValue', isFinite(v.invoice_value) && v.invoice_value > 0);
     mark('#fUplift', isFinite(v.uplift_pct) && v.uplift_pct >= 0 && v.uplift_pct <= 30);
+    mark('#fFreight', v.freight_value == null || (isFinite(v.freight_value) && v.freight_value >= 0));
     mark('#fInsName', !$('#fForCust').checked || v.insured_name.length >= 2);
     if(OC) mark('#fOffice', !!v.office_id);
     if(bad.length){ $(bad[0]).focus(); return false; }
@@ -420,6 +454,10 @@
     }else{
       body = `<div class="notice danger"><b>Compliance review required</b>${esc((r.reasons || []).join('. '))}. We cannot give an indication. Please contact us before shipping.</div>`;
     }
+    // war & strikes not covered in some areas of this voyage (open cover terms)
+    if((r.war_excluded || []).length) body += `<div class="notice warn"><b>War &amp; strikes excluded for: ${esc(r.war_excluded.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage. ${r.intake ? 'We tell you in the confirmation whether it can be bought back.' : 'Ask us if you need it bought back for these areas.'}</div>`;
+    // German insurance tax on purely domestic transport
+    if(r.origin_country === 'DE' && r.dest_country === 'DE' && r.status === 'quoted' && !r.intake) body += `<p class="breakdown">Domestic German transport: plus 19 % insurance tax = <b>${esc(money2(Math.round(Number(r.premium) * 19) / 100, r.currency))}</b>, total <b>${esc(money2(Math.round(Number(r.premium) * 119) / 100, r.currency))}</b>.</p>`;
     const requested = !!r.quote_requested_at;
     const card = FC.el(`<article class="card consign" aria-live="polite">
       <div class="consign-top"><span class="ref">${esc(r.ref || FC.STATUS[r.status] || 'Indication')}</span><span class="when">${esc(FC.dateTime(r.created_at))}</span></div>
@@ -434,7 +472,8 @@
         ${r.customer_ref ? `<div><dt>Your reference</dt><dd>${esc(r.customer_ref)}</dd></div>` : ''}
         <div><dt>Goods</dt><dd>${esc(r.goods_description)}</dd></div>
         <div><dt>Cargo type</dt><dd>${esc(r.commodity_name)}</dd></div>
-        <div><dt>Sum insured</dt><dd class="num">${esc(money2(r.sum_insured, r.currency))}</dd></div>
+        <div><dt>Sum insured</dt><dd class="num">${esc(money2(r.sum_insured, r.currency))}${Number(r.freight_value) > 0 ? '<span class="xs muted" style="display:block">incl. freight ' + esc(money2(r.freight_value, r.currency)) + '</span>' : ''}</dd></div>
+        ${(r.transit_countries || []).length ? `<div><dt>Via</dt><dd>${esc(r.transit_countries.map(countryName).join(', '))}</dd></div>` : ''}
         <div><dt>Conveyance</dt><dd>${esc(conv.label || '')}${r.departure_date ? ', departs ' + esc(FC.date(r.departure_date)) : ''}</dd></div>
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
@@ -703,7 +742,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12a');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12b');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -713,7 +752,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12a').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12b').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -1096,6 +1135,12 @@
           ${Number(d.discountPct) > 0 ? `<tr><td>Client discount ${esc(Number(d.discountPct))} %</td><td class="r">− ${esc(money2(d.discountAmount, cur))}</td></tr>` : ''}
           ${Number(d.taxPct) > 0 ? `<tr><td>Insurance tax ${esc(Number(d.taxPct))} %</td><td class="r">${esc(money2(d.tax, cur))}</td></tr>` : ''}
           <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(d.total, cur))}</td></tr></table>
+        ${Number(d.minPremium) > 0 || d.warExcl ? `<div class="qv-terms">
+          ${Number(d.minPremium) > 0 ? `<div class="qv-term"><span>Minimum premium</span><b>${esc(money2(d.minPremium, cur))}</b>${d.minApplied ? '<i>applies to this shipment</i>' : ''}</div>` : ''}
+          ${d.warExcl && d.warExcl.offerBuyback ? `<div class="qv-term"><span>Rate with war &amp; strikes excluded</span><b>${esc(FC.pct(d.warExcl.rateExcl))}</b><i>${esc(money2(d.warExcl.totalExcl, cur))} payable</i></div>
+            <div class="qv-term alt"><span>Rate with war &amp; strikes re-included for ${esc(d.warExcl.areas.join(', '))}</span><b>${esc(FC.pct(d.warExcl.rateIncl))}</b><i>${esc(money2(d.warExcl.totalIncl, cur))} payable</i></div>` : ''}
+        </div>` : ''}
+        ${d.warExcl ? `<div class="notice warn" style="margin-top:12px"><b>War &amp; strikes excluded for: ${esc(d.warExcl.areas.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage.${d.warExcl.offerBuyback ? ' To re-include it for these areas, say so in your message when you accept.' : ''}</div>` : ''}
       </div>
       ${d.note ? `<div class="notice info"><b>Note from us</b>${esc(d.note)}</div>` : ''}
       ${q.response_note ? `<div class="notice ok"><b>Your message</b>${esc(q.response_note)}</div>` : ''}
