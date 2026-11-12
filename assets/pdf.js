@@ -178,7 +178,7 @@
     ctx.kv([
       ['Goods', r.goods_description], ['Cargo type', r.commodity_name], ['Packaging', r.packaging],
       ['Conveyance', conv], ['From', placeOf(r.origin_place, r.origin_name)], ['To', placeOf(r.dest_place, r.dest_name)],
-      ['Departure', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
+      ['Departure / ETA of loading', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
       ['Special', [r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Seller's / buyer's own interest only (contingency cover)" : ''].filter(Boolean).join(', ')],
       ['Extensions', [r.ext_hssc ? 'Heating, sweating & spontaneous combustion (HSSC)' : '', r.ext_liw ? 'Loss / difference in weight (LiW / DiW)' : ''].filter(Boolean).join(', ')],
       ['Vessel', /^sea_/.test(r.conveyance) ? (r.vessel || 'To be declared') : ''],

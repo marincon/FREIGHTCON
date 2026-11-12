@@ -85,7 +85,7 @@
     const n = Number(t);
     return isFinite(n) ? n : NaN;
   };
-  const SYM = { EUR:'€', USD:'$', GBP:'£' };
+  const SYM = { EUR:'€', USD:'$', GBP:'£', SGD:'S$' };
   FC.money = (n, cur, dec) => {
     if(n == null || n === '' || !isFinite(Number(n))) return '—';
     const d = dec == null ? (Math.abs(Number(n)) < 1000 && Number(n) % 1 !== 0 ? 2 : 0) : dec;
@@ -165,7 +165,7 @@
   };
   FC.noRisk = (term, party) => term && party && ((FC.INCOTERMS[term] || {}).pt === 0 ? party === 'seller' : (FC.INCOTERMS[term] || {}).pt === 3 ? party === 'buyer' : false);
   FC.STATUS = { quoted:'Indication', on_request:'On request', sanctioned:'Compliance review' };
-  FC.STAGE = { new:'New', in_progress:'In progress', quoted:'Quoted', accepted:'Accepted', declined:'Declined', bound:'Bound', lost:'Lost', closed:'Closed' };
+  FC.STAGE = { new:'New', in_progress:'In quotation', quoted:'Quoted', accepted:'Accepted', declined:'Declined', bound:'Bound', lost:'Lost', closed:'Closed' };
 
   // ---------- icons ----------
   const svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;

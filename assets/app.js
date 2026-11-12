@@ -5,14 +5,15 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-12d'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-12e'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
   if(!session){ location.replace('index.html'); return; }
   const { data: profile } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
-  if(!profile || !profile.approved || profile.rejected){ await sb.auth.signOut(); location.replace('index.html'); return; }
+  if(!profile || !profile.approved || profile.rejected || profile.is_active === false){ await sb.auth.signOut(); location.replace('index.html'); return; }
   FC.profile = profile;
+  sb.rpc('touch_login').then(() => null, () => null);
   let settings = {};
   try{ const r = await sb.rpc('public_settings'); settings = r.data || {}; }catch(e){}
   if(settings.brand_name) FC.brand = settings.brand_name;
@@ -20,6 +21,10 @@
   let org = null; try{ const r = await sb.rpc('my_org'); org = r.data || null; }catch(e){}
   FC.org = org;
   const OC = !!(org && org.group && org.group.kind === 'open_cover');
+  // currencies this user may declare in (group → customer → policy → office)
+  const CURS = ['USD', 'GBP', 'EUR', 'SGD'];
+  const orgCurs = () => { const l = ((org && org.currencies) || []).filter(c => CURS.includes(c)); return l.length ? l : ['EUR', 'USD']; };
+  const officeCurs = o => o ? ((o.currencies || []).filter(c => CURS.includes(c)).length ? o.currencies.filter(c => CURS.includes(c)) : [o.currency]) : [];
   const INTAKE = !!(org && org.group && org.group.show_premium === false);
   FC.INTAKE = INTAKE;
 
@@ -105,10 +110,10 @@
   function paintCurrency(){
     const host = $('#fCur'), cur = segVal(host);
     const o = OC ? officeOf($('#fOffice').value) : null;
-    const list = OC ? (o ? [o.currency] : []) : ['EUR', 'USD'];
+    const list = OC ? officeCurs(o) : orgCurs();
     host.innerHTML = list.map(c => `<button type="button" role="radio" data-v="${c}" aria-checked="${c === cur || list.length === 1}">${c}</button>`).join('') || '<span class="xs muted" style="padding:10px 4px">Choose your office first</span>';
     if(!host.querySelector('[aria-checked="true"]') && host.querySelector('button')) host.querySelector('button').setAttribute('aria-checked', 'true');
-    if(OC) $('#officeHint').textContent = o ? `Declared under ${o.policy}${o.policy_no ? ' (' + o.policy_no + ')' : ''} in ${o.currency}.` : 'Every shipment is declared for one of your offices.';
+    if(OC) $('#officeHint').textContent = o ? `Declared under ${o.policy}${o.policy_no ? ' (' + o.policy_no + ')' : ''} in ${officeCurs(o).join(' / ')}.` : 'Every shipment is declared for one of your offices.';
     if(typeof onFormChange === 'function' && liveReadyFlag()) onFormChange();
   }
   const liveReadyFlag = () => { try{ return liveReady; }catch(e){ return false; } };
@@ -207,7 +212,7 @@
     $('#fDep').value = r.departure_date && r.departure_date >= FC.today() ? r.departure_date : '';
     $('#fValue').value = r.invoice_value ? Number(r.invoice_value).toLocaleString('en-GB', { maximumFractionDigits:2 }) : '';
     if(OC && r.office_id && officeOf(r.office_id)){ $('#fOffice').value = r.office_id; paintCurrency(); }
-    if(!OC) segSet($('#fCur'), r.currency || 'EUR'); $('#fUplift').value = r.uplift_pct != null ? Number(r.uplift_pct) : (settings.uplift_pct || 10);
+    if(!OC && orgCurs().includes(r.currency)) segSet($('#fCur'), r.currency); $('#fUplift').value = r.uplift_pct != null ? Number(r.uplift_pct) : (settings.uplift_pct || 10);
     const c = form.querySelector(`input[name=cover][value="${r.cover || 'icc_a'}"]`); if(c) c.checked = true;
     $('#fWar').checked = r.war_strikes !== false;
     $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; segSet(partyHost, r.insured_party || 'seller');
@@ -388,7 +393,7 @@
     input.addEventListener('blur', () => setTimeout(close, 120));
   }
   attachPlaces($('#fOriginPlace'), $('#fOrigin')); attachPlaces($('#fDestPlace'), $('#fDest'));
-  if(OC) paintCurrency();
+  paintCurrency();
   $('#nsCalc').addEventListener('click', () => form.requestSubmit());
   $('#nsHelp').addEventListener('click', () => { const fb = $('#feedbackBtn'); if(fb) fb.click(); });
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
@@ -455,7 +460,7 @@
       body = `${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
         ${r.conditions ? `<div class="notice info"><b>Special conditions</b>${esc(r.conditions)}</div>` : ''}`;
     }else if(r.status === 'on_request'){
-      body = `<div class="notice warn"><b>We quote this shipment individually</b>It cannot be priced automatically because:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>`;
+      body = r.is_out_of_cover ? `<div class="notice warn"><b>Outside your open cover</b>This shipment is not attached to your policy. We quote it separately as a single shipment:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>` : `<div class="notice warn"><b>We quote this shipment individually</b>It cannot be priced automatically because:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>`;
     }else{
       body = `<div class="notice danger"><b>Compliance review required</b>${esc((r.reasons || []).join('. '))}. We cannot give an indication. Please contact us before shipping.</div>`;
     }
@@ -479,7 +484,7 @@
         <div><dt>Cargo type</dt><dd>${esc(r.commodity_name)}</dd></div>
         <div><dt>Sum insured</dt><dd class="num">${esc(money2(r.sum_insured, r.currency))}${Number(r.freight_value) > 0 ? '<span class="xs muted" style="display:block">incl. freight ' + esc(money2(r.freight_value, r.currency)) + '</span>' : ''}</dd></div>
         ${(r.transit_countries || []).length ? `<div><dt>Via</dt><dd>${esc(r.transit_countries.map(countryName).join(', '))}</dd></div>` : ''}
-        <div><dt>Conveyance</dt><dd>${esc(conv.label || '')}${r.departure_date ? ', departs ' + esc(FC.date(r.departure_date)) : ''}</dd></div>
+        <div><dt>Conveyance</dt><dd>${esc(conv.label || '')}${r.departure_date ? ', departure / ETA of loading ' + esc(FC.date(r.departure_date)) : ''}</dd></div>
         <div><dt>Cover</dt><dd>${esc(cov.clause || '')}</dd></div>
         <div><dt>${land ? 'Strikes' : 'War & strikes'}</dt><dd>${r.war_strikes ? 'Included' : 'Not included'}</dd></div>
         ${r.on_deck || r.interest_only ? `<div><dt>Special</dt><dd>${[r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Own interest only (contingency)" : ''].filter(Boolean).join(', ')}</dd></div>` : ''}
@@ -537,7 +542,7 @@
     ['conveyance', 'Conveyance', 'Sea, container'],
     ['origin_country', 'From country', 'DE'], ['origin_place', 'From city / port', 'Hamburg'],
     ['dest_country', 'To country', 'CN'], ['dest_place', 'To city / port', 'Shanghai'],
-    ['departure_date', 'Departure date', ''],
+    ['departure_date', 'Departure date / ETA of loading', ''],
     ['invoice_value', 'Invoice value', 120000], ['currency', 'Currency', 'EUR'], ['uplift_pct', 'Uplift %', 10],
     ['cover', 'Cover (A/B/C)', 'A'], ['war_strikes', 'War & strikes (yes/no)', 'yes'],
     ['ext_hssc', 'HSSC (yes/no)', ''], ['ext_liw', 'LiW / DiW (yes/no)', ''],
@@ -567,7 +572,7 @@
         const help = [['How to fill in the template'], [''], ['One row per shipment. Required: cargo type, description of goods, from country, to country, invoice value.'],
           ['Countries: ISO code (DE) or English name (Germany).'], ['Cargo type: name or ID from the sheet "Codes".'], ['Conveyance: Sea, container / Sea, breakbulk / Air freight / Air charter / Road / Rail. Empty = sea container.'],
           ['Cover: A, B or C. Empty = A. War & strikes: yes or no. Empty = yes.'],
-          ['HSSC (heating, sweating & spontaneous combustion) and LiW / DiW (loss / difference in weight): yes or no. Only for cargo types that offer them, e.g. agricultural products. Empty = no.'], ['Departure date: optional, e.g. 2026-11-15. Not in the past.'],
+          ['HSSC (heating, sweating & spontaneous combustion) and LiW / DiW (loss / difference in weight): yes or no. Only for cargo types that offer them, e.g. agricultural products. Empty = no.'], ['Departure date / ETA of loading: optional, e.g. 2026-11-15. Not in the past.'],
           ['Assured: fill in only if you insure on behalf of your customer. You remain the policyholder.'], ['Up to ' + UP_MAX + ' shipments per file.']];
         X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(help), 'Help');
         X.writeFile(wb, 'FREIGHTCON_bulk_template.xlsx');
@@ -614,8 +619,8 @@
     if(!(val > 0)) err.push('Invoice value missing');
     const upOffice = OC ? officeOf(($('#fOffice') || {}).value) || (org.office && officeOf(org.office.id)) : null;
     if(OC && !upOffice) err.push('Choose your office in New shipment first');
-    const curOk = OC ? (upOffice ? [upOffice.currency] : []) : ['EUR','USD'];
-    const cur = (s('currency') || curOk[0] || 'EUR').toUpperCase(); if(!curOk.includes(cur)) err.push('Currency must be ' + curOk.join(' or ') + (OC ? ' (your open cover)' : ''));
+    const curOk = OC ? officeCurs(upOffice) : orgCurs();
+    const cur = (s('currency') || curOk[0] || 'EUR').toUpperCase(); if(!curOk.includes(cur)) err.push('Currency must be ' + curOk.join(', ') + (OC ? ' (your open cover)' : ''));
     let up = c.uplift_pct === '' || c.uplift_pct == null ? Number(settings.uplift_pct || 10) : (typeof c.uplift_pct === 'number' ? (c.uplift_pct < 1 && c.uplift_pct > 0 ? c.uplift_pct * 100 : c.uplift_pct) : FC.parseNum(String(c.uplift_pct).replace('%', '')));
     if(!(up >= 0 && up <= 30)) err.push('Uplift must be 0–30 %');
     const cv = norm(s('cover')).replace(/^icc /, ''), cover = !cv ? 'icc_a' : ({ a:'icc_a', b:'icc_b', c:'icc_c', icc_a:'icc_a', icc_b:'icc_b', icc_c:'icc_c' })[cv.replace(' ', '_')];
@@ -626,8 +631,8 @@
     const wv = norm(s('war_strikes')), war = !wv || ['yes','y','ja','j','true','1','x'].includes(wv); if(wv && !war && !['no','n','nein','false','0'].includes(wv)) err.push('War & strikes must be yes or no');
     let dep = c.departure_date, depS = '';
     if(dep instanceof Date && !isNaN(dep)) depS = new Date(dep.getTime() - dep.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    else if(String(dep || '').trim()){ const t = String(dep).trim(), m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/); depS = m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : t; if(!/^\d{4}-\d{2}-\d{2}$/.test(depS) || isNaN(new Date(depS))){ err.push('Departure date not readable'); depS = ''; } }
-    if(depS && depS < FC.today()) err.push('Departure date lies in the past');
+    else if(String(dep || '').trim()){ const t = String(dep).trim(), m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/); depS = m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : t; if(!/^\d{4}-\d{2}-\d{2}$/.test(depS) || isNaN(new Date(depS))){ err.push('Departure date / ETA of loading not readable'); depS = ''; } }
+    if(depS && depS < FC.today()) err.push('Departure date / ETA of loading lies in the past');
     const inc = s('incoterm').toUpperCase().slice(0, 3); if(inc && !FC.INCOTERMS[inc]) err.push('Unknown Incoterm "' + s('incoterm') + '"');
     const pv = norm(s('insured_party')), party = !pv ? 'seller' : /buy|käuf|kaeuf|import/.test(pv) ? 'buyer' : /sell|verk|export/.test(pv) ? 'seller' : null; if(!party) err.push('Cover is for: seller or buyer');
     const pkv = norm(s('packaging')), pk = pkv ? (packOpts().find(o => norm(o) === pkv) || packOpts().find(o => norm(o).includes(pkv) || pkv.includes(norm(o).split(' ')[0])) || 'Other') : '';
@@ -716,7 +721,7 @@
     busy(b, true);
     try{
       const X = await needXlsx();
-      const head = ['Row', 'Your reference', 'FREIGHTCON reference', 'Assured', 'Cargo type', 'Description of goods', 'Conveyance', 'From', 'To', 'Departure', 'Invoice value', 'Currency', 'Sum insured', 'Cover', 'War & strikes', 'HSSC', 'LiW / DiW', 'Result', 'Rate %', 'Premium (excl. tax)', 'Notes'];
+      const head = ['Row', 'Your reference', 'FREIGHTCON reference', 'Assured', 'Cargo type', 'Description of goods', 'Conveyance', 'From', 'To', 'Departure / ETA of loading', 'Invoice value', 'Currency', 'Sum insured', 'Cover', 'War & strikes', 'HSSC', 'LiW / DiW', 'Result', 'Rate %', 'Premium (excl. tax)', 'Notes'];
       const rows = upRows.map(r => { const p = r.p, x = r.res || {};
         return [r.line, p.customer_ref, x.ref || '', p.insured_name, ((commodities.find(c => c.id === p.commodity_id) || {}).name) || '', p.goods_description, (FC.CONVEYANCE[p.conveyance] || {}).label || '',
           [p.origin_place, countryName(p.origin_country)].filter(Boolean).join(', '), [p.dest_place, countryName(p.dest_country)].filter(Boolean).join(', '), p.departure_date || '',
@@ -747,7 +752,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12d');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12e');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -757,7 +762,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12d').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12e').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -968,7 +973,7 @@
         inner = `<h3>Tell us more</h3>
           <div class="field"><label for="wzDesc">What happened, and what is affected?</label><textarea id="wzDesc" rows="5" maxlength="4000" placeholder="e.g. On unloading at the consignee 3 of 12 crates showed fork-lift damage, one machine has a broken housing. Remarks were noted on the CMR.">${esc(st.description)}</textarea><span class="hint">Short and factual is perfect. You can add more later.</span></div>
           <div class="grid3"><div class="field" style="grid-column:span 2"><label for="wzAmt">Estimated loss <span class="muted">(rough figure is fine)</span></label><input id="wzAmt" inputmode="decimal" placeholder="e.g. 12,500" value="${st.estimated_amount !== '' ? esc(st.estimated_amount) : ''}"></div>
-            <div class="field"><label for="wzCur">Currency</label><select id="wzCur"><option ${st.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${st.currency === 'USD' ? 'selected' : ''}>USD</option><option ${st.currency === 'GBP' ? 'selected' : ''}>GBP</option></select></div></div>
+            <div class="field"><label for="wzCur">Currency</label><select id="wzCur"><option ${st.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${st.currency === 'USD' ? 'selected' : ''}>USD</option><option ${st.currency === 'GBP' ? 'selected' : ''}>GBP</option><option ${st.currency === 'SGD' ? 'selected' : ''}>SGD</option></select></div></div>
           <div class="field"><label for="wzLoc">Where are the goods now?</label><input id="wzLoc" maxlength="300" placeholder="Address where a surveyor can inspect them" value="${esc(st.goods_location)}"></div>
           <label class="switch"><input type="checkbox" id="wzCarr" ${st.carrier_notified ? 'checked' : ''}><span><b>The carrier has been notified in writing</b><span>Shipping line, trucker, airline or forwarder who had the goods.</span></span></label>
           <label class="switch"><input type="checkbox" id="wzRem" ${st.receipt_remarks ? 'checked' : ''}><span><b>Remarks were noted on the delivery receipt</b><span>e.g. "3 crates damaged" on the CMR, POD or interchange.</span></span></label>
@@ -1192,7 +1197,7 @@
     if(!rows.length){ host.innerHTML = `<div class="empty card">${hist.length ? '' : FC.shipArt}<h3>${hist.length ? 'No matches' : 'No indications yet'}</h3><p>${hist.length ? 'Try another search term.' : 'Your calculations appear here.'}</p></div>`; return; }
     rows.forEach(r => {
       const it = FC.el(`<div class="item"><div>
-          <div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} ${r.intake ? '<span class="chip approved">Declared</span>' : `<span class="chip ${esc(r.status)}">${esc(FC.STATUS[r.status])}</span>${r.quote_requested_at ? ' <span class="chip neutral">Requested</span>' : ''}`}</div>
+          <div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} ${r.is_out_of_cover ? '<span class="chip on_request">Outside open cover</span>' : r.intake ? '<span class="chip approved">Declared</span>' : `<span class="chip ${esc(r.status)}">${esc(FC.STATUS[r.status])}</span>${r.quote_requested_at ? ' <span class="chip neutral">Requested</span>' : ''}`}</div>
           <div class="t">${esc(r.goods_description)}${r.insured_name ? ' <span class="muted">for ' + esc(r.insured_name) + '</span>' : ''}</div>
           <div class="meta">${esc(FC.dateTime(r.created_at))}${r.ref ? ', ' + esc(r.ref) : ''}${r.customer_ref ? ', your ref. ' + esc(r.customer_ref) : ''}, sum insured ${esc(money2(r.sum_insured, r.currency))}${r.status === 'quoted' ? ', premium ' + esc(money2(r.premium, r.currency)) : ''}</div>
         </div><div class="acts"></div></div>`);
