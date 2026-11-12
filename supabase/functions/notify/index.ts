@@ -24,7 +24,7 @@ const APP = env("APP_URL").replace(/\/$/, "");
 type Row = { id: number; kind: string; payload: Record<string, any>; processed_at: string | null };
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-const money = (n: unknown, cur: unknown) => (n == null || n === "" ? "" : (cur === "USD" ? "$" : cur === "EUR" ? "€" : String(cur ?? "") + " ") +
+const money = (n: unknown, cur: unknown) => (n == null || n === "" ? "" : (cur === "USD" ? "$" : cur === "EUR" ? "€" : cur === "GBP" ? "£" : String(cur ?? "") + " ") +
   Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const when = (v: unknown) => v ? new Date(String(v)).toLocaleString("en-GB", { timeZone: "Europe/Berlin", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " (Berlin)" : "";
 
@@ -56,14 +56,14 @@ function mailer() {
   return transport;
 }
 function layout(brand: string, legal: string, title: string, bodyHtml: string, cta?: { href: string; label: string }) {
-  return `<!doctype html><html><body style="margin:0;background:#EDF1F2;font-family:Arial,Helvetica,sans-serif;color:#12232A">
+  return `<!doctype html><html><body style="margin:0;background:#EDF1F2;font-family:Calibri,Carlito,Arial,Helvetica,sans-serif;color:#12232A">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:12px;overflow:hidden">
-    <tr><td style="background:#0C3640;padding:18px 26px;border-bottom:4px solid #E9A23B;color:#fff;font-weight:bold;font-size:18px;letter-spacing:.04em">${esc(brand)}</td></tr>
+    <tr><td style="background:#003A79;padding:20px 26px;border-bottom:4px solid #009FE3;color:#fff;font-weight:bold;font-size:18px;letter-spacing:.04em">${APP ? `<img src="${esc(APP)}/assets/freightcon-logo-white.png" width="220" height="20" alt="${esc(brand)}" style="display:block;border:0;width:220px;height:auto">` : esc(brand)}</td></tr>
     <tr><td style="padding:26px">
-      <h1 style="margin:0 0 14px;font-size:20px;color:#0C3640">${esc(title)}</h1>
+      <h1 style="margin:0 0 14px;font-size:20px;color:#003A79">${esc(title)}</h1>
       ${bodyHtml}
-      ${cta ? `<p style="margin:24px 0 6px"><a href="${esc(cta.href)}" style="background:#137C83;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold;display:inline-block">${esc(cta.label)}</a></p>` : ""}
+      ${cta ? `<p style="margin:24px 0 6px"><a href="${esc(cta.href)}" style="background:#003A79;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold;display:inline-block">${esc(cta.label)}</a></p>` : ""}
     </td></tr>
     <tr><td style="padding:16px 26px;background:#F6F8F9;color:#5E6E75;font-size:12px">${esc(legal || brand)}</td></tr>
   </table></td></tr></table></body></html>`;
@@ -102,18 +102,18 @@ async function handle(row: Row) {
 
   switch (row.kind) {
     case "quote_request": {
-      if (tgOn) out.push(await telegram(`📦 <b>New quotation request ${esc(p.ref)}</b>\n${esc(who)}\n${esc(route)}\n${esc(p.goods)}\nSum insured ${esc(money(p.sum_insured, p.currency))}` +
+      if (tgOn) out.push(await telegram(`📦 <b>New quotation request ${esc(p.ref)}</b>\n${esc(who)}\n${esc(route)}\n${esc(p.goods)}${p.vessel ? '\n🚢 ' + esc(p.vessel) : ''}${p.incoterm ? '\nIncoterm ' + esc(p.incoterm) + ' (client is ' + esc(p.insured_party || 'seller') + ')' : ''}\nSum insured ${esc(money(p.sum_insured, p.currency))}` +
         (p.premium != null ? `\nIndication ${esc(money(p.premium, p.currency))}` : `\nStatus: ${esc(p.status)}`) + (p.comment ? `\n💬 ${esc(p.comment)}` : "")));
-      await staffMail(`New request ${p.ref} — ${p.company || p.email}`, "New quotation request", [["Reference", p.ref], ["Customer", who], ["E-mail", p.email], ["Route", route], ["Goods", p.goods],
+      await staffMail(`New request ${p.ref} — ${p.company || p.email}`, "New quotation request", [["Reference", p.ref], ["Customer", who], ["E-mail", p.email], ["Route", route], ["Goods", p.goods], ["Vessel", p.vessel], ["Incoterm", p.incoterm ? `${p.incoterm} (client is the ${p.insured_party || "seller"})` : ""],
         ["Sum insured", money(p.sum_insured, p.currency)], ["Indication", p.premium != null ? money(p.premium, p.currency) : p.status], ["Message", p.comment]]);
       await custMail(`We received your request ${p.ref}`, "Thank you for your request",
         `<p style="font-size:14px;line-height:1.6">We received your quotation request <b>${esc(p.ref)}</b> and are working on it. You are notified as soon as the quotation is ready.</p>` +
-        kv([["Route", route], ["Goods", p.goods], ["Sum insured", money(p.sum_insured, p.currency)]]), { href: APP + "/app.html#quotes", label: "My quotations" });
+        kv([["Route", route], ["Goods", p.goods], ["Sum insured", money(p.sum_insured, p.currency)]]), { href: APP + "/app.html#quotes", label: "My shipments" });
       break;
     }
     case "quotation_sent":
       await custMail(`Your quotation ${p.ref}${p.version > 1 ? " (version " + p.version + ")" : ""} is ready`, "Your quotation is ready",
-        `<p style="font-size:14px;line-height:1.6">Your quotation for <b>${esc(p.ref)}</b> is ready. Review it and accept it online before it expires.</p>` +
+        `<p style="font-size:14px;line-height:1.6">Your quotation for <b>${esc(p.ref)}</b> is ready. Take a look online – if it suits you, you can accept it there while it is valid.</p>` +
         kv([["Total premium", money(p.total, p.currency)], ["Valid until", when(p.valid_until)]]), { href: APP + "/app.html#quotes", label: "Review quotation" });
       break;
     case "quotation_response":
@@ -126,9 +126,32 @@ async function handle(row: Row) {
         `<p style="font-size:14px;line-height:1.6">Cover is confirmed. Download your cover note <b>${esc(p.number)}</b> in ${esc(brand)}.</p>`, { href: APP + "/app.html#quotes", label: "Download cover note" });
       if (tgOn) out.push(await telegram(`🛡 Cover note <b>${esc(p.number)}</b> issued for ${esc(p.ref)} (${esc(who)})`));
       break;
+    case "claim_reported": {
+      const types: Record<string, string> = { damage: "Damage", wet: "Wet damage", theft: "Theft / missing", shortage: "Shortage", temperature: "Temperature", total_loss: "Total loss", other: "Other" };
+      if (tgOn) out.push(await telegram(`🚨 <b>New claim ${esc(p.ref)}</b>\n${esc(who)}\n${esc(types[p.loss_type] || p.loss_type)} · ${esc(p.goods)}\n${esc(p.origin)} → ${esc(p.dest)}${p.cover_note ? "\nCover note " + esc(p.cover_note) : ""}` +
+        (p.amount != null ? `\nEstimated ${esc(money(p.amount, p.currency))}` : "") + (p.place ? `\n📍 ${esc(p.place)}` : "") + (p.phone ? `\n📞 ${esc(p.phone)}` : "") + `\n${esc(String(p.description || "").slice(0, 300))}`));
+      await staffMail(`New claim ${p.ref} — ${p.company || p.email}`, "New claim reported", [["Claim", p.ref], ["Customer", who], ["E-mail", p.email], ["Phone", p.phone],
+        ["Shipment", p.shipment_ref], ["Cover note", p.cover_note], ["What happened", types[p.loss_type] || p.loss_type], ["Goods", p.goods], ["Place", p.place],
+        ["Incident", p.incident_date], ["Estimated loss", p.amount != null ? money(p.amount, p.currency) : ""], ["Description", p.description]]);
+      await custMail(`We received your claim ${p.ref}`, "Your claim has been reported",
+        `<p style="font-size:14px;line-height:1.6">We received your claim <b>${esc(p.ref)}</b> and are on it. Please keep the goods and the packing, and hold the carrier liable in writing. You see every step under My shipments → Claims.</p>`,
+        { href: APP + "/app.html#claims", label: "View my claim" });
+      break;
+    }
+    case "claim_message":
+      if (tgOn) out.push(await telegram(`💬 <b>Claim ${esc(p.ref)}</b> — message from ${esc(who)}${p.files ? ` (+${p.files} file${p.files > 1 ? "s" : ""})` : ""}\n${esc(String(p.message || "").slice(0, 300))}`));
+      await staffMail(`Claim ${p.ref}: new message from ${p.company || p.email}`, "New message on a claim", [["Claim", p.ref], ["Customer", who], ["Message", p.message], ["Files added", p.files || ""]]);
+      break;
+    case "claim_update": {
+      const st: Record<string, string> = { reported: "Reported", in_review: "In review", documents_requested: "Documents requested", surveyor_appointed: "Surveyor appointed", with_insurer: "With insurer", settled: "Settled", rejected: "Declined by insurer", closed: "Closed" };
+      await custMail(`Update on your claim ${p.ref}${p.status ? ": " + (st[p.status] || p.status) : ""}`, "Update on your claim",
+        (p.status ? `<p style="font-size:14px;line-height:1.6">New status: <b>${esc(st[p.status] || p.status)}</b></p>` : "") +
+        (p.message ? `<p style="font-size:14px;line-height:1.6;white-space:pre-wrap">${esc(p.message)}</p>` : ""), { href: APP + "/app.html#claims", label: "Open claim" });
+      break;
+    }
     case "new_registration":
-      if (tgOn) out.push(await telegram(`👤 <b>New registration</b>\n${esc(who)}\n${esc(p.email)}${p.country ? "\n" + esc(p.country) : ""}${p.referred ? "\n🎁 via invitation link" : ""}\n➡️ Activate under Internal → Customers.`));
-      await staffMail(`New registration: ${p.company || p.email}`, "New registration to activate", [["Company", p.company], ["Name", p.name], ["E-mail", p.email], ["Country", p.country], ["Invited", p.referred ? "Yes" : "No"]]);
+      if (tgOn) out.push(await telegram(`👤 <b>New registration</b>\n${esc(who)}\n${esc(p.email)}${p.address ? "\n" + esc(p.address) : p.country ? "\n" + esc(p.country) : ""}${p.referred ? "\n🎁 via invitation link" : ""}\n➡️ Activate under Internal → Customers.`));
+      await staffMail(`New registration: ${p.company || p.email}`, "New registration to activate", [["Company", p.company], ["Name", p.name], ["E-mail", p.email], ["Address", p.address || p.country], ["Invited", p.referred ? "Yes" : "No"]]);
       break;
     case "account_approved":
       await custMail(`Your ${brand} account is active`, "Welcome aboard",
@@ -139,8 +162,7 @@ async function handle(row: Row) {
       await staffMail(`Feedback from ${p.company || p.email}`, "New feedback", [["From", who], ["E-mail", p.email], ["Message", p.message]]);
       break;
     case "deletion_request":
-      if (tgOn) out.push(await telegram(`🗑 <b>Account deletion requested</b>\n${esc(who)}\n${esc(p.email)}`));
-      await staffMail(`Deletion request: ${p.email}`, "Account deletion requested", [["Customer", who], ["E-mail", p.email]]);
+      if (tgOn) out.push(await telegram(`🗑 <b>User deleted</b>\n${esc(p.deleted_name || "")} ${esc(p.deleted_email)}${p.customer ? "\n" + esc(p.customer) : ""}\nby ${esc(p.staff_name || p.staff_email)}`));
       break;
     case "test":
       if (tgOn) out.push(await telegram(`🔔 Test alert from ${esc(brand)}`));
