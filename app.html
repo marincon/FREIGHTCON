@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-11-12a">
+<meta name="fc-version" content="2026-11-12b">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-11-12a">
+<link rel="stylesheet" href="assets/style.css?v=2026-11-12b">
 </head>
 <body>
 <div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
@@ -69,11 +69,23 @@
               <option value="">Not stated</option><option>Cartons on pallets</option><option>Wooden crates / cases</option><option>Loose in container</option>
               <option>Bags / big bags</option><option>Drums / IBCs</option><option>Bulk</option><option>Unpacked, lashed</option><option>Other</option>
             </select></div>
+          <details class="more" id="moreDetails">
+            <summary>More shipment details <span class="muted">(optional — helps us quote faster)</span></summary>
+            <div class="grid3" style="margin-top:12px">
+              <div class="field"><label for="dEquip">Equipment</label><select id="dEquip"><option value="">Not stated</option><option>FCL</option><option>LCL</option><option>SOC (shipper's own container)</option><option>Flat rack</option><option>Open top</option><option>Breakbulk</option><option>RoRo</option></select></div>
+              <div class="field"><label for="dPieces">Pieces</label><input id="dPieces" inputmode="numeric" maxlength="8" placeholder="e.g. 4"></div>
+              <div class="field"><label for="dWeight">Gross weight (kg)</label><input id="dWeight" inputmode="decimal" maxlength="12" placeholder="e.g. 18,500"></div>
+              <div class="field"><label for="dDims">Dimensions (L × W × H)</label><input id="dDims" maxlength="80" placeholder="e.g. 6.2 × 2.4 × 2.6 m"></div>
+              <div class="field"><label for="dHs">HS code</label><input id="dHs" maxlength="20" placeholder="e.g. 8458 11"></div>
+              <div class="field"><label for="dStorage">Storage before / after transit</label><select id="dStorage"><option value="">None or up to 30 days</option><option value="30">30 to 60 days</option><option value="60">More than 60 days</option></select></div>
+            </div>
+            <div class="field" style="margin-top:12px"><label for="dParties">Co-assureds / loss payees <span class="muted">(one per line)</span></label><textarea id="dParties" rows="2" maxlength="1000" placeholder="e.g. Commerzbank AG, Hamburg — loss payee"></textarea></div>
+          </details>
         </div>
         <div class="form-sec">
           <h2><span id="icRoute"></span>Route</h2>
           <div class="field"><span class="lbl" id="convLbl">Conveyance</span><div class="seg" id="fConv" role="radiogroup" aria-labelledby="convLbl"></div><span class="hint" id="convHint"></span></div>
-          <div class="field" id="vesselField" style="margin-top:14px"><label for="fVessel">Vessel <span class="muted">(name or IMO number, optional)</span></label><input id="fVessel" maxlength="100" placeholder="e.g. MSC ANNA or 9428437"><span class="hint">Not known yet? Leave it empty. We check the vessel's age, class and flag before we quote.</span></div>
+          <div class="field" id="vesselField" style="margin-top:14px"><label for="fVessel">Vessel <span class="muted">(name or IMO number, optional)</span></label><div class="vessel-row"><input id="fVessel" maxlength="100" placeholder="e.g. MSC ANNA or 9428437"><input id="dYear" inputmode="numeric" maxlength="4" placeholder="Year built" aria-label="Year built (optional)"></div><span class="hint">Not known yet? Leave it empty. We check the vessel's age, class and flag before we quote.</span></div>
           <label class="switch" id="deckField" hidden><input type="checkbox" id="fDeck"><span><b>Shipped on deck</b><span>Cargo stowed on deck instead of in the hold, common for large machinery and project cargo. Costs 50 % more.</span></span></label>
           <div class="grid2" style="margin-top:14px">
             <div class="field"><label for="fOrigin">From (country)</label><select id="fOrigin" required></select><span class="err">Choose the origin country.</span></div>
@@ -83,6 +95,9 @@
             <div class="field"><label for="fDest">To (country)</label><select id="fDest" required></select><span class="err">Choose the destination country.</span></div>
             <div class="field"><label for="fDestPlace">City / port</label><input id="fDestPlace" maxlength="100" placeholder="e.g. Shanghai"></div>
           </div>
+          <div class="field transit" style="margin-top:12px"><span class="lbl" id="transitLbl">Transit countries <span class="muted">(optional — transhipment or on-carriage via)</span></span>
+            <div class="transit-row"><div id="transitChips" class="chips" aria-labelledby="transitLbl"></div><select id="fTransitAdd" aria-label="Add a transit country"><option value="">+ Add transit country</option></select></div></div>
+          <div class="field" id="redSeaField" style="margin-top:12px"><span class="lbl" id="redLbl">Routing via Suez Canal / Red Sea?</span><div class="seg" id="fRed" role="radiogroup" aria-labelledby="redLbl"><button type="button" role="radio" data-v="auto" aria-checked="true">Not sure</button><button type="button" role="radio" data-v="yes" aria-checked="false">Yes, via Suez</button><button type="button" role="radio" data-v="no" aria-checked="false">No, e.g. via the Cape</button></div><span class="hint" id="redHint"></span></div>
           <div class="field" style="margin-top:12px;max-width:240px"><label for="fDep">Departure date</label><input id="fDep" type="date"><span class="err">The departure date cannot lie in the past.</span></div>
         </div>
         <div class="form-sec">
@@ -91,6 +106,7 @@
             <div class="field" style="grid-column:span 2"><label for="fValue">Invoice value</label><input id="fValue" inputmode="decimal" placeholder="e.g. 120,000" required><span class="err">Enter the invoice value.</span></div>
             <div class="field"><span class="lbl" id="curLbl">Currency</span><div class="seg" id="fCur" role="radiogroup" aria-labelledby="curLbl"><button type="button" role="radio" data-v="EUR" aria-checked="true">EUR</button><button type="button" role="radio" data-v="USD" aria-checked="false">USD</button></div></div>
           </div>
+          <div class="field" style="margin-top:12px"><label for="fFreight">Freight and costs not in the invoice <span class="muted">(optional)</span></label><input id="fFreight" inputmode="decimal" placeholder="e.g. 4,800" style="max-width:240px"><span class="hint" id="freightHint">Add freight only if it is not already in the invoice value.</span></div>
           <div class="field" style="margin-top:12px;max-width:240px"><label for="fUplift">Uplift on invoice value</label><div class="with-unit"><input id="fUplift" inputmode="decimal" value="10"><span class="unit">%</span></div><span class="hint">Usually 10 % to cover freight and costs.</span><span class="err">Between 0 and 30 %.</span></div>
           <div class="si-line"><span>Sum insured</span><b id="siOut">—</b></div>
         </div>
@@ -102,6 +118,10 @@
               <div class="field"><label for="fInsName">Customer (company name)</label><input id="fInsName" maxlength="150" list="insList" autocomplete="off" placeholder="e.g. Müller Maschinenbau GmbH"><datalist id="insList"></datalist><span class="err">Enter your customer's name.</span></div>
               <div class="field"><label for="fInsAddr">Address</label><input id="fInsAddr" maxlength="250" placeholder="Street, postcode, city, country"></div>
             </div>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div class="field"><label for="fInsCountry" id="insCountryLbl">Country of the assured</label><select id="fInsCountry"><option value="">Same as my company</option></select></div>
+            <div class="field" id="ftzField" hidden><span class="lbl" id="ftzLbl">Registered in a UAE Free Trade Zone?</span><div class="seg" id="fFtz" role="radiogroup" aria-labelledby="ftzLbl"><button type="button" role="radio" data-v="" aria-checked="true">Not sure</button><button type="button" role="radio" data-v="true" aria-checked="false">Yes (FTZ)</button><button type="button" role="radio" data-v="false" aria-checked="false">No, mainland</button></div></div>
           </div>
           <div class="field" style="margin-top:12px;max-width:320px"><label for="fCustRef">Your reference <span class="muted">(optional)</span></label><input id="fCustRef" maxlength="60" placeholder="e.g. job number 26-1187"><span class="hint">Printed on all documents so you can match them.</span></div>
         </div>
@@ -199,9 +219,9 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-11-12a"></script>
-<script src="assets/pdf.js?v=2026-11-12a"></script>
-<script src="assets/globe.js?v=2026-11-12a"></script>
-<script src="assets/app.js?v=2026-11-12a"></script>
+<script src="assets/core.js?v=2026-11-12b"></script>
+<script src="assets/pdf.js?v=2026-11-12b"></script>
+<script src="assets/globe.js?v=2026-11-12b"></script>
+<script src="assets/app.js?v=2026-11-12b"></script>
 </body>
 </html>
