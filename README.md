@@ -22,7 +22,7 @@ Kunde gibt Ware, Route und Wert ein → sieht sofort eine Indikation → fordert
 
 ### 1. Supabase-Projekt
 1. Neues Projekt auf supabase.com anlegen, Region **Frankfurt (eu-central-1)**.
-2. SQL Editor → nacheinander ausführen: `supabase/schema.sql`, `supabase/seed.sql`, `supabase/update_2026-10-20c.sql`, `supabase/update_2026-10-20d.sql`, `supabase/update_2026-10-20e.sql`, `supabase/update_2026-10-20f.sql`, `supabase/update_2026-10-20g.sql`, `supabase/update_2026-10-20h.sql`, `supabase/update_2026-10-20i.sql`, `supabase/update_2026-10-20j.sql`, `supabase/update_2026-10-21k.sql`, `supabase/update_2026-11-12l.sql`, `supabase/update_2026-11-12m.sql`, `supabase/update_2026-11-12n.sql`, `supabase/update_2026-11-12o.sql`.
+2. SQL Editor → nacheinander ausführen: `supabase/schema.sql`, `supabase/seed.sql`, `supabase/update_2026-10-20c.sql`, `supabase/update_2026-10-20d.sql`, `supabase/update_2026-10-20e.sql`, `supabase/update_2026-10-20f.sql`, `supabase/update_2026-10-20g.sql`, `supabase/update_2026-10-20h.sql`, `supabase/update_2026-10-20i.sql`, `supabase/update_2026-10-20j.sql`, `supabase/update_2026-10-21k.sql`, `supabase/update_2026-11-12l.sql`, `supabase/update_2026-11-12m.sql`, `supabase/update_2026-11-12n.sql`, `supabase/update_2026-11-12o.sql`, `supabase/update_2026-11-12p.sql`.
 3. Authentication → URL Configuration: *Site URL* = deine Domain (z. B. `https://freightcon.com`), unter *Redirect URLs* `https://freightcon.com/index.html` eintragen.
 4. Authentication → Providers → Email: „Confirm email“ an lassen.
 5. Authentication → SMTP Settings: IONOS-Postfach eintragen (`smtp.ionos.de`, Port 465), damit Bestätigungs- und Passwort-Mails von deiner Adresse kommen.
@@ -93,3 +93,16 @@ Bewusst nicht übernommen, weil für Cargo nicht sinnvoll: Karte, Vessel Trackin
 - Datenbank: Rechnung, Mindestprämie, Rabatt, Sanktionen, on request, Referenznummern, Rechte (Kunde sieht nur eigene Daten, keine Raten, keine Admin-Funktionen, kann sich nicht selbst zum Admin machen), Wartungsmodus.
 - Oberfläche end-to-end im Browser: Registrierung bis Cover Note und Rechnung, Desktop und Handy, hell und dunkel, ohne Konsolenfehler.
 - Nicht getestet (braucht eure Zugänge): echter Supabase-Login, Telegram, SMTP.
+
+
+## Update 2026-11-12p / Version 2026-11-12e — Mandanten-Trennung
+
+1. SQL Editor → `supabase/update_2026-11-12p.sql` ausführen (nach o).
+2. Edge Functions deployen:
+   - `supabase functions deploy admin-manage-user` (neu: Nutzer sofort anlegen, deaktivieren, löschen/anonymisieren)
+   - `supabase functions deploy notify` (neu: Mails `user_created`, `user_deleted`, £/SGD)
+   Die Secrets `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` setzt Supabase selbst; `APP_URL` wie bei notify.
+3. Alle Website-Dateien hochladen (app.html, assets/*, inkl. neuer Datei `assets/geo/d3-zoom.min.js`).
+
+Struktur: Gruppe → Kunde → Policen & Büros. Jede Tarif-Konfiguration gehört zu einem Scope: *General (one-offs)*, *Kunde* oder *Police*.
+One-offs werden ausschließlich aus dem General-Pool gerechnet; Bertling hat nach dem Update eine eigene Kopie.
