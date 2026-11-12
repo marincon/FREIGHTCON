@@ -4,13 +4,13 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[] };
+  const S = { clauses:[], polClauses:[], warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[] };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
   const setting = (k, d) => (S.settings[k] !== undefined ? S.settings[k] : d);
 
-  const TABS = [['requests','Requests'],['claims','Claims'],['overview','Overview'],['customers','Customers'],['rates','Rates'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
+  const TABS = [['requests','Requests'],['claims','Claims'],['overview','Overview'],['ledger','Ledger'],['customers','Customers'],['rates','Rates'],['clauses','Clauses'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
 
   A.open = async (host) => {
     root = host;
@@ -29,7 +29,7 @@
   };
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -52,8 +52,11 @@
       sb.from('indication_internal').select('*'),
       sb.from('audit_log').select('*').order('at', { ascending:false }).limit(300),
       sb.from('war_areas').select('*').order('sort'),
-      sb.from('war_exclusions').select('*').order('id')
+      sb.from('war_exclusions').select('*').order('id'),
+      sb.from('clause_library').select('*').order('sort'),
+      sb.from('policy_clauses').select('*')
     ]);
+    S.clauses = cla.data || []; S.polClauses = pcl.data || [];
     S.warAreas = (wa.data || []); S.warEx = (wx.data || []);
     S.groups = grp.data || []; S.policies = pol.data || []; S.offices = ofc.data || []; S.audit = aud.data || [];
     // what the client must not see is kept apart; staff see the full picture
@@ -92,7 +95,7 @@
 
   function render(){
     const body = $('#admBody', root); body.innerHTML = '';
-    ({ requests: renderRequests, claims: renderClaimsAdmin, overview: renderOverview, customers: renderCustomers, rates: renderRates, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
+    ({ requests: renderRequests, claims: renderClaimsAdmin, overview: renderOverview, ledger: renderLedger, customers: renderCustomers, rates: renderRates, clauses: renderClauses, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
   }
   const chip = (cls, t) => `<span class="chip ${esc(cls)}">${esc(t)}</span>`;
   const btn = (label, kind, fn) => { const b = FC.el(`<button type="button" class="btn btn-${kind} btn-sm"><span class="spin"></span>${esc(label)}</button>`); b.addEventListener('click', e => fn(b, e)); return b; };
@@ -443,7 +446,6 @@
         <div class="field"><label for="qeInsSel">Insurer</label><select id="qeInsSel">${insOpts}</select><input id="qeIns" maxlength="200" value="${esc(otherName)}" placeholder="Name of the insurer" style="margin-top:6px" ${preIns ? 'hidden' : ''}></div>
         <div class="field"><label>Deductible</label><input id="qeDed" maxlength="200" value="${esc(d.deductible)}"></div>
       </div>
-      <div class="field" style="margin-top:12px"><label>Special conditions</label><textarea id="qeSpec" rows="2" maxlength="1200">${esc(d.special)}</textarea></div>
       <h3 style="margin:18px 0 6px">Premium</h3>
       <div class="grid3">
         <div class="field"><label>Currency</label><select id="qeCur"><option ${d.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${d.currency === 'USD' ? 'selected' : ''}>USD</option><option ${d.currency === 'GBP' ? 'selected' : ''}>GBP</option></select></div>
@@ -468,23 +470,93 @@
       <div class="qe-internal"><h4>Internal, never shown to the client</h4>
         <div class="grid3"><div class="field"><label for="qeBrk">Brokerage % with this insurer</label><input id="qeBrk" inputmode="decimal" value="${esc(preBrk)}"></div>
         <div class="field"><label>Brokerage</label><div class="num" id="qeBrkAmt" style="padding-top:10px">—</div></div>
-        <div class="field"><label>Net premium to insurer</label><div class="num" id="qeNetIns" style="padding-top:10px">—</div></div></div>
+        <div class="field"><label>Net premium to insurer</label><div class="num" id="qeNetIns" style="padding-top:10px">—</div></div>
+        <div class="field"><label for="qeReb">Commission / rebate to the client, % of premium</label><input id="qeReb" inputmode="decimal" value="${esc(prevInt ? Number(prevInt.client_rebate_pct || 0) : 0)}"></div>
+        <div class="field"><label>Rebate</label><div class="num" id="qeRebAmt" style="padding-top:10px">—</div></div>
+        <div class="field"><label>Net retained brokerage</label><div class="num" id="qeKeep" style="padding-top:10px">—</div></div></div>
         <p class="xs muted" style="margin:0">Calculated on the premium after discount and minimum, before insurance tax. The default comes from the insurer (tab Insurers).</p></div>
       <div class="grid2" style="margin-top:6px">
         <div class="field"><label>Valid until (your local time)</label><input id="qeValid" type="datetime-local" value="${toLocal(new Date(Date.now() + 3 * 864e5))}"></div>
         <div class="field"><label>Handled by</label><input id="qeHandler" maxlength="100" value="${esc(me().full_name || '')}"></div>
       </div>
-      <div class="field" style="margin-top:12px"><label>Subject to (one per line)</label><textarea id="qeSubj" rows="5" maxlength="3000">${esc((d.subjectivities || []).join('\n'))}</textarea></div>
+      <h3 style="margin:22px 0 6px">Quotation wording</h3>
+      <p class="xs muted" style="margin:0 0 10px">Tick clauses from the library (defaults of ${og.policy ? esc(og.policy.name) : 'spot quotations'}); every text stays editable in the document. The pricing block follows the figures above.</p>
+      <div class="qe-wording"><div class="qe-picks" id="qePicks"></div>
+        <div class="qe-docwrap"><div class="rt-bar" role="toolbar" aria-label="Formatting">
+            <button type="button" data-rt="bold" title="Bold"><b>B</b></button><button type="button" data-rt="big" title="Larger text">A+</button>
+            <button type="button" data-rt="box" title="Outline box">▢ Box</button><button type="button" data-rt="mark" title="Highlight"><mark>Highlight</mark></button>
+            <span style="flex:1"></span><button type="button" data-rt="copy" title="Copy for e-mail">Copy formatted text</button></div>
+          <div class="qe-doc" id="qeDoc" contenteditable="true" spellcheck="true"></div></div></div>
       <div class="field"><label>Note for the client (optional)</label><textarea id="qeNote" rows="2" maxlength="800">${esc(d.note || '')}</textarea></div>
       <div class="field"><label>How to accept</label><textarea id="qeClose" rows="2" maxlength="1200">${esc(d.closing || '')}</textarea></div>
       <div class="err-msg" id="qeErr"></div></div>`);
     const $b = s => body.querySelector(s);
+    // ---------- wording: library clauses → one editable document ----------
+    const isLand = /^(road|rail)$/.test(r.conveyance), polId = og.policy ? og.policy.id : null;
+    const fillIn = t => String(t || '').replace(/\{policy_no\}/g, (og.policy && og.policy.policy_no) || '—').replace(/\{assured\}/g, d.client || '').replace(/\{ref\}/g, r.ref || '').replace(/\{currency\}/g, d.currency || '');
+    const lib = S.clauses.filter(c => c.active && !(isLand && c.maritime));
+    // clauses suggested by the internal alerts of this shipment
+    const alertTxt = (r.alerts || []).map(a => a.text).join(' ');
+    const suggest = new Set([].concat(/Used goods/.test(alertTxt) ? ['Used machinery', 'Pre-shipment exception report'] : [], /warranty survey/.test(alertTxt) ? ['Marine warranty survey'] : [],
+      r.on_deck ? ['On deck'] : [], /^unpacked/i.test(r.packaging || '') ? ['Unpacked goods'] : [], /Storage/.test(alertTxt) ? ['Storage'] : []));
+    const docEl = $b('#qeDoc'), picks = $b('#qePicks');
+    const sectionFor = cat => {
+      let sec = docEl.querySelector(`section[data-cat="${cat}"]`);
+      if(!sec){
+        sec = document.createElement('section'); sec.dataset.cat = cat; sec.innerHTML = `<h4>${esc(CL_CAT.find(x => x[0] === cat)[1].replace(/^\d · /, ''))}</h4>`;
+        const order = CL_CAT.map(x => x[0]), after = Array.from(docEl.querySelectorAll('section[data-cat]')).find(x => order.indexOf(x.dataset.cat) > order.indexOf(cat));
+        docEl.insertBefore(sec, after || null);
+      }
+      return sec;
+    };
+    const addClause = c => { if(docEl.querySelector(`[data-cid="${c.id}"]`)) return; const p = document.createElement('p'); p.dataset.cid = c.id; p.textContent = fillIn(c.body); sectionFor(c.category).appendChild(p); };
+    const dropClause = id => { const p = docEl.querySelector(`[data-cid="${id}"]`); if(!p) return; const sec = p.closest('section'); p.remove(); if(sec && sec.dataset.cat !== 'pricing' && !sec.querySelector('p,li,div')) sec.remove(); };
+    picks.innerHTML = CL_CAT.filter(([cat]) => lib.some(c => c.category === cat)).map(([cat, label]) => `<div class="qe-pick"><b>${esc(label)}</b>${lib.filter(c => c.category === cat).map(c => `<label><input type="checkbox" data-cid="${c.id}"> ${esc(c.title)}${suggest.has(c.title) ? ' <span class="chip pending">suggested</span>' : ''}</label>`).join('')}</div>`).join('');
+    if(d.doc){
+      docEl.innerHTML = FC.cleanHtml(d.doc);
+      // the clean-up drops the markers; re-attach them by text so the tick boxes match
+      lib.forEach(c => { const t = fillIn(c.body); const p = Array.from(docEl.querySelectorAll('p')).find(x => !x.dataset.cid && x.textContent.trim() === t.trim()); if(p) p.dataset.cid = c.id; });
+    }else{
+      lib.filter(c => c.category !== 'pricing' && (clauseOn(c, polId) || (suggest.has(c.title) && !(c.category === 'special' && r.conditions)))).forEach(addClause);
+      if(r.conditions){ const p = document.createElement('p'); p.textContent = r.conditions; const sec = sectionFor('special'); sec.insertBefore(p, sec.children[1] || null); }
+    }
+    lib.forEach(c => { const cb = picks.querySelector(`[data-cid="${c.id}"]`); if(cb) cb.checked = c.category === 'pricing' ? (d.doc ? docEl.textContent.includes(fillIn(c.body).trim()) : clauseOn(c, polId)) : !!docEl.querySelector(`[data-cid="${c.id}"]`); });
+    picks.addEventListener('change', e => { const cb = e.target.closest('[data-cid]'); if(!cb) return; const c = lib.find(x => String(x.id) === cb.dataset.cid); if(c.category === 'pricing'){ recalc(); return; } cb.checked ? addClause(c) : dropClause(c.id); });
+    // the pricing block is rebuilt from the figures; brokers cannot edit numbers by accident
+    const paintPricing = (c, t, wx) => {
+      const sec = sectionFor('pricing'); sec.setAttribute('contenteditable', 'false');
+      const ln = c.lines[0] || {}, notes = lib.filter(x => x.category === 'pricing' && picks.querySelector(`[data-cid="${x.id}"]`) && picks.querySelector(`[data-cid="${x.id}"]`).checked);
+      sec.innerHTML = `<h4>Pricing, valuation &amp; minimum premium</h4>
+        <p>Sum insured ${esc(money2(ln.sum, c.cur))} (${esc(r.incoterm ? r.incoterm + ' value' : 'invoice value')}${Number(r.freight_value) > 0 ? ' incl. freight' : ''} + ${esc(Number(r.uplift_pct))} %) · rate ${esc(isFinite(ln.rate) ? FC.pct(ln.rate) : '—')} · premium ${esc(money2(t ? t.net : NaN, c.cur))}</p>
+        <div class="box"><b>Minimum premium ${esc(money2(c.min, c.cur))}</b>${wx && wx.offerBuyback ? `<br>Rate with war &amp; strikes excluded: <b>${esc(FC.pct(wx.rateExcl))}</b><br>Rate with war &amp; strikes re-included for ${esc(wx.areas.join(', '))}: <b>${esc(FC.pct(wx.rateIncl))}</b>` : ''}</div>
+        ${wx ? `<p>War &amp; strikes excluded for: ${esc(wx.areas.join(', '))}; remaining in force for the rest of the voyage.</p>` : ''}
+        <p>Deductible: ${esc($b('#qeDed').value.trim() || '—')}</p>
+        <p>${c.tax ? 'Insurance tax ' + esc(c.tax) + ' % = ' + esc(money2(t ? t.tax : NaN, c.cur)) + '; total payable ' + esc(money2(t ? t.total : NaN, c.cur)) : 'No insurance tax applied (international transport)'}.</p>
+        ${notes.map(x => `<p data-cid="${x.id}">${esc(fillIn(x.body))}</p>`).join('')}`;
+    };
+    const docHtml = () => FC.cleanHtml(docEl.innerHTML);
+    const docTexts = cat => Array.from(docEl.querySelectorAll(`section[data-cat="${cat}"] p, section[data-cat="${cat}"] li, section[data-cat="${cat}"] div`)).map(x => x.textContent.trim()).filter(Boolean);
+    // toolbar
+    const wrapSel = (tag, cls) => {
+      const sel = getSelection(); if(!sel.rangeCount || !docEl.contains(sel.anchorNode) || sel.isCollapsed) return;
+      const tmp = document.createElement('div'); tmp.appendChild(sel.getRangeAt(0).cloneContents());
+      document.execCommand('insertHTML', false, `<${tag}${cls ? ' class="' + cls + '"' : ''}>${tmp.innerHTML}</${tag}>`);
+    };
+    $b('.rt-bar').addEventListener('mousedown', e => { if(e.target.closest('button')) e.preventDefault(); });
+    $b('.rt-bar').addEventListener('click', async e => {
+      const b = e.target.closest('[data-rt]'); if(!b) return; const k = b.dataset.rt;
+      if(k === 'bold'){ docEl.focus(); document.execCommand('bold'); }
+      else if(k === 'big') wrapSel('span', 'big');
+      else if(k === 'mark') wrapSel('mark');
+      else if(k === 'box'){ const sel = getSelection(); let n = sel.anchorNode; if(!n || !docEl.contains(n)) return; while(n && n !== docEl && !(n.nodeType === 1 && /^(P|DIV|LI)$/.test(n.tagName))) n = n.parentNode; if(n && n !== docEl) n.classList.toggle('box'); }
+      else if(k === 'copy'){ recalc(); const ok = await FC.copyRich(FC.emailHtml(docHtml()), FC.htmlText(docHtml())); toast(ok ? 'Copied — paste it into your e-mail.' : 'Copy failed; select the text and copy it manually.', ok ? undefined : 'error'); }
+    });
     const collect = () => {
       const lines = Array.from(body.querySelectorAll('#qeLines tr')).map(tr => {
         const sum = FC.parseNum(tr.querySelector('.ln-sum').value), rate = FC.parseNum(tr.querySelector('.ln-rate').value);
         return { label: tr.querySelector('.ln-label').value.trim(), sum, rate, premium: isFinite(sum) && isFinite(rate) ? Math.round(sum * rate) / 100 : NaN, tr };
       });
-      return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, cur: $b('#qeCur').value };
+      return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, reb: FC.parseNum($b('#qeReb').value) || 0, cur: $b('#qeCur').value };
     };
     const recalc = () => {
       const c = collect();
@@ -494,12 +566,15 @@
       const t = calcQuote(c.lines, c.disc, c.min, c.tax);
       const ba = Math.round(t.net * c.brk) / 100;
       $b('#qeBrkAmt').textContent = money2(ba, c.cur); $b('#qeNetIns').textContent = money2(Math.round((t.net - ba) * 100) / 100, c.cur);
+      const ra = Math.round(t.net * c.reb) / 100; $b('#qeRebAmt').textContent = money2(ra, c.cur); $b('#qeKeep').textContent = money2(Math.round((ba - ra) * 100) / 100, c.cur);
+      $b('#qeKeep').style.color = ba - ra < 0 ? 'var(--danger)' : '';
       $b('#qeSum').innerHTML = `<tr><td>Premium</td><td class="r">${esc(money2(t.subtotal, c.cur))}</td></tr>
         ${c.disc ? `<tr><td>Client discount ${esc(c.disc)} %</td><td class="r">− ${esc(money2(t.discountAmount, c.cur))}</td></tr>` : ''}
         ${t.minApplied ? `<tr><td>Minimum premium applies</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr>` : ''}
         ${c.tax ? `<tr><td>Insurance tax ${esc(c.tax)} %</td><td class="r">${esc(money2(t.tax, c.cur))}</td></tr>` : ''}
         <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(t.total, c.cur))}</td></tr>`;
       const wx = warBlock(c);
+      paintPricing(c, t, wx);
       if($b('#qeWarRates')) $b('#qeWarRates').innerHTML = wx && wx.offerBuyback ? `Rate with war &amp; strikes excluded: <b>${esc(FC.pct(wx.rateExcl))}</b> → ${esc(money2(wx.totalExcl, c.cur))} · Rate with war &amp; strikes re-included: <b>${esc(FC.pct(wx.rateIncl))}</b> → ${esc(money2(wx.totalIncl, c.cur))}` : wx ? 'The client sees the exclusion notice only.' : '';
     };
     // war & strikes excluded areas: the cargo line carries the rate without war; the buy-back adds the net loading
@@ -532,19 +607,20 @@
       if(c.disc < 0 || c.disc >= 100 || c.tax < 0 || c.tax > 40) return err('Check discount and tax.');
       if(!insurerPick().name) return err('Choose the insurer or type its name.');
       if(c.brk < 0 || c.brk > 50) return err('Brokerage must be between 0 and 50 %.');
+      if(c.reb < 0 || c.reb > 50) return err('The client rebate must be between 0 and 50 %.');
       const vu = new Date($b('#qeValid').value); if(isNaN(vu) || vu.getTime() < Date.now() + 60000) return err('The validity must lie in the future.');
       const t = calcQuote(c.lines, c.disc, c.min, c.tax); $b('#qeErr').textContent = '';
       const ip = insurerPick(), ba = Math.round(t.net * c.brk) / 100;
-      return { validUntil: vu.toISOString(), internal: { insurer_id: ip.id, insurer_name: ip.name, brokerage_pct: c.brk, brokerage_amount: ba, net_to_insurer: Math.round((t.net - ba) * 100) / 100 }, data: {
+      return { validUntil: vu.toISOString(), internal: { insurer_id: ip.id, insurer_name: ip.name, brokerage_pct: c.brk, brokerage_amount: ba, net_to_insurer: Math.round((t.net - ba) * 100) / 100, client_rebate_pct: c.reb, client_rebate_amount: Math.round(t.net * c.reb) / 100 }, data: {
         client: $b('#qeClient').value.trim(), clientAddress: $b('#qeAddr').value.trim(), policyholder: $b('#qePH').value.trim(), policyNo: d.policyNo || '', customerRef: $b('#qeCRef').value.trim(), incoterm: $b('#qeInco').value.trim(), coAssured: $b('#qeCo').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 6),
         goods: $b('#qeGoods').value.trim(), packaging: $b('#qePack').value.trim(), conveyance: $b('#qeConv').value, vessel: $b('#qeVessel').value.trim(),
         originCountry: $b('#qeOC').value.trim().toUpperCase(), originPlace: $b('#qeOP').value.trim(), destCountry: $b('#qeDC').value.trim().toUpperCase(), destPlace: $b('#qeDP').value.trim(),
         voyage: $b('#qeVoy').value.trim(), period: $b('#qePer').value.trim(), conditions: $b('#qeCond').value.trim(), insurer: insurerPick().name,
-        deductible: $b('#qeDed').value.trim(), special: $b('#qeSpec').value.trim(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
+        deductible: $b('#qeDed').value.trim(), special: docTexts('special').join(' '), doc: docHtml(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
         lines: c.lines.map(l => ({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium })),
         subtotal: t.subtotal, discountAmount: t.discountAmount, net: t.net, minApplied: t.minApplied, tax: t.tax, total: t.total, warExcl: warBlock(c),
         sumInsured: Math.max(...c.lines.map(l => l.sum)),
-        subjectivities: $b('#qeSubj').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 40), note: $b('#qeNote').value.trim(), closing: $b('#qeClose').value.trim(),
+        subjectivities: docTexts('subjectivity').slice(0, 40), note: $b('#qeNote').value.trim(), closing: $b('#qeClose').value.trim(),
         handler: { name: $b('#qeHandler').value.trim(), email: me().email, initials: myInitials() }, issuedAt: new Date().toISOString()
       } };
     };
@@ -676,6 +752,76 @@
     $('#ovDays', body).addEventListener('change', paint); paint();
   }
 
+  // =================================================================== LEDGER
+  // three tiers: the client sees premium and tax; the underwriter bordereau shows technical risk data only;
+  // this ledger adds underwriter commission, rebate to the client and the net brokerage retained
+  let ldFilter = { period:'year', scope:'' };
+  const ledgerRows = () => {
+    const now = new Date(), from = ldFilter.period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1) : ldFilter.period === 'last' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : ldFilter.period === 'year' ? new Date(now.getFullYear(), 0, 1) : new Date(0);
+    const to = ldFilter.period === 'last' ? new Date(now.getFullYear(), now.getMonth(), 1) : new Date(8.64e15);
+    const out = [];
+    S.rows.filter(r => !r.is_test).forEach(r => {
+      const q = (S.quotes[r.id] || []).filter(x => x.status === 'accepted').pop(); if(!q) return;
+      const when = new Date(q.responded_at || q.created_at); if(when < from || when >= to) return;
+      const og = orgOfCase(r);
+      if(ldFilter.scope === 'spot' && og.policy) return;
+      if(ldFilter.scope && ldFilter.scope !== 'spot' && String(og.policy && og.policy.id) !== ldFilter.scope) return;
+      const x = S.qint[q.id] || {}, d = q.data || {}, cn = (S.coverNotes[r.id] || []).slice(-1)[0];
+      const gross = Number(d.net || 0), brk = Number(x.brokerage_amount || 0), reb = Number(x.client_rebate_amount || 0);
+      out.push({ r, q, d, x, og, cn, when, cur: d.currency || r.currency, gross, tax: Number(d.tax || 0), total: Number(d.total || 0), brk, brkPct: Number(x.brokerage_pct || 0), reb, rebPct: Number(x.client_rebate_pct || 0), keep: Math.round((brk - reb) * 100) / 100 });
+    });
+    return out.sort((a, b) => b.when - a.when);
+  };
+  function renderLedger(body){
+    body.innerHTML = `<p class="small muted" style="margin:0 0 14px">Accepted quotations. <b>Gross premium</b> = premium after discount and minimum, before insurance tax. <b>UW commission</b> = brokerage received from the insurer; <b>rebate</b> = commission passed to the client; <b>net retained</b> = what stays with you. The bordereau for underwriters contains technical risk data only — no commissions, no co-insurer shares.</p>
+      <div class="toolbar"><select class="input" id="ldPer"><option value="month">This month</option><option value="last">Last month</option><option value="year">This year</option><option value="all">All time</option></select>
+        <select class="input" id="ldScope"><option value="">All business</option><option value="spot">Spot clients only</option>${S.policies.map(po => `<option value="${po.id}">${esc(po.name)} ${esc(po.policy_no || '')}</option>`).join('')}</select>
+        <span style="flex:1"></span><span id="ldActs" class="toolbar" style="margin:0"></span></div><div id="ldBody"></div>`;
+    $('#ldPer', body).value = ldFilter.period; $('#ldScope', body).value = ldFilter.scope;
+    const paint = () => {
+      const rows = ledgerRows(), host = $('#ldBody', body);
+      const tot = {}; rows.forEach(x => { const t = tot[x.cur] = tot[x.cur] || { n:0, gross:0, tax:0, brk:0, reb:0, keep:0 }; t.n++; t.gross += x.gross; t.tax += x.tax; t.brk += x.brk; t.reb += x.reb; t.keep += x.keep; });
+      host.innerHTML = `<div class="stats">${Object.entries(tot).map(([c, t]) => `<div class="stat"><b class="num" style="font-size:20px">${esc(money2(t.keep, c))}</b><span>Net retained · ${t.n} case${t.n > 1 ? 's' : ''} · premium ${esc(money2(t.gross, c))} · commission ${esc(money2(t.brk, c))} · rebate ${esc(money2(t.reb, c))}</span></div>`).join('') || '<div class="stat"><b>0</b><span>No accepted quotations in this period</span></div>'}</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Accepted</th><th>Reference</th><th>Client</th><th>Policy</th><th>Insurer</th><th class="r">Gross premium</th><th class="r">Tax</th><th class="r">UW commission</th><th class="r">Rebate</th><th class="r">Net retained</th></tr></thead><tbody>
+        ${rows.map(x => `<tr class="click" data-id="${x.r.id}"><td class="xs">${esc(FC.date(x.when))}</td><td><b>${esc(x.r.ref || '')}</b>${x.cn ? '<br><span class="xs muted">' + esc(x.cn.number) + '</span>' : ''}</td><td>${esc(who(x.r).company)}${x.r.insured_name ? '<br><span class="xs muted">for ' + esc(x.r.insured_name) + '</span>' : ''}</td>
+          <td class="small">${x.og.policy ? esc(x.og.policy.name) : '<span class="muted">Spot</span>'}</td><td class="small">${esc(x.x.insurer_name || x.d.insurer || '')}</td>
+          <td class="r num">${esc(money2(x.gross, x.cur))}</td><td class="r num">${esc(money2(x.tax, x.cur))}</td><td class="r num">${esc(money2(x.brk, x.cur))}<br><span class="xs muted">${esc(x.brkPct)} %</span></td>
+          <td class="r num">${esc(money2(x.reb, x.cur))}${x.rebPct ? '<br><span class="xs muted">' + esc(x.rebPct) + ' %</span>' : ''}</td><td class="r num"><b>${esc(money2(x.keep, x.cur))}</b></td></tr>`).join('') || '<tr><td colspan="10" class="muted small">Nothing in this period.</td></tr>'}</tbody></table></div>`;
+      host.querySelectorAll('tr[data-id]').forEach(tr => tr.addEventListener('click', () => openCase(Number(tr.dataset.id))));
+    };
+    const acts = $('#ldActs', body);
+    acts.appendChild(btn('Ledger (.xlsx)', 'ghost', b => exportLedger(b, false)));
+    acts.appendChild(btn('Bordereau for underwriters (.xlsx)', 'primary', b => exportLedger(b, true)));
+    $('#ldPer', body).addEventListener('change', e => { ldFilter.period = e.target.value; paint(); });
+    $('#ldScope', body).addEventListener('change', e => { ldFilter.scope = e.target.value; paint(); });
+    paint();
+  }
+  async function exportLedger(b, bordereau){
+    const rows = ledgerRows(); if(!rows.length) return toast('Nothing to export in this period.');
+    busy(b, true);
+    try{
+      if(!window.XLSX) await FC.loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const num = v => Math.round(Number(v || 0) * 100) / 100;
+      let head, data;
+      if(bordereau){
+        head = ['Reference', 'Cover note', 'Accepted', 'Departure', 'Open policy', 'Assured', 'Policyholder / office', 'Goods', 'Cargo type', 'Packaging', 'Conveyance', 'Vessel', 'From', 'To', 'Via', 'Sum insured', 'Currency', 'Conditions', 'Rate %', 'Premium (excl. tax)', 'Deductible', 'War & strikes excluded for'];
+        data = rows.map(x => { const r = x.r, d = x.d; return [r.ref, x.cn ? x.cn.number : '', FC.date(x.when), r.departure_date || '', x.og.policy ? x.og.policy.policy_no || x.og.policy.name : '', d.client || r.insured_name || who(r).company, x.og.office ? x.og.office.name : who(r).company,
+          r.goods_description, (S.commodities.find(c => c.id === r.commodity_id) || {}).name || r.commodity_id, r.packaging || '', (FC.CONVEYANCE[r.conveyance] || {}).label || r.conveyance, d.vessel || r.vessel || '',
+          [r.origin_place, cName(r.origin_country)].filter(Boolean).join(', '), [r.dest_place, cName(r.dest_country)].filter(Boolean).join(', '), (r.transit_countries || []).map(cName).join(', '),
+          num(d.sumInsured || r.sum_insured), x.cur, d.conditions || '', (d.lines || [])[0] ? Number(d.lines[0].rate) : '', num(x.gross), d.deductible || '', (d.warExcl ? d.warExcl.areas : (r.war_excluded || [])).join(', ')]; });
+      }else{
+        head = ['Accepted', 'Reference', 'Cover note', 'Client', 'Office', 'Policy', 'Insurer', 'Currency', 'Gross premium', 'Insurance tax', 'Total payable', 'UW commission %', 'UW commission', 'Client rebate %', 'Client rebate', 'Net retained', 'Net to insurer'];
+        data = rows.map(x => [FC.date(x.when), x.r.ref, x.cn ? x.cn.number : '', who(x.r).company, x.og.office ? x.og.office.name : '', x.og.policy ? x.og.policy.name : 'Spot', x.x.insurer_name || x.d.insurer || '', x.cur,
+          num(x.gross), num(x.tax), num(x.total), x.brkPct, num(x.brk), x.rebPct, num(x.reb), num(x.keep), num(x.x.net_to_insurer)]);
+      }
+      const ws = XLSX.utils.aoa_to_sheet([head].concat(data)); ws['!cols'] = head.map(h => ({ wch: Math.max(12, h.length + 2) }));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, bordereau ? 'Bordereau' : 'Ledger');
+      const pol = ldFilter.scope && ldFilter.scope !== 'spot' ? polOf(Number(ldFilter.scope)) : null;
+      XLSX.writeFile(wb, (bordereau ? 'Bordereau_' : 'FREIGHTCON_ledger_') + (pol ? (pol.policy_no || pol.name).replace(/[^\w-]+/g, '_') + '_' : '') + FC.today() + '.xlsx');
+    }catch(err){ console.error(err); toast('The file could not be created.', 'error'); }
+    busy(b, false);
+  }
+
   // =================================================================== CUSTOMERS
   let custTab = 'users';
   function renderCustomers(body){
@@ -773,6 +919,8 @@
             <div class="tbl-wrap"><table class="tbl gp-off"><thead><tr><th>Office / entity</th><th>Location</th><th>Type</th><th class="r">Min. premium</th><th class="r">Deductible</th><th class="r">Users</th></tr></thead><tbody></tbody></table></div></div>`);
           pc.querySelector('.acts').appendChild(btn('Edit policy', 'ghost', () => policyDialog(po, g.id)));
           pc.querySelector('.acts').appendChild(btn('+ Add office', 'ghost', () => officeDialog(null, po.id)));
+          pc.querySelector('.acts').appendChild(btn('Clauses', 'ghost', () => { clPolicy = po.id; clTab = 'policy'; tab = 'clauses'; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === 'clauses'))); render(); }));
+          pc.querySelector('.acts').appendChild(btn('Copy terms from…', 'ghost', () => copyTermsDialog(po)));
           const tb = pc.querySelector('tbody');
           if(!offs.length) tb.innerHTML = `<tr><td colspan="6" class="muted small">${q ? 'No match.' : 'No offices yet.'}</td></tr>`;
           offs.forEach(o => {
@@ -875,7 +1023,14 @@
       }
       const row = Object.assign({ name: v('#pdName'), policy_no: v('#pdNo') || null, group_id: Number(v('#pdGroup')), policyholder: v('#pdHolder') || null, currency: v('#pdCur'),
         rating: v('#pdRating'), placed_via: v('#pdVia') || null, security, rules, active: body.querySelector('#pdActive').checked, notes: v('#pdNotes') || null, sort: Number(v('#pdSort')) || 100 }, nums);
-      return (await saveRow('policies', row, po && po.id)) ? true : undefined;
+      const sibs = po ? S.policies.filter(x => x.group_id === row.group_id && x.id !== po.id) : [];
+      const rulesChanged = po && (JSON.stringify(po.rules || {}) !== JSON.stringify(rules) || po.rating !== row.rating);
+      if(!(await saveRow('policies', row, po && po.id))) return;
+      if(rulesChanged && sibs.length && await FC.confirm('Also apply to ' + sibs.map(x => x.name).join(', ') + '?', 'Copies the schedule rules (and rating) to the sibling polic' + (sibs.length > 1 ? 'ies' : 'y') + '. Policy number, currency, limits, minimum premium, deductible and security stay as they are.', 'Apply to siblings')){
+        for(const sb2 of sibs){ const { error } = await sb.from('policies').update({ rules, rating: row.rating }).eq('id', sb2.id); if(error) toast(error.message, 'error'); }
+        toast('Rules applied to ' + sibs.length + ' sibling polic' + (sibs.length > 1 ? 'ies' : 'y') + '.'); await loadAll(); render();
+      }
+      return true;
     } });
     FC.dialog({ title: po ? po.name : 'New policy', wide:true, body, actions });
   }
@@ -982,6 +1137,83 @@
     const rows = S.audit.filter(a => a.entity === entity && (id == null || a.entity_id === id)).slice(0, n || 5);
     return rows.length ? `<div class="audit-foot"><b>Change log</b>${rows.map(a => `<div><span class="xs muted">${esc(FC.dateTime(a.at))} · ${esc(a.user_name || '')}</span><br>${esc(a.summary)}<br><i>Reason: ${esc(a.reason || '—')}</i></div>`).join('')}</div>` : `<div class="audit-foot"><b>Change log</b><div class="xs muted">No changes recorded yet.</div></div>`;
   };
+  // =================================================================== CLAUSES
+  const CL_CAT = [['header','1 · Opening & policy header'],['general','2 · General conditions'],['sanctions','3 · German / EU market sanctions'],['pricing','4 · Pricing, valuation & minimum premium'],['disclaimer','5 · Disclaimer'],['special','6 · Special conditions'],['subjectivity','7 · Subjectivities & warranties']];
+  // is a clause ticked by default for this policy (spot: the library default)
+  const clauseOn = (c, policyId) => { if(!policyId) return !!c.default_spot; const x = S.polClauses.find(pc => pc.policy_id === policyId && pc.clause_id === c.id); return x ? !!x.enabled : !!c.default_spot; };
+  A.clauseOn = clauseOn;
+  let clTab = 'policy', clPolicy = null;
+  function renderClauses(body){
+    body.innerHTML = `<p class="small muted" style="margin:0 0 14px">One clause library for every client, in seven categories. Per open cover policy you tick which clauses go into a quotation by default; spot quotations start from the library defaults. Brokers can still tick, untick and edit every clause in the quotation editor. Vessel clauses are left out automatically for road and rail.</p>
+      <div class="tabs" role="tablist">${[['policy','Defaults per policy'],['library','Library']].map(([k, l]) => `<button role="tab" data-cltab="${k}" aria-selected="${k === clTab}">${l}</button>`).join('')}</div><div id="clBody"></div>`;
+    $$('[data-cltab]', body).forEach(b => b.addEventListener('click', () => { clTab = b.dataset.cltab; renderClauses(body); }));
+    const host = $('#clBody', body);
+    if(clTab === 'library') return clLibrary(host);
+    clDefaults(host);
+  }
+  function clLibrary(host){
+    editTable(host, { table:'clause_library', key:'id', search:true, rows:S.clauses,
+      add: () => ({ id: undefined, category:'general', title:'', body:'', maritime:false, default_spot:false, active:true, sort:100 }),
+      cols:[ { k:'category', l:'Category', type:'select', options: CL_CAT }, { k:'title', l:'Title', w:220 }, { k:'body', l:'Wording ({policy_no}, {assured}, {ref}, {currency} are filled in)', w:520 },
+        { k:'maritime', l:'Vessel / sea clause', type:'bool' }, { k:'default_spot', l:'Default for spot', type:'bool' }, { k:'active', l:'Active', type:'bool' }, { k:'sort', l:'Sort', type:'num' } ],
+      keyOptional:true });
+  }
+  function clDefaults(host){
+    if(!S.policies.length){ host.innerHTML = '<div class="empty card"><h3>No policies yet</h3><p>Add an open cover policy under Customers → Client groups.</p></div>'; return; }
+    if(!clPolicy || !polOf(clPolicy)) clPolicy = S.policies[0].id;
+    const po = polOf(clPolicy), sibs = S.policies.filter(x => x.group_id === po.group_id && x.id !== po.id);
+    const bar = FC.el(`<div class="toolbar"><select class="input" id="clPol">${S.policies.map(x => `<option value="${x.id}" ${x.id === clPolicy ? 'selected' : ''}>${esc(x.name)} ${esc(x.policy_no || '')}</option>`).join('')}</select><span style="flex:1"></span>
+      ${sibs.length ? `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="clSync" style="width:auto;min-width:0"> Also apply to ${esc(sibs.map(x => x.name).join(', '))}</label>` : ''}
+      <button class="btn btn-primary btn-sm" id="clSave" disabled><span class="spin"></span>Save</button></div>`);
+    host.appendChild(bar);
+    const list = FC.el('<div class="cl-cols"></div>'); host.appendChild(list);
+    CL_CAT.forEach(([cat, label]) => {
+      const items = S.clauses.filter(c => c.category === cat && c.active);
+      if(!items.length) return;
+      list.appendChild(FC.el(`<section class="card cl-cat"><h3>${esc(label)}</h3>${items.map(c => `<label class="cl-item"><input type="checkbox" data-cid="${c.id}" ${clauseOn(c, po.id) ? 'checked' : ''}><span><b>${esc(c.title)}</b>${c.maritime ? ' <span class="chip neutral">sea</span>' : ''}<span>${esc(c.body)}</span></span></label>`).join('')}</section>`));
+    });
+    const save = bar.querySelector('#clSave');
+    list.addEventListener('change', () => { save.disabled = false; });
+    bar.querySelector('#clPol').addEventListener('change', e => { clPolicy = Number(e.target.value); host.innerHTML = ''; clDefaults(host); });
+    save.addEventListener('click', async () => {
+      const ticks = Array.from(list.querySelectorAll('[data-cid]')).map(i => ({ clause_id: Number(i.dataset.cid), enabled: i.checked }));
+      const targets = [po.id].concat(bar.querySelector('#clSync') && bar.querySelector('#clSync').checked ? sibs.map(x => x.id) : []);
+      busy(save, true);
+      for(const pid of targets){
+        for(const t of ticks){
+          const ex = S.polClauses.find(pc => pc.policy_id === pid && pc.clause_id === t.clause_id);
+          const res = ex ? await sb.from('policy_clauses').update({ enabled: t.enabled }).eq('policy_id', pid).eq('clause_id', t.clause_id) : await sb.from('policy_clauses').insert({ policy_id: pid, clause_id: t.clause_id, enabled: t.enabled });
+          if(res.error){ busy(save, false); return toast('Could not save: ' + res.error.message, 'error'); }
+        }
+      }
+      busy(save, false); toast('Saved for ' + targets.length + ' polic' + (targets.length > 1 ? 'ies' : 'y') + '.'); await loadAll(); host.innerHTML = ''; clDefaults(host);
+    });
+  }
+  // copy the terms of one policy to another — never its number, currency, limits, minimum premium, deductible or security
+  async function copyTerms(fromId, toIds){
+    const src = polOf(fromId); if(!src) return false;
+    for(const tid of toIds){
+      let r = await sb.from('policies').update({ rules: src.rules || {}, rating: src.rating }).eq('id', tid); if(r.error){ toast(r.error.message, 'error'); return false; }
+      for(const c of S.clauses){
+        const on = clauseOn(c, src.id), ex = S.polClauses.find(pc => pc.policy_id === tid && pc.clause_id === c.id);
+        r = ex ? await sb.from('policy_clauses').update({ enabled: on }).eq('policy_id', tid).eq('clause_id', c.id) : await sb.from('policy_clauses').insert({ policy_id: tid, clause_id: c.id, enabled: on });
+        if(r.error){ toast(r.error.message, 'error'); return false; }
+      }
+      for(const x of S.warEx.filter(x => x.policy_id === tid)){ await sb.from('war_exclusions').delete().eq('id', x.id); }
+      for(const x of S.warEx.filter(x => x.policy_id === src.id)){
+        r = await sb.from('war_exclusions').insert({ policy_id: tid, area_code: x.area_code, buyback_permille: x.buyback_permille, ncb_pct: x.ncb_pct, active: x.active, note: x.note });
+        if(r.error){ toast(r.error.message, 'error'); return false; }
+      }
+    }
+    return true;
+  }
+  function copyTermsDialog(po){
+    const others = S.policies.filter(x => x.id !== po.id);
+    if(!others.length) return toast('There is no other policy to copy from.');
+    FC.dialog({ title:'Copy terms to ' + po.name, body:`<p class="small" style="margin-top:0">Copies the schedule rules, the clause defaults and the policy's own war &amp; strikes exclusions. <b>Never copied:</b> policy number, currency, limits, minimum premium, deductible and security.</p><div class="field"><label for="ctFrom">Copy from</label><select id="ctFrom">${others.map(x => `<option value="${x.id}">${esc(x.name)} ${esc(x.policy_no || '')}</option>`).join('')}</select></div>`,
+      actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Copy terms', kind:'primary', onClick: async (c, box) => { const ok = await copyTerms(Number(box.querySelector('#ctFrom').value), [po.id]); if(ok){ toast('Terms copied.'); await loadAll(); render(); return true; } } }] });
+  }
+
   // ---- war & strikes lifted / excluded areas and buy-back terms ----
   function rtWar(host){
     host.appendChild(FC.el(`<p class="small muted" style="margin:0 0 12px">Areas where war &amp; strikes cover is lifted. A coast is matched by the port typed in the shipment (no or unknown port = every coast of that country counts). A sea is matched by its ports, its littoral countries, a transit country, or routing via Suez. The rate is never reduced; a buy-back loading (less no-claims bonus) gives a second rate with war &amp; strikes re-included.</p><h3 style="margin:0 0 8px">Areas</h3>`));
@@ -1084,12 +1316,15 @@
     tbar.querySelector('[data-save]').addEventListener('click', async e => {
       const b = e.currentTarget; busy(b, true);
       let payload = Array.from(dirty.values()).map(r => { let x = {}; o.cols.forEach(c => { if(!c.virtual && r[c.k] !== undefined) x[c.k] = r[c.k]; }); x[o.key] = r[o.key]; if(o.clean) x = o.clean(x); return x; });
-      if(payload.some(x => !x[o.key])){ busy(b, false); toast('Every row needs an ID.', 'error'); return; }
+      if(!o.keyOptional && payload.some(x => !x[o.key])){ busy(b, false); toast('Every row needs an ID.', 'error'); return; }
       if(o.beforeSave){ payload = await o.beforeSave(payload); if(!payload){ busy(b, false); return; } }
-      const { error } = await sb.from(o.table).upsert(payload, { onConflict: o.key, defaultToNull: false });
+      const fresh = o.keyOptional ? payload.filter(x => !x[o.key]).map(x => { const y = Object.assign({}, x); delete y[o.key]; return y; }) : [];
+      if(fresh.length){ const r0 = await sb.from(o.table).insert(fresh); if(r0.error){ busy(b, false); toast('Could not save: ' + r0.error.message, 'error'); return; } }
+      payload = payload.filter(x => x[o.key]);
+      const { error } = payload.length ? await sb.from(o.table).upsert(payload, { onConflict: o.key, defaultToNull: false }) : { error: null };
       busy(b, false);
       if(error){ toast('Could not save: ' + error.message, 'error'); return; }
-      dirty.clear(); toast('Saved ' + payload.length + ' row(s).'); await loadAll(); render();
+      dirty.clear(); toast('Saved ' + (payload.length + fresh.length) + ' row(s).'); await loadAll(); render();
     });
     paint();
   }

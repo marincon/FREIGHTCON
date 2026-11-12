@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-12b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-12c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -742,7 +742,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12b');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12c');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -752,7 +752,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12b').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12c').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -1100,7 +1100,9 @@
       ['War', /War Clauses/i.test(cond)], ['Strikes', /Strikes Clauses/i.test(cond)], ['Warehouse to warehouse', /warehouse to warehouse/i.test(cond)],
       ['HSSC', /HSSC/.test(lbl)], ['Loss / difference in weight', /difference in weight/i.test(lbl)], ['On deck', /on deck/i.test(lbl)]
     ].filter(x => x[1]).map(x => x[0]);
-    const special = String(d.special || '').split(/(?<=\.)\s+(?=[A-Z])/).map(x => x.trim()).filter(Boolean);
+    const special = d.doc ? [] : String(d.special || '').split(/(?<=\.)\s+(?=[A-Z])/).map(x => x.trim()).filter(Boolean);
+    // the wording the broker put together (without the pricing block, the figures are shown above)
+    const wording = d.doc ? (() => { const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc); x.querySelectorAll('section[data-cat="pricing"]').forEach(e => e.remove()); return x.innerHTML; })() : '';
     const place = (p, c) => `<b>${esc(p || countryName(c) || c || '')}</b><span>${esc(p ? countryName(c) || c || '' : '')}</span>`;
     const fact = (k, v) => v ? `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>` : '';
     const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<span>${esc(money2(l.sum, cur))} × ${esc(FC.pct(l.rate))}</span></td><td class="r">${esc(money2(l.premium, cur))}</td></tr>`).join('');
@@ -1145,7 +1147,8 @@
       ${d.note ? `<div class="notice info"><b>Note from us</b>${esc(d.note)}</div>` : ''}
       ${q.response_note ? `<div class="notice ok"><b>Your message</b>${esc(q.response_note)}</div>` : ''}
       <div class="qv-next st-${esc(st)}">${FC.icon.send}<p>${next}</p></div>
-      ${(d.subjectivities || []).length ? `<details class="qv-subj"><summary>This offer is subject to ${d.subjectivities.length} standard terms</summary><ul>${d.subjectivities.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : ''}
+      ${wording ? `<div class="qv-sec"><h3>${FC.icon.doc} Terms &amp; conditions</h3><div class="qv-wording">${wording}</div></div>` : ''}
+      ${!d.doc && (d.subjectivities || []).length ? `<details class="qv-subj"><summary>This offer is subject to ${d.subjectivities.length} standard terms</summary><ul>${d.subjectivities.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : ''}
     </div>`;
   }
   function openQuote(q){

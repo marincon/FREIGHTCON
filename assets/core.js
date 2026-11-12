@@ -249,6 +249,50 @@
     if(o.onOpen) o.onOpen(box, close);
     setTimeout(() => { if(box.contains(document.activeElement)) return; const f = box.querySelector('[autofocus], .dlg-body input, .dlg-body textarea, .dlg-body select') || foot.lastElementChild; try{ f && f.focus(); }catch(e){} }, 20);
   });
+  // ---------- rich text (quotation wording): only a few safe tags and classes survive ----------
+  const RT_TAGS = new Set(['SECTION','H4','P','DIV','UL','OL','LI','B','STRONG','I','EM','U','MARK','BR','SPAN']);
+  const RT_CLS = new Set(['box','big']);
+  FC.cleanHtml = html => {
+    const doc = new DOMParser().parseFromString('<div>' + String(html || '') + '</div>', 'text/html');
+    const walk = node => {
+      Array.from(node.childNodes).forEach(n => {
+        if(n.nodeType === 3) return;
+        if(n.nodeType !== 1 || !RT_TAGS.has(n.tagName)){ if(n.nodeType === 1 && !['SCRIPT','STYLE','IFRAME','OBJECT'].includes(n.tagName)){ walk(n); n.replaceWith(...n.childNodes); } else n.remove(); return; }
+        const cls = Array.from(n.classList).filter(c => RT_CLS.has(c)), cat = n.tagName === 'SECTION' ? n.getAttribute('data-cat') : null;
+        Array.from(n.attributes).forEach(a => n.removeAttribute(a.name));
+        if(cls.length) n.className = cls.join(' ');
+        if(cat && /^[a-z]+$/.test(cat)) n.setAttribute('data-cat', cat);
+        walk(n);
+      });
+    };
+    walk(doc.body.firstChild);
+    return doc.body.firstChild.innerHTML;
+  };
+  // the same wording with inline styles, for pasting into an e-mail
+  FC.emailHtml = html => {
+    const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(html);
+    d.querySelectorAll('h4').forEach(e => e.setAttribute('style', 'font:700 14px Calibri,Arial,sans-serif;color:#003A79;margin:16px 0 6px'));
+    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', 'font:14px Calibri,Arial,sans-serif;color:#0E1B2C;margin:0 0 6px'));
+    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', 'font:14px Calibri,Arial,sans-serif;border:1px solid #003A79;padding:8px 12px;margin:6px 0'));
+    d.querySelectorAll('.big').forEach(e => e.setAttribute('style', 'font-size:120%'));
+    d.querySelectorAll('mark').forEach(e => e.setAttribute('style', 'background:#FFF2A8'));
+    d.querySelectorAll('[class]').forEach(e => e.removeAttribute('class'));
+    d.querySelectorAll('[data-cat]').forEach(e => e.removeAttribute('data-cat'));
+    return '<div style="font-family:Calibri,Arial,sans-serif">' + d.innerHTML + '</div>';
+  };
+  FC.copyRich = async (html, text) => {
+    try{
+      if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type:'text/html' }), 'text/plain': new Blob([text], { type:'text/plain' }) })]);
+        return true;
+      }
+    }catch(e){}
+    const d = document.createElement('div'); d.innerHTML = html; d.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(d);
+    const r = document.createRange(); r.selectNodeContents(d); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    let ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
+    sel.removeAllRanges(); d.remove(); return ok;
+  };
+  FC.htmlText = html => { const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(html); d.querySelectorAll('h4,p,div,li').forEach(e => e.insertAdjacentText('afterend', '\n')); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
   FC.confirm = (title, text, okLabel, kind) => FC.dialog({
     title, body: `<p style="margin:0">${FC.esc(text)}</p>`,
     actions: [{ label:'Cancel', kind:'ghost', value:false }, { label: okLabel || 'Confirm', kind: kind || 'primary', value:true }]

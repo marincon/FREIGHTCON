@@ -221,7 +221,7 @@
       ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period], ['Incoterm', d.incoterm]
     ]);
     ctx.heading('Cover');
-    ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.special]]);
+    ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.doc ? '' : d.special]]);
     ctx.heading('Premium');
     const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate), FC.money2(l.premium, d.currency)]);
     if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
@@ -238,7 +238,25 @@
     }
     if(terms.length) ctx.kv(terms);
     if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for these areas at the rate shown, say so when you accept.' : ''), [224,160,48]);
-    if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
+    if(d.doc){
+      // the broker's wording: sections as headings, outlined paragraphs as boxes, bold paragraphs in bold
+      const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc);
+      x.querySelectorAll('section').forEach(sec => {
+        if(sec.dataset.cat === 'pricing') return;
+        const h = sec.querySelector('h4'); ctx.heading(h ? h.textContent.trim() : 'Terms');
+        Array.from(sec.children).forEach(el => {
+          if(el.tagName === 'H4') return;
+          const items = /^(UL|OL)$/.test(el.tagName) ? Array.from(el.children) : [el];
+          items.forEach(it => {
+            const t = it.textContent.replace(/\s+/g, ' ').trim(); if(!t) return;
+            const allBold = it.querySelector('b,strong') && Array.from(it.querySelectorAll('b,strong')).map(b => b.textContent).join('').replace(/\s+/g, '') === t.replace(/\s+/g, '');
+            if(it.classList.contains('box')) ctx.box('', t, C.teal);
+            else ctx.para((it.tagName === 'LI' ? '•  ' : '') + t, { size:9, bold: !!allBold, after:3 });
+          });
+        });
+      });
+      ctx.y -= 2;
+    }else if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
     if(d.note){ ctx.heading('Notes'); ctx.para(d.note); }
     if(d.closing){ ctx.box('How to accept', d.closing, C.teal); }
     if(d.handler && (d.handler.name || d.handler.email)) ctx.para('Your contact: ' + [d.handler.name, d.handler.email].filter(Boolean).join(', '), { size:9, color:C.steel });
