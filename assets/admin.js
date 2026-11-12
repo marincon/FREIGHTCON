@@ -4,7 +4,7 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { clauses:[], polClauses:[], warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[] };
+  const S = { certs:[], clauses:[], polClauses:[], warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[] };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
@@ -29,7 +29,7 @@
   };
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl, crt] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -54,8 +54,10 @@
       sb.from('war_areas').select('*').order('sort'),
       sb.from('war_exclusions').select('*').order('id'),
       sb.from('clause_library').select('*').order('sort'),
-      sb.from('policy_clauses').select('*')
+      sb.from('policy_clauses').select('*'),
+      sb.from('certificates').select('*').order('id')
     ]);
+    S.certs = crt.data || [];
     S.clauses = cla.data || []; S.polClauses = pcl.data || [];
     S.warAreas = (wa.data || []); S.warEx = (wx.data || []);
     S.groups = grp.data || []; S.policies = pol.data || []; S.offices = ofc.data || []; S.audit = aud.data || [];
@@ -296,6 +298,7 @@
           <div style="margin-top:12px" id="csSaveHost"></div></section>
         <section><h3>Quotations</h3><div id="csQuotes" class="list"></div><div class="toolbar" style="margin-top:10px" id="csQuoteActs"></div></section>
         <section><h3>Cover notes</h3><div id="csCovers" class="list"></div><div class="toolbar" style="margin-top:10px" id="csCoverActs"></div></section>
+        ${orgOfCase(r).policy && orgOfCase(r).policy.certificate ? `<section><h3>Certificates</h3><div id="csCerts" class="list"></div><div class="toolbar" style="margin-top:10px" id="csCertActs"></div></section>` : ''}
         <section><h3>Invoices</h3><div id="csInv" class="list"></div><div class="toolbar" style="margin-top:10px" id="csInvActs"></div></section>
         <section><h3>Notes</h3><div id="csNotes"></div>
           <div class="field" style="margin-top:8px"><label for="csNote">Add a note</label><textarea id="csNote" maxlength="2000" rows="2"></textarea></div><div id="csNoteHost" style="margin-top:8px"></div></section>
@@ -338,6 +341,14 @@
         ch.appendChild(it);
       });
       const accepted = qs.filter(q => q.status === 'accepted').pop();
+      if($('#csCerts', body)){
+        const cs = S.certs.filter(c => c.indication_id === r.id);
+        $('#csCerts', body).innerHTML = cs.length ? '' : '<p class="small muted" style="margin:0">No certificate yet.</p>';
+        cs.forEach(c => { const it = FC.el(`<div class="item"><div><div class="t">Certificate ${esc(c.number)}</div><div class="meta">${esc(FC.dateTime(c.created_at))} · ${esc((c.data || {}).box === '6' ? 'Air (condition 6)' : 'Sea / road / rail (condition 5)')}</div></div><div class="acts"></div></div>`);
+          it.querySelector('.acts').appendChild(btn('Open', 'ghost', () => certificateDialog(r, c).then(ok => ok && refresh())));
+          $('#csCerts', body).appendChild(it); });
+        $('#csCertActs', body).appendChild(btn(cs.length ? 'New certificate' : 'Create certificate', cs.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
+      }
       $('#csCoverActs', body).appendChild(btn('Issue cover note', accepted ? 'primary' : 'ghost', () => coverNoteEditor(r, accepted || qs.filter(q => q.status !== 'superseded').pop()).then(ok => ok && refresh())));
       // invoices
       const { data: invs } = await sb.from('invoices').select('*').eq('indication_id', r.id).order('created_at');
@@ -404,12 +415,12 @@
     const ocDed = og.policy ? effDed(og.policy, og.office, pp) : null, ocMin = og.policy ? (sp.detail && sp.detail.min_premium != null ? Number(sp.detail.min_premium) : effMin(og.policy, og.office, pp)) : null;
     const conds = (FC.COVER[r.cover] || {}).clause + (r.war_strikes ? (land ? ', Institute Strikes Clauses (Cargo)' : ', Institute War Clauses (Cargo), Institute Strikes Clauses (Cargo)') : '') + ', warehouse to warehouse';
     const d = Object.assign({
-      client: r.insured_name || w.company, clientAddress: r.insured_name ? (r.insured_address || '') : addrOf(w.p), policyholder: og.policy && og.policy.policyholder ? og.policy.policyholder : r.insured_name ? [w.company, addrOf(w.p)].filter(Boolean).join(', ') : '', policyNo: og.policy ? og.policy.policy_no || '' : '', customerRef: r.customer_ref || '', coAssured: String((r.details || {}).parties || '').split('\n').map(x => x.trim()).filter(Boolean).slice(0, 6), goods: r.goods_description, packaging: r.packaging || '', conveyance: r.conveyance, vessel: r.vessel || '', incoterm: r.incoterm ? r.incoterm + ' ' + (r.origin_place || r.dest_place || '') : '',
+      client: r.insured_name || w.company, clientAddress: r.insured_name ? (r.insured_address || '') : og.office ? [og.office.location, cName(og.office.country)].filter(Boolean).join(', ') : addrOf(w.p), policyholder: og.policy && og.policy.policyholder ? og.policy.policyholder : r.insured_name ? [w.company, addrOf(w.p)].filter(Boolean).join(', ') : '', policyNo: og.policy ? og.policy.policy_no || '' : '', customerRef: r.customer_ref || '', coAssured: String((r.details || {}).parties || '').split('\n').map(x => x.trim()).filter(Boolean).slice(0, 6), goods: r.goods_description, packaging: r.packaging || '', conveyance: r.conveyance, vessel: r.vessel || '', incoterm: r.incoterm ? r.incoterm + ' ' + (r.origin_place || r.dest_place || '') : '',
       originCountry: r.origin_country, originPlace: r.origin_place || '', destCountry: r.dest_country, destPlace: r.dest_place || '',
       voyage: [r.origin_place, cName(r.origin_country)].filter(Boolean).join(', ') + ' to ' + [r.dest_place, cName(r.dest_country)].filter(Boolean).join(', '),
       period: r.departure_date ? 'Transit commencing on or about ' + FC.date(r.departure_date) : 'Single transit as per voyage',
       conditions: conds, insurer: (og.policy && og.policy.placed_via) || setting('default_insurer', ''),
-      deductible: ocDed != null ? money2(ocDed, og.policy.currency) + ' each and every loss' : ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
+      deductible: ocDed != null ? og.policy.currency + ' ' + Number(ocDed).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 }) + ' each and every loss' : ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
       currency: r.currency, discountPct: Number(r.discount_pct || w.p.client_discount_pct || 0), taxPct: 0,
       minPremium: ocMin != null ? ocMin : Number(sp.detail && sp.detail.mode === 'land' ? setting('land_min_premium', 75) : (((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0)),
       lines: [{ key:'cargo', label:'Cargo, ' + ((FC.COVER[r.cover] || {}).clause || '') + (r.interest_only ? ", seller's / buyer's interest only" : '') + (r.on_deck ? ', on deck' : '') + (r.ext_hssc ? ', incl. HSSC' : '') + (r.ext_liw ? ', incl. loss / difference in weight' : '') + (r.war_strikes ? (land ? ', incl. strikes' : ', incl. war & strikes') : ''), sum: Number(r.sum_insured), rate: sp.cargo }],
@@ -636,6 +647,107 @@
           toast('Quotation sent.'); return true;
         } }
       ] });
+  }
+
+  // ---------------- certificate (AKM / MARINCON form): data → editable form → .fdf or filled PDF ----------------
+  const CERT_PATH = 'certificate.pdf';
+  async function certificateDialog(r, existing){
+    const qs = (S.quotes[r.id] || []).filter(q => q.status !== 'superseded'), q = qs.filter(x => x.status === 'accepted').pop() || qs.slice(-1)[0];
+    if(!q && !existing){ toast('Create a quotation first — the certificate takes its terms from it.', 'error'); return false; }
+    const d = (q && q.data) || {}, og = orgOfCase(r), cf = setting('certificate_form', {}) || {}, det = r.details || {};
+    const air = /^air/.test(r.conveyance);
+    const nums = S.certs.map(c => parseInt(String(c.number).replace(/\D/g, ''), 10)).filter(n => n > 0);
+    const two = n => String(n).padStart(2, '0'), today = new Date(), dmy = two(today.getDate()) + '.' + two(today.getMonth() + 1) + '.' + today.getFullYear();
+    const fmt = n => Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    const goods = [d.goods || r.goods_description, d.packaging || r.packaging ? 'Packing: ' + (d.packaging || r.packaging) : '', det.equipment ? 'Equipment: ' + det.equipment : '',
+      [det.pieces ? det.pieces + ' piece(s)' : '', det.weight_kg ? Number(det.weight_kg).toLocaleString('en-GB') + ' kg gross' : '', det.dimensions || ''].filter(Boolean).join(', '), det.hs_code ? 'HS code ' + det.hs_code : ''].filter(Boolean).join('\n');
+    const special = d.special || r.conditions || '';
+    const war = d.warExcl ? 'War & strikes excluded for: ' + d.warExcl.areas.join(', ') + '.' : (r.war_excluded || []).length ? 'War & strikes excluded for: ' + r.war_excluded.join(', ') + '.' : '';
+    const agreements = [special, war, (d.coAssured || []).length ? 'Co-assured / loss payee: ' + d.coAssured.join('; ') : '', d.deductible ? 'Deductible: ' + d.deductible : ''].filter(Boolean).join('\n');
+    const inc = (r.incoterm || '').toUpperCase();
+    const def = existing ? existing.data : {
+      no: String((nums.length ? Math.max(...nums) : 0) + 1), polNo: cf.open_policy || '3441', doc: 'Original', docNo: '1.', originals: '1',
+      curr: d.currency || r.currency, sum: fmt(d.sumInsured || r.sum_insured), perc: String(100 + Number(r.uplift_pct || 0)), valueType: ['CIF','CIP'].includes(inc) ? 'CIF Value' : 'Invoice Value',
+      date: dmy, ref: [r.ref, r.customer_ref].filter(Boolean).join(' / '), holder: [d.client || r.insured_name || who(r).company, d.clientAddress].filter(Boolean).join(', '),
+      goods, from: [d.originPlace || r.origin_place, cName(d.originCountry || r.origin_country)].filter(Boolean).join(', '), to: [d.destPlace || r.dest_place, cName(d.destCountry || r.dest_country)].filter(Boolean).join(', '),
+      conveyance: [(FC.CONVEYANCE[r.conveyance] || {}).label, d.vessel || r.vessel].filter(Boolean).join(' — '), box: air ? '6' : '5', agreements, claims: cf.claims_contact || 'www.vht-network.de' };
+    const f = (id, label, val, o) => `<div class="field" ${o && o.span ? 'style="grid-column:1/-1"' : ''}><label for="${id}">${label}${o && o.req ? ' <span class="req">*</span>' : ''}</label>${o && o.rows ? `<textarea id="${id}" rows="${o.rows}">${esc(val || '')}</textarea>` : o && o.opts ? `<select id="${id}">${o.opts.map(x => `<option ${x === val ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : `<input id="${id}" value="${esc(val || '')}">`}</div>`;
+    const accepted = q && q.status === 'accepted';
+    const body = FC.el(`<div>
+      ${!accepted && q ? `<label class="switch" style="margin-top:0"><input type="checkbox" id="ceAccept"><span><b>Client accepted outside the portal</b><span>Marks quotation version ${q.version} as accepted before the certificate is issued.</span></span></label>` : ''}
+      <div class="grid3" style="margin-top:6px">
+        ${f('ceNo', 'Certificate no.', def.no, { req:true })}${f('cePol', 'Open policy no. (form)', def.polNo)}${f('ceRef', 'Order / ref. no.', def.ref)}
+        ${f('ceCurr', 'Currency', def.curr, { req:true, opts:['USD','EUR','GBP'] })}${f('ceSum', 'Sum insured', def.sum, { req:true })}${f('ceDate', 'Date of issue', def.date, { req:true })}
+        ${f('cePerc', '% of', def.perc)}${f('ceVal', 'Type of value', def.valueType, { opts:['CIF Value','Invoice Value'] })}${f('ceOri', 'Originals', def.originals)}
+        ${f('ceDoc', 'Document', def.doc, { opts:['Original','Copy'] })}${f('ceDocNo', 'Document no.', def.docNo, { opts:['1.','2.','3.'] })}
+        <div class="field"><label>Conditions overleaf (box between 4 and 7)</label><div class="seg" id="ceBox"><button type="button" data-v="5" aria-checked="${def.box === '5'}">5 · sea / road / rail</button><button type="button" data-v="6" aria-checked="${def.box === '6'}">6 · air</button></div></div>
+        ${f('ceHolder', 'Insurance granted under the open policy to', def.holder, { req:true, span:true })}
+        ${f('ceGoods', 'Goods (description, packing, marks)', def.goods, { req:true, span:true, rows:5 })}
+        ${f('ceFrom', 'Voyage from', def.from, { req:true })}${f('ceTo', 'to', def.to, { req:true })}${f('ceConv', 'per (conveyance / vessel)', def.conveyance, { req:true })}
+        ${f('ceAgr', 'Letter of credit / additional agreements', def.agreements, { span:true, rows:5 })}
+        ${f('ceClaims', 'In case of loss or damage immediately contact', def.claims, { span:true, rows:2 })}
+      </div>
+      <p class="xs muted">The .fdf opens in Adobe Acrobat / Reader when the blank form <b>${esc(cf.file || 'BERTLING_MASTER_TRANSPORT_POLICY_OHNE_STEMPEL_202304.pdf')}</b> is in the same folder. “Filled PDF” uses the form stored privately in FREIGHTCON.</p>
+      <div class="err-msg" id="ceErr"></div></div>`);
+    body.querySelector('#ceBox').addEventListener('click', e => { const b = e.target.closest('button'); if(b) body.querySelectorAll('#ceBox button').forEach(x => x.setAttribute('aria-checked', String(x === b))); });
+    const v = id => body.querySelector(id).value.trim();
+    const collect = () => {
+      const err = t => { body.querySelector('#ceErr').textContent = t; return null; };
+      const data = { no: v('#ceNo'), polNo: v('#cePol'), ref: v('#ceRef'), curr: v('#ceCurr'), sum: v('#ceSum'), date: v('#ceDate'), perc: v('#cePerc'), valueType: v('#ceVal'), originals: v('#ceOri'),
+        doc: v('#ceDoc'), docNo: v('#ceDocNo'), box: (body.querySelector('#ceBox [aria-checked="true"]') || {}).dataset.v || '5', holder: v('#ceHolder'), goods: v('#ceGoods'),
+        from: v('#ceFrom'), to: v('#ceTo'), conveyance: v('#ceConv'), agreements: v('#ceAgr'), claims: v('#ceClaims') };
+      const miss = [['no','Certificate no.'],['curr','Currency'],['sum','Sum insured'],['date','Date of issue'],['holder','Holder'],['goods','Goods'],['from','Voyage from'],['to','Voyage to'],['conveyance','Conveyance']].filter(([k]) => !data[k]).map(([, l]) => l);
+      if(miss.length) return err('Please fill in: ' + miss.join(', ') + '.');
+      if(!/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(data.date)) return err('Date of issue as DD.MM.YYYY.');
+      if(!(FC.parseNum(data.sum) > 0)) return err('The sum insured must be a number.');
+      const clash = S.certs.find(c => c.number === data.no && (!existing || c.id !== existing.id));
+      if(clash) return err('Certificate no. ' + data.no + ' is already used.');
+      body.querySelector('#ceErr').textContent = ''; return data;
+    };
+    // exact AcroForm field names of the form
+    const formFields = x => [['Curr', x.curr], ['Sum Insured', x.sum], ['Perc', x.perc], ['Type of Value', x.valueType], ['Date of Issue', x.date], ['Doc', x.doc], ['Doc No', x.docNo], ["Ori's", x.originals],
+      ['Pol No', x.polNo], ['No', x.no], ['Order/Ref No', x.ref], ['The holder of this policy', x.holder], ['Description of Goods', x.goods], ['voyage from', x.from], ['voyage to', x.to], ['conveyance', x.conveyance],
+      ['1', '1'], ['5', x.box === '5' ? '5' : ''], ['6', x.box === '6' ? '6' : ''], ['LC Info', x.agreements], ['wwwvhtnetworkde', x.claims]];
+    const store = async x => {
+      if(body.querySelector('#ceAccept') && body.querySelector('#ceAccept').checked){
+        const now = new Date().toISOString();
+        let e1 = (await sb.from('quotations').update({ status:'accepted', responded_at: now, response_note: 'Accepted outside the portal (recorded by ' + myInitials() + ')' }).eq('id', q.id)).error;
+        if(!e1) e1 = (await sb.from('indications').update({ stage:'accepted' }).eq('id', r.id)).error;
+        if(e1){ toast('Could not mark the quotation as accepted: ' + e1.message, 'error'); return false; }
+      }
+      const row = { indication_id: r.id, quotation_id: q ? q.id : (existing && existing.quotation_id) || null, number: x.no, data: x };
+      const res = existing ? await sb.from('certificates').update(row).eq('id', existing.id) : await sb.from('certificates').insert(Object.assign(row, { created_by: me().id }));
+      if(res.error){ toast('Could not save the certificate: ' + res.error.message, 'error'); return false; }
+      return true;
+    };
+    const fileBase = x => 'Certificate_' + String(x.no).replace(/[^\w-]+/g, '_') + (r.ref ? '_' + r.ref : '');
+    return FC.dialog({ title: (existing ? 'Certificate ' + existing.number : 'New certificate') + ' · ' + (og.policy ? og.policy.name : ''), wide:true, body, actions:[
+      { label:'Cancel', kind:'ghost', value:null },
+      { label:'Upload blank form', kind:'ghost', onClick: async () => {
+          const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
+          inp.onchange = async () => { const fl = inp.files[0]; if(!fl) return; const { error } = await sb.storage.from('forms').upload(CERT_PATH, fl, { upsert:true, contentType:'application/pdf' }); toast(error ? 'Upload failed: ' + error.message : 'Blank form stored.', error ? 'error' : undefined); };
+          inp.click();
+        } },
+      { label:'Download .fdf', kind:'ghost', onClick: async () => {
+          const x = collect(); if(!x) return; if(!(await store(x))) return;
+          FC.saveBlob(FCPDF.fdf(cf.file || 'BERTLING_MASTER_TRANSPORT_POLICY_OHNE_STEMPEL_202304.pdf', formFields(x)), fileBase(x) + '.fdf', 'application/vnd.fdf');
+          toast('Certificate ' + x.no + ' saved — .fdf downloaded.'); return true;
+        } },
+      { label:'Download filled PDF', kind:'primary', onClick: async () => {
+          const x = collect(); if(!x) return;
+          const { data: blob, error } = await sb.storage.from('forms').download(CERT_PATH);
+          if(error || !blob){ body.querySelector('#ceErr').textContent = 'The blank form is not stored yet — click “Upload blank form” once, or use the .fdf.'; return; }
+          try{
+            const out = await FCPDF.fillForm(await blob.arrayBuffer(), formFields(x));
+            if(out.missing.length) console.warn('form fields not found', out.missing);
+            if(!(await store(x))) return;
+            FC.saveBlob(out.bytes, fileBase(x) + '.pdf', 'application/pdf');
+            toast('Certificate ' + x.no + ' saved — PDF downloaded.'); return true;
+          }catch(e){
+            if(/encrypt/i.test(e.message || '')){ body.querySelector('#ceErr').textContent = 'The stored form is protected against changes (Acrobat security), so the browser cannot fill it. Use “Download .fdf” — Acrobat fills the protected form — or upload a copy of the form saved without the change password.'; return; }
+            console.error(e); body.querySelector('#ceErr').textContent = 'The form could not be filled: ' + e.message; }
+        } }
+    ] });
   }
 
   // ---------------- cover note editor ----------------
@@ -1214,6 +1326,88 @@
       actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Copy terms', kind:'primary', onClick: async (c, box) => { const ok = await copyTerms(Number(box.querySelector('#ctFrom').value), [po.id]); if(ok){ toast('Terms copied.'); await loadAll(); render(); return true; } } }] });
   }
 
+  // ---- zone map: air (12) and sea (19) zones as on the policy maps ----
+  const ZC = {
+    air: ['#1F3F8F','#F2D33C','#D2B48C','#F08F7A','#1F7A7A','#A59F94','#E03131','#2F6B2F','#E0A82E','#B5C26A','#4A7FD6','#45C45A'],
+    sea: ['#1F3F8F','#F2D33C','#D63FA0','#A4D65E','#A59F94','#D2B48C','#F08F7A','#5FD3B8','#B9A5E6','#5E3C99','#D9B44A','#2F6B2F','#E03131','#B07D2B','#4A7FD6','#F2B6D0','#45C45A','#E2734E','#FFE14D']
+  };
+  const zoneColor = (mode, z) => ZC[mode][z - 1] || `hsl(${(z * 47) % 360} 55% 55%)`;
+  let mapMode = 'sea', mapUnlocked = false, mapGeo = null;
+  const mapPending = {};
+  async function mapData(){
+    if(mapGeo) return mapGeo;
+    if(!window.d3 || !window.d3.geoEqualEarth){ await FC.loadScript('assets/geo/d3-array.min.js'); await FC.loadScript('assets/geo/d3-geo.min.js'); }
+    const [shapes, pts, places] = await Promise.all(['assets/geo/countries-110m.json', 'assets/geo/country-points.json', 'assets/geo/places.json'].map(u => fetch(u).then(r => r.json()).catch(() => null)));
+    mapGeo = { shapes: shapes || [], pts: pts || {}, places: places || {} };
+    return mapGeo;
+  }
+  async function rtMap(host){
+    host.innerHTML = '<div class="empty">Loading the map…</div>';
+    const G = await mapData(), d3 = window.d3;
+    const zones = Math.max(...S.rateTables.filter(t => t.mode === mapMode).map(t => t.zones), 1);
+    const zoneOf = c => { const k = c.iso2 + '|' + mapMode; return k in mapPending ? mapPending[k] : (mapMode === 'sea' ? c.sea_zone : c.air_zone); };
+    const byIso = {}; S.countries.forEach(c => byIso[c.iso2] = c);
+    const W = 960, H = 470, proj = d3.geoEqualEarth().fitExtent([[8, 8], [W - 8, H - 8]], { type:'Sphere' }), path = d3.geoPath(proj);
+    const drawn = new Set(G.shapes.map(f => f.t));
+    // blocked countries are white like the excluded ones, whatever zone they still carry
+    const fill = c => { const z = c ? zoneOf(c) : null; return z && c.compliance !== 'blocked' ? zoneColor(mapMode, z) : '#FFFFFF'; };
+    const pending = Object.keys(mapPending).filter(k => k.endsWith('|' + mapMode)).length;
+    const unassigned = S.countries.filter(c => !zoneOf(c) && c.compliance !== 'blocked' && !c.sanctioned);
+    const count = {}; S.countries.forEach(c => { const z = zoneOf(c); if(z) count[z] = (count[z] || 0) + 1; });
+    // ports that split a coast (Saudi Arabia west / east, UAE Gulf / Gulf of Oman)
+    const portPt = name => { for(const cc of Object.keys(G.places)){ const p = G.places[cc].find(x => x[0].toLowerCase() === name.toLowerCase()); if(p) return [p[2], p[1]]; } return null; };
+    const coastPins = S.warAreas.filter(a => a.kind === 'coast').map(a => { const pt = (a.ports || []).map(portPt).find(Boolean); return pt ? { a, xy: proj(pt) } : null; }).filter(Boolean);
+    host.innerHTML = `<div class="toolbar"><div class="seg" id="mpMode"><button type="button" data-v="sea" aria-checked="${mapMode === 'sea'}">Sea · ${S.rateTables.find(t => t.mode === 'sea') ? Math.max(...S.rateTables.filter(t => t.mode === 'sea').map(t => t.zones)) : 19} zones</button><button type="button" data-v="air" aria-checked="${mapMode === 'air'}">Air · ${Math.max(...S.rateTables.filter(t => t.mode === 'air').map(t => t.zones), 0)} zones</button></div>
+        <span class="xs muted">Blanket: these zones apply to every policy and to spot rating.</span><span style="flex:1"></span>
+        ${mapUnlocked ? `<button class="btn btn-ghost btn-sm" id="mpAdd" type="button">+ Add zone</button><button class="btn btn-ghost btn-sm" id="mpDel" type="button">Remove zone ${zones}</button><button class="btn btn-ghost btn-sm" id="mpLock" type="button">Lock</button><button class="btn btn-primary btn-sm" id="mpSave" type="button" ${pending ? '' : 'disabled'}><span class="spin"></span>Save ${pending || ''} change${pending === 1 ? '' : 's'}</button>`
+          : `<span class="chip neutral">🔒 Locked</span><button class="btn btn-ghost btn-sm" id="mpUnlock" type="button">Unlock to edit</button>`}</div>
+      <div class="map-wrap card"><svg viewBox="0 0 ${W} ${H}" class="zmap" role="img" aria-label="${mapMode} zone map">
+        <path d="${path({ type:'Sphere' })}" class="zm-sea"></path>
+        ${G.shapes.map(f => { const c = byIso[f.t]; return `<path d="${path(f.g)}" data-iso="${f.t}" fill="${fill(c)}" class="zm-c${c && (!zoneOf(c) || c.compliance === 'blocked') ? ' ex' : ''}"><title>${esc(c ? c.name : f.t)} — ${c && zoneOf(c) ? 'zone ' + zoneOf(c) : 'excluded / unassigned'}${c && c.compliance !== 'ok' ? ' · ' + ({ local:'licensing (*)', hold:'hold covered', blocked:'blocked' })[c.compliance] : ''}</title></path>`; }).join('')}
+        ${S.countries.filter(c => !drawn.has(c.iso2) && G.pts[c.iso2]).map(c => { const xy = proj([G.pts[c.iso2][1], G.pts[c.iso2][0]]); return xy ? `<circle cx="${xy[0].toFixed(1)}" cy="${xy[1].toFixed(1)}" r="3.2" data-iso="${c.iso2}" fill="${fill(c)}" class="zm-c zm-dot${zoneOf(c) ? '' : ' ex'}"><title>${esc(c.name)} — ${zoneOf(c) ? 'zone ' + zoneOf(c) : 'excluded / unassigned'}</title></circle>` : ''; }).join('')}
+        ${S.countries.filter(c => c.compliance === 'local' && (G.shapes.find(f => f.t === c.iso2) || G.pts[c.iso2])).map(c => { const f = G.shapes.find(x => x.t === c.iso2); const xy = f ? path.centroid(f.g) : proj([G.pts[c.iso2][1], G.pts[c.iso2][0]]); return xy && isFinite(xy[0]) ? `<text x="${xy[0].toFixed(1)}" y="${(xy[1] + 6).toFixed(1)}" class="zm-star">*</text>` : ''; }).join('')}
+        ${coastPins.map(p => { const short = ({ sa_west:'SA West', sa_east:'SA East', ae_gulf:'UAE Gulf', ae_oman:'UAE Oman' })[p.a.code] || p.a.name, left = /west/.test(p.a.code); return `<g class="zm-pin" transform="translate(${p.xy[0].toFixed(1)},${p.xy[1].toFixed(1)})"><circle r="4"></circle><text x="${left ? -7 : 7}" y="${left ? 3 : -4}" text-anchor="${left ? 'end' : 'start'}">${esc(short)}</text><title>${esc(p.a.name)}</title></g>`; }).join('')}
+      </svg></div>
+      <div class="map-side">
+        <div class="zm-legend">${Array.from({ length: zones }, (_, i) => i + 1).map(z => `<span class="zm-key"><i style="background:${zoneColor(mapMode, z)}"></i>Zone ${z}<b>${count[z] || 0}</b></span>`).join('')}<span class="zm-key"><i class="ex"></i>Excluded / unassigned</span><span class="zm-key"><i class="star">*</i>Licensing check (amber)</span><span class="zm-key"><i class="pin"></i>Coast split (war &amp; strikes)</span></div>
+        ${unassigned.length ? `<div class="al-row al-orange" style="margin-top:12px"><i></i><span><b>${unassigned.length} countr${unassigned.length > 1 ? 'ies' : 'y'} without a ${mapMode} zone</b> (not blocked) — no automatic rate, always quoted individually: ${esc(unassigned.slice(0, 40).map(c => c.name).join(', '))}${unassigned.length > 40 ? ' …' : ''}</span></div>` : ''}
+        ${mapUnlocked ? '<p class="xs muted" style="margin:10px 0 0">Click a country to move it to another zone. Changes are saved together with one reason.</p>' : ''}
+        ${auditFoot('zones', null, 4)}
+      </div>`;
+    $$('#mpMode button', host).forEach(b => b.addEventListener('click', () => { mapMode = b.dataset.v; rtMap(host); }));
+    const re = () => rtMap(host);
+    if($('#mpUnlock', host)) $('#mpUnlock', host).addEventListener('click', () => { mapUnlocked = true; re(); });
+    if($('#mpLock', host)) $('#mpLock', host).addEventListener('click', () => { mapUnlocked = false; Object.keys(mapPending).forEach(k => delete mapPending[k]); re(); });
+    const zoneCount = async action => {
+      const reason = await askReason(action === 'add' ? `Add ${mapMode} zone ${zones + 1} to every ${mapMode} schedule (its rates start empty = on request).` : `Remove ${mapMode} zone ${zones}: its countries become unassigned and its rates are deleted.`);
+      if(!reason) return;
+      const { error } = await sb.rpc('admin_zone_count', { p_mode: mapMode, p_action: action, p_reason: reason });
+      if(error) return toast(error.message, 'error'); toast('Done and logged.'); await loadAll(); re();
+    };
+    if($('#mpAdd', host)) $('#mpAdd', host).addEventListener('click', () => zoneCount('add'));
+    if($('#mpDel', host)) $('#mpDel', host).addEventListener('click', () => zoneCount('remove'));
+    if($('#mpSave', host)) $('#mpSave', host).addEventListener('click', async e => {
+      const keys = Object.keys(mapPending).filter(k => k.endsWith('|' + mapMode));
+      const rows = keys.map(k => { const c = byIso[k.split('|')[0]]; return { iso2: c.iso2, sea_zone: mapMode === 'sea' ? mapPending[k] : c.sea_zone, air_zone: mapMode === 'air' ? mapPending[k] : c.air_zone }; });
+      const reason = await askReason(rows.map(x => byIso[x.iso2].name + ' → ' + (mapPending[x.iso2 + '|' + mapMode] || 'unassigned')).join(', '));
+      if(!reason) return;
+      busy(e.currentTarget, true);
+      const { error } = await sb.rpc('admin_set_zones', { p_rows: rows, p_reason: reason });
+      if(error){ busy(e.currentTarget, false); return toast(error.message, 'error'); }
+      keys.forEach(k => delete mapPending[k]); toast('Zones saved and logged.'); await loadAll(); re();
+    });
+    host.querySelector('svg').addEventListener('click', async e => {
+      const el = e.target.closest('[data-iso]'); if(!el || !mapUnlocked) return;
+      const c = byIso[el.dataset.iso]; if(!c) return;
+      const z = await FC.dialog({ title: c.name + ' — ' + mapMode + ' zone', body:`<div class="zm-pick">${Array.from({ length: zones }, (_, i) => i + 1).map(n => `<button type="button" data-z="${n}" class="${zoneOf(c) === n ? 'on' : ''}"><i style="background:${zoneColor(mapMode, n)}"></i>${n}</button>`).join('')}<button type="button" data-z="0" class="${!zoneOf(c) ? 'on' : ''}"><i class="ex"></i>Excluded / unassigned</button></div>`,
+        actions:[{ label:'Cancel', kind:'ghost', value:null }], onOpen: (box, close) => box.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => close(Number(b.dataset.z)))) });
+      if(z == null) return;
+      const orig = mapMode === 'sea' ? c.sea_zone : c.air_zone, k = c.iso2 + '|' + mapMode;
+      if((z || null) === (orig || null)) delete mapPending[k]; else mapPending[k] = z || null;
+      re();
+    });
+  }
+
   // ---- war & strikes lifted / excluded areas and buy-back terms ----
   function rtWar(host){
     host.appendChild(FC.el(`<p class="small muted" style="margin:0 0 12px">Areas where war &amp; strikes cover is lifted. A coast is matched by the port typed in the shipment (no or unknown port = every coast of that country counts). A sea is matched by its ports, its littoral countries, a transit country, or routing via Suez. The rate is never reduced; a buy-back loading (less no-claims bonus) gives a second rate with war &amp; strikes re-included.</p><h3 style="margin:0 0 8px">Areas</h3>`));
@@ -1267,10 +1461,10 @@
   }
   function renderRates(body){
     body.innerHTML = `<p class="small muted" style="margin:0 0 14px"><b>Open cover policies</b> use the schedules as they stand (incl. war &amp; strikes, never deducted) with the rules of the policy (Customers → Client groups). <b>Spot clients:</b> rate (‰ of the sum insured) = route base rate (sea / air zone matrix without war, road / rail by band) × cargo class factor × cover × conveyance × packing × on deck × theft loading (land) × extra loading; plus war &amp; strikes (strikes on land) and crisis surcharge; × interest factor for seller's / buyer's interest. Minimum premium per schedule (land: setting). Countries without a zone, local-insurance countries, sanctioned countries and amounts over the limit go on request.</p>
-      <div class="tabs" role="tablist">${[['tables','Schedules (zone matrices)'],['commodities','Cargo types'],['countries','Countries & zones'],['factors','Factors & limits'],['war','War & strikes areas'],['test','Test a calculation'],['log','Change log']].map(([k, l]) => `<button role="tab" data-rtab="${k}" aria-selected="${k === rateTab}">${l}</button>`).join('')}</div><div id="rtBody"></div>`;
+      <div class="tabs" role="tablist">${[['tables','Schedules (zone matrices)'],['commodities','Cargo types'],['countries','Countries & zones'],['factors','Factors & limits'],['map','Zone map'],['war','War & strikes areas'],['test','Test a calculation'],['log','Change log']].map(([k, l]) => `<button role="tab" data-rtab="${k}" aria-selected="${k === rateTab}">${l}</button>`).join('')}</div><div id="rtBody"></div>`;
     $$('[data-rtab]', body).forEach(b => b.addEventListener('click', () => { rateTab = b.dataset.rtab; renderRates(body); }));
     const host = $('#rtBody', body);
-    ({ tables: rtTables, commodities: rtCommodities, countries: rtCountries, factors: rtFactors, test: rtTest, log: rtLog, war: rtWar })[rateTab](host);
+    ({ tables: rtTables, commodities: rtCommodities, countries: rtCountries, factors: rtFactors, test: rtTest, log: rtLog, war: rtWar, map: rtMap })[rateTab](host);
   }
   // generic editable table
   function editTable(host, o){

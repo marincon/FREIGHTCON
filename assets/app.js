@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-12c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-12d'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -82,7 +82,7 @@
   // ---------- reference data ----------
   let commodities = [], countries = [];
   {
-    const [c1, c2] = await Promise.all([ sb.rpc('list_commodities'), sb.from('countries').select('iso2,name,sanctioned,on_request').order('name') ]);
+    const [c1, c2] = await Promise.all([ sb.rpc('list_commodities'), sb.rpc('list_countries') ]);
     commodities = c1.data || []; countries = c2.data || [];
     if(c1.error || c2.error) toast('Could not load the cargo and country lists. Please reload the page.', 'error');
   }
@@ -192,7 +192,7 @@
       ext_liw: !$('#extFields').hidden && !$('#liwField').hidden && $('#fLiw').checked,
       office_id: OC ? (Number($('#fOffice').value) || null) : null,
       transit_countries: transit.slice(),
-      red_sea: isSea(segVal(convHost)) ? segVal($('#fRed')) || 'auto' : 'auto',
+      red_sea: isSea(segVal(convHost)) && !$('#redSeaField').hidden ? segVal($('#fRed')) || 'auto' : 'auto',
       freight_value: $('#fFreight').value.trim() ? FC.parseNum($('#fFreight').value) : null,
       insured_country: $('#fInsCountry').value || null,
       ftz: $('#ftzField').hidden || !segVal($('#fFtz')) ? null : segVal($('#fFtz')) === 'true',
@@ -251,8 +251,13 @@
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? (v.invoice_value + (v.freight_value > 0 ? v.freight_value : 0)) * (1 + v.uplift_pct / 100) : NaN;
     tweenSi(si, v.currency);
     // routing via Suez only matters at sea; free trade zone only for UAE interests
-    $('#redSeaField').hidden = !isSea(v.conveyance);
-    $('#redHint').textContent = v.red_sea === 'auto' ? 'Not sure? For Europe ↔ Asia we assume the route via Suez and the Red Sea.' : '';
+    // only where the route can actually pass Suez: west of Suez ↔ east of Suez, or a port / transit on the Red Sea
+    const side = cc => (countries.find(c => c.iso2 === cc) || {}).suez;
+    const sides = [v.origin_country, v.dest_country].map(side), all = [v.origin_country, v.dest_country].concat(v.transit_countries || []);
+    const suezLane = isSea(v.conveyance) && !!v.origin_country && !!v.dest_country && ((sides[0] === 'w' && sides[1] === 'e') || (sides[0] === 'e' && sides[1] === 'w') || all.some(cc => side(cc) === 'r'));
+    $('#redSeaField').hidden = !suezLane;
+    if(!suezLane && segVal($('#fRed')) !== 'auto') segSet($('#fRed'), 'auto');
+    $('#redHint').textContent = suezLane && segVal($('#fRed')) === 'auto' ? 'Not sure? On this route we assume the passage via Suez and the Red Sea.' : '';
     const domAE = v.insured_country === 'AE' || (!v.insured_country && OC && officeOf(v.office_id) && officeOf(v.office_id).country === 'AE');
     $('#ftzField').hidden = !domAE || !v.insured_country;
     $('#insCountryLbl').textContent = $('#fForCust').checked ? "Your customer's country" : 'Country of the assured';
@@ -742,7 +747,7 @@
     if(v === 'history') loadHistory();
     if(v === 'upload') initUpload();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12c');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-12d');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -752,7 +757,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12c').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-12d').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
