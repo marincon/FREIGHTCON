@@ -22,7 +22,7 @@ Kunde gibt Ware, Route und Wert ein → sieht sofort eine Indikation → fordert
 
 ### 1. Supabase-Projekt
 1. Neues Projekt auf supabase.com anlegen, Region **Frankfurt (eu-central-1)**.
-2. SQL Editor → nacheinander ausführen: `supabase/schema.sql`, `supabase/seed.sql`, `supabase/update_2026-10-20c.sql`, `supabase/update_2026-10-20d.sql`, `supabase/update_2026-10-20e.sql`, `supabase/update_2026-10-20f.sql`, `supabase/update_2026-10-20g.sql`, `supabase/update_2026-10-20h.sql`, `supabase/update_2026-10-20i.sql`, `supabase/update_2026-10-20j.sql`, `supabase/update_2026-10-21k.sql`, `supabase/update_2026-11-12l.sql`, `supabase/update_2026-11-12m.sql`.
+2. SQL Editor → nacheinander ausführen: `supabase/schema.sql`, `supabase/seed.sql`, `supabase/update_2026-10-20c.sql`, `supabase/update_2026-10-20d.sql`, `supabase/update_2026-10-20e.sql`, `supabase/update_2026-10-20f.sql`, `supabase/update_2026-10-20g.sql`, `supabase/update_2026-10-20h.sql`, `supabase/update_2026-10-20i.sql`, `supabase/update_2026-10-20j.sql`, `supabase/update_2026-10-21k.sql`, `supabase/update_2026-11-12l.sql`, `supabase/update_2026-11-12m.sql`, `supabase/update_2026-11-12n.sql`.
 3. Authentication → URL Configuration: *Site URL* = deine Domain (z. B. `https://freightcon.com`), unter *Redirect URLs* `https://freightcon.com/index.html` eintragen.
 4. Authentication → Providers → Email: „Confirm email“ an lassen.
 5. Authentication → SMTP Settings: IONOS-Postfach eintragen (`smtp.ionos.de`, Port 465), damit Bestätigungs- und Passwort-Mails von deiner Adresse kommen.
