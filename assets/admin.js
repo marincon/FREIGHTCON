@@ -4,7 +4,7 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{} };
+  const S = { rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[] };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
@@ -29,7 +29,7 @@
   };
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -45,8 +45,22 @@
       sb.from('claims').select('*').order('created_at', { ascending:false }),
       sb.from('claim_events').select('*').order('created_at'),
       sb.from('claim_files').select('*').order('created_at'),
-      sb.from('claim_internal').select('*')
+      sb.from('claim_internal').select('*'),
+      sb.from('client_groups').select('*').order('sort'),
+      sb.from('policies').select('*').order('sort'),
+      sb.from('offices').select('*').order('sort'),
+      sb.from('indication_internal').select('*'),
+      sb.from('audit_log').select('*').order('at', { ascending:false }).limit(300)
     ]);
+    S.groups = grp.data || []; S.policies = pol.data || []; S.offices = ofc.data || []; S.audit = aud.data || [];
+    // what the client must not see is kept apart; staff see the full picture
+    const intern = {}; (iin.data || []).forEach(x => intern[x.indication_id] = x);
+    (ind.data || []).forEach(r => {
+      const x = intern[r.id]; if(!x) return;
+      r.notes = x.notes || [];
+      if(!r.calc_detail) r.calc_detail = x.calc_detail;
+      if(r.intake){ r.status = x.status; r.rate_pct = x.rate_pct; r.premium_gross = x.premium_gross; r.premium = x.premium; r.min_applied = x.min_applied; r.reasons = x.reasons || []; }
+    });
     const err = [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc].find(r => r.error);
     S.qint = {}; (qi.data || []).forEach(x => S.qint[x.quotation_id] = x);
     S.claims = cl.data || []; S.claimEvents = {}; S.claimFiles = {}; S.claimInt = {};
@@ -82,6 +96,17 @@
   const addrOf = p => [p.address_line, [p.postcode, p.city].filter(Boolean).join(' '), p.country].filter(Boolean).join(', ');
   A.addrOf = addrOf;
   const who = r => { const p = S.profiles[r.user_id] || {}; return { name: p.full_name || p.email || '—', company: r.company || p.company || '', email: p.email || '', p }; };
+  // open covers: office → policy → group
+  const ofcOf = id => S.offices.find(o => o.id === id) || null;
+  const polOf = id => S.policies.find(o => o.id === id) || null;
+  const grpOf = id => S.groups.find(o => o.id === id) || null;
+  const domainGroup = email => { const d = String(email || '').split('@')[1]; return d ? S.groups.slice().sort((a, b) => a.sort - b.sort || a.id - b.id).find(g => (g.email_domains || []).includes(d.toLowerCase())) || null : null; };
+  const userGroup = p => { const o = ofcOf(p.office_id), po = o && polOf(o.policy_id); return (po && grpOf(po.group_id)) || grpOf(p.group_id) || domainGroup(p.email); };
+  const orgOfCase = r => { const o = ofcOf(r.office_id), po = polOf(r.policy_id) || (o && polOf(o.policy_id)); return { office:o, policy:po, group: po ? grpOf(po.group_id) : null }; };
+  const amt = (v, c) => v == null || v === '' ? '—' : money2(v, c);
+  const effMin = (po, o, p) => p && p.min_premium_override != null ? Number(p.min_premium_override) : o && o.min_premium != null ? Number(o.min_premium) : po ? Number(po.min_premium) : null;
+  const effDed = (po, o, p) => p && p.deductible_override != null ? Number(p.deductible_override) : o && o.deductible != null ? Number(o.deductible) : po && po.deductible != null ? Number(po.deductible) : null;
+  A.org = { ofcOf, polOf, grpOf, userGroup };
 
   // =================================================================== REQUESTS
   let rqFilter = { q:'', scope:'open', stage:'' };
@@ -141,7 +166,7 @@
           <td data-nosel><input type="checkbox" class="rqSel" aria-label="Select" ${selected.has(r.id) ? 'checked' : ''} style="width:auto;min-width:0"></td>
           <td><b>${esc(r.ref || '—')}</b>${r.is_test ? ' ' + chip('neutral', 'Test') : ''}${bk === 'won' ? ' ' + chip('accepted', 'Won') : bk === 'lost' ? ' ' + chip('declined', 'Lost') : ''}</td>
           <td class="xs">${esc(FC.ago(r.quote_requested_at || r.created_at))}${r.quote_requested_at ? '' : '<br><span class="muted">no request</span>'}</td>
-          <td>${esc(w.company)}<br><span class="xs muted">${esc(r.insured_name ? 'for ' + r.insured_name : w.name)}</span></td>
+          <td>${esc(w.company)}${r.policy_id ? ' ' + chip('neutral', 'Open cover') : ''}${r.intake ? ' ' + chip('pending', 'Intake') : ''}<br><span class="xs muted">${esc(r.insured_name ? 'for ' + r.insured_name : w.name)}</span></td>
           <td><b>${esc(r.origin_country)} → ${esc(r.dest_country)}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[r.conveyance] || {}).short)}</span></td>
           <td>${esc(r.goods_description.slice(0, 60))}</td>
           <td class="r num">${esc(money2(r.sum_insured, r.currency))}</td>
@@ -225,6 +250,9 @@
           <dt>Indication</dt><dd>${chip(r.status, FC.STATUS[r.status])} ${r.premium != null ? esc(money2(r.premium, r.currency)) + ' at ' + esc(FC.pct(r.rate_pct)) + (Number(r.discount_pct) ? ', discount ' + esc(Number(r.discount_pct)) + ' %' : '') + (r.min_applied ? ', minimum' : '') : ''}</dd>
           ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(explain(r.calc_detail))}${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}${r.ext_hssc ? ', HSSC' : ''}${r.ext_liw ? ', LiW/DiW' : ''}</dd>` : ''}
           ${(r.reasons || []).length ? `<dt>Reasons</dt><dd>${esc(r.reasons.join('; '))}</dd>` : ''}
+          ${(r.notes || []).length ? `<dt>For the broker</dt><dd>${r.notes.map(n => '<span class="chip pending" style="white-space:normal;margin:0 4px 4px 0;display:inline-block">' + esc(n) + '</span>').join('')}</dd>` : ''}
+          ${(() => { const og = orgOfCase(r); if(!og.policy) return ''; const p = (S.profiles[r.user_id] || {});
+            return `<dt>Open cover</dt><dd><b>${esc(og.policy.name)}</b> ${esc(og.policy.policy_no || '')}${og.office ? '<br>' + esc(og.office.name) + (og.office.location ? ', ' + esc(og.office.location) : '') : ''}<br><span class="xs muted">Minimum premium ${esc(amt(effMin(og.policy, og.office, p), og.policy.currency))} · deductible ${esc(amt(effDed(og.policy, og.office, p), og.policy.currency))} · limit ${esc(amt(og.policy.limit_conveyance, og.policy.currency))} any one conveyance</span>${r.intake ? '<br>' + chip('pending', 'Intake: the client sees no premium') : ''}</dd>`; })()}
           ${r.insured_name ? `<dt>Assured</dt><dd><b>${esc(r.insured_name)}</b>${r.insured_address ? '<br><span class="xs muted">' + esc(r.insured_address) + '</span>' : ''}<br><span class="xs muted">on behalf of the customer below (policyholder)</span></dd>` : ''}
           ${r.customer_ref ? `<dt>Client's reference</dt><dd>${esc(r.customer_ref)}</dd>` : ''}
           ${r.source === 'upload' ? `<dt>Source</dt><dd>${chip('neutral', 'Excel / CSV upload')}</dd>` : ''}
@@ -357,15 +385,18 @@
   // ---------------- quotation editor ----------------
   function quotationEditor(r, prev, prevId){
     const w = who(r), sp = splitRate(r), land = sp.land, prevInt = prevId ? S.qint[prevId] : null;
+    const og = orgOfCase(r), pp = S.profiles[r.user_id] || {};
+    const ocDed = og.policy ? effDed(og.policy, og.office, pp) : null, ocMin = og.policy ? (sp.detail && sp.detail.min_premium != null ? Number(sp.detail.min_premium) : effMin(og.policy, og.office, pp)) : null;
     const conds = (FC.COVER[r.cover] || {}).clause + (r.war_strikes ? (land ? ', Institute Strikes Clauses (Cargo)' : ', Institute War Clauses (Cargo), Institute Strikes Clauses (Cargo)') : '') + ', warehouse to warehouse';
     const d = Object.assign({
-      client: r.insured_name || w.company, clientAddress: r.insured_name ? (r.insured_address || '') : addrOf(w.p), policyholder: r.insured_name ? [w.company, addrOf(w.p)].filter(Boolean).join(', ') : '', customerRef: r.customer_ref || '', coAssured: [], goods: r.goods_description, packaging: r.packaging || '', conveyance: r.conveyance, vessel: r.vessel || '', incoterm: r.incoterm ? r.incoterm + ' ' + (r.origin_place || r.dest_place || '') : '',
+      client: r.insured_name || w.company, clientAddress: r.insured_name ? (r.insured_address || '') : addrOf(w.p), policyholder: og.policy && og.policy.policyholder ? og.policy.policyholder : r.insured_name ? [w.company, addrOf(w.p)].filter(Boolean).join(', ') : '', policyNo: og.policy ? og.policy.policy_no || '' : '', customerRef: r.customer_ref || '', coAssured: [], goods: r.goods_description, packaging: r.packaging || '', conveyance: r.conveyance, vessel: r.vessel || '', incoterm: r.incoterm ? r.incoterm + ' ' + (r.origin_place || r.dest_place || '') : '',
       originCountry: r.origin_country, originPlace: r.origin_place || '', destCountry: r.dest_country, destPlace: r.dest_place || '',
       voyage: [r.origin_place, cName(r.origin_country)].filter(Boolean).join(', ') + ' to ' + [r.dest_place, cName(r.dest_country)].filter(Boolean).join(', '),
       period: r.departure_date ? 'Transit commencing on or about ' + FC.date(r.departure_date) : 'Single transit as per voyage',
-      conditions: conds, insurer: setting('default_insurer', ''), deductible: ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
+      conditions: conds, insurer: (og.policy && og.policy.placed_via) || setting('default_insurer', ''),
+      deductible: ocDed != null ? money2(ocDed, og.policy.currency) + ' each and every loss' : ((S.commodities.find(c => c.id === r.commodity_id) || {}).deductible) || setting('deductible_text', ''), special: r.conditions || '',
       currency: r.currency, discountPct: Number(r.discount_pct || w.p.client_discount_pct || 0), taxPct: 0,
-      minPremium: Number(sp.detail && sp.detail.mode === 'land' ? setting('land_min_premium', 75) : (((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0)),
+      minPremium: ocMin != null ? ocMin : Number(sp.detail && sp.detail.mode === 'land' ? setting('land_min_premium', 75) : (((S.rateTables.find(t => sp.detail && t.id === sp.detail.table) || {}).min_premium) || (setting('min_premium', {}) || {})[r.currency] || 0)),
       lines: [{ key:'cargo', label:'Cargo, ' + ((FC.COVER[r.cover] || {}).clause || '') + (r.interest_only ? ", seller's / buyer's interest only" : '') + (r.on_deck ? ', on deck' : '') + (r.ext_hssc ? ', incl. HSSC' : '') + (r.ext_liw ? ', incl. loss / difference in weight' : '') + (r.war_strikes ? (land ? ', incl. strikes' : ', incl. war & strikes') : ''), sum: Number(r.sum_insured), rate: sp.cargo }],
       subjectivities: setting('quote_subjectivities', []), note: '', closing: setting('quote_closing', '')
     }, prev ? JSON.parse(JSON.stringify(prev)) : {});
@@ -403,7 +434,7 @@
       <div class="field" style="margin-top:12px"><label>Special conditions</label><textarea id="qeSpec" rows="2" maxlength="1200">${esc(d.special)}</textarea></div>
       <h3 style="margin:18px 0 6px">Premium</h3>
       <div class="grid3">
-        <div class="field"><label>Currency</label><select id="qeCur"><option ${d.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${d.currency === 'USD' ? 'selected' : ''}>USD</option></select></div>
+        <div class="field"><label>Currency</label><select id="qeCur"><option ${d.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${d.currency === 'USD' ? 'selected' : ''}>USD</option><option ${d.currency === 'GBP' ? 'selected' : ''}>GBP</option></select></div>
         <div class="field"><label>Client discount %</label><input id="qeDisc" inputmode="decimal" value="${esc(d.discountPct || 0)}"></div>
         <div class="field"><label>Minimum premium</label><input id="qeMin" inputmode="decimal" value="${esc(d.minPremium || 0)}"></div>
       </div>
@@ -514,7 +545,7 @@
         ${f('cnMarks', 'Marks & numbers / container no.', d.marks)}${f('cnDoc', 'B/L, AWB or CMR no.', d.transportDoc)}
         ${f('cnVessel', 'Vessel / flight / truck', d.vessel)}${f('cnDep', 'Sailing / departure', d.departure)}
         ${f('cnVoy', 'Voyage', d.voyage, { wide:true })}${f('cnPer', 'Period', d.period, { wide:true })}
-        ${f('cnSI', 'Sum insured', d.sumInsured)}<div class="field"><label for="cnCur">Currency</label><select id="cnCur"><option ${d.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${d.currency === 'USD' ? 'selected' : ''}>USD</option></select></div>
+        ${f('cnSI', 'Sum insured', d.sumInsured)}<div class="field"><label for="cnCur">Currency</label><select id="cnCur"><option ${d.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${d.currency === 'USD' ? 'selected' : ''}>USD</option><option ${d.currency === 'GBP' ? 'selected' : ''}>GBP</option></select></div>
         ${f('cnCond', 'Conditions', d.conditions, { area:true, wide:true })}${f('cnDed', 'Deductible', d.deductible)}${f('cnTot', 'Premium (total)', d.total)}
         ${f('cnSpec', 'Special conditions', d.special, { area:true, wide:true })}${f('cnClaims', 'In case of loss or damage', d.claims, { area:true, wide:true, rows:3 })}
         ${f('cnNote', 'Additional note (optional)', d.note, { area:true, wide:true })}
@@ -548,7 +579,7 @@
         <div class="field"><label for="ivNo">Invoice number</label><input id="ivNo" maxlength="40"></div>
         <div class="field"><label for="ivDue">Due date</label><input id="ivDue" type="date"></div>
         <div class="field"><label for="ivAmt">Amount</label><input id="ivAmt" inputmode="decimal" value="${q ? esc(q.data.total) : r.premium != null ? esc(r.premium) : ''}"></div>
-        <div class="field"><label for="ivCur">Currency</label><select id="ivCur"><option ${r.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${r.currency === 'USD' ? 'selected' : ''}>USD</option></select></div></div>
+        <div class="field"><label for="ivCur">Currency</label><select id="ivCur"><option ${r.currency === 'EUR' ? 'selected' : ''}>EUR</option><option ${r.currency === 'USD' ? 'selected' : ''}>USD</option><option ${r.currency === 'GBP' ? 'selected' : ''}>GBP</option></select></div></div>
       <div class="field" style="margin-top:12px"><label for="ivFile">PDF file</label><input id="ivFile" type="file" accept="application/pdf"></div>
       <p class="xs muted">The client sees the invoice under My quotations → Invoices.</p><div class="err-msg" id="ivErr"></div></div>`);
     return FC.dialog({ title:'Upload invoice', body, actions:[{ label:'Cancel', kind:'ghost', value:false }, { label:'Upload', kind:'primary', onClick: async () => {
@@ -610,7 +641,14 @@
   }
 
   // =================================================================== CUSTOMERS
-  async function renderCustomers(body){
+  let custTab = 'users';
+  function renderCustomers(body){
+    body.innerHTML = `<div class="tabs" role="tablist">${[['users','Users'],['groups','Client groups, policies & offices']].map(([k, l]) => `<button role="tab" data-ctab="${k}" aria-selected="${k === custTab}">${l}</button>`).join('')}</div><div id="ctBody"></div>`;
+    $$('[data-ctab]', body).forEach(b => b.addEventListener('click', () => { custTab = b.dataset.ctab; renderCustomers(body); }));
+    const host = $('#ctBody', body);
+    (custTab === 'groups' ? renderGroups : renderUsers)(host);
+  }
+  async function renderUsers(body){
     const { data: refs } = await sb.from('referrals').select('*').order('created_at', { ascending:false });
     const pend = pendingUsers(), P = S.profiles;
     if(pend.length){
@@ -644,17 +682,194 @@
     const count = {}; S.rows.forEach(r => { const c = count[r.user_id] = count[r.user_id] || { i:0, q:0, b:0 }; c.i++; if(r.quote_requested_at) c.q++; if(r.stage === 'bound') c.b++; });
     const paint = () => {
       const s = tb.querySelector('input').value.trim().toLowerCase();
-      const rows = Object.values(P).filter(p => !s || [p.company, p.full_name, p.email, p.country].join(' ').toLowerCase().includes(s));
-      wrap.innerHTML = `<table class="tbl"><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th class="r">Indications</th><th class="r">Requests</th><th class="r">Bound</th><th class="r">Discount</th><th>Registered</th></tr></thead><tbody></tbody></table>`;
+      const rows = Object.values(P).filter(p => !s || [p.company, p.full_name, p.email, p.country, (userGroup(p) || {}).name, (ofcOf(p.office_id) || {}).name].join(' ').toLowerCase().includes(s));
+      wrap.innerHTML = `<table class="tbl"><thead><tr><th>Company</th><th>Contact</th><th>Group / office</th><th>Status</th><th class="r">Indications</th><th class="r">Requests</th><th class="r">Bound</th><th class="r">Discount</th><th>Registered</th></tr></thead><tbody></tbody></table>`;
       rows.forEach(p => {
         const c = count[p.id] || { i:0, q:0, b:0 };
         const st = p.rejected ? chip('rejected', 'Rejected') : p.approved ? chip('approved', p.is_admin ? 'Admin' : 'Active') : chip('pending', 'Waiting');
-        const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(p.company || '—')}</b>${p.deletion_requested_at ? ' ' + chip('declined', 'Deletion requested') : ''}</td><td>${esc(p.full_name || '')}<br><span class="xs muted">${esc(p.email)}</span></td><td>${st}</td><td class="r">${c.i}</td><td class="r">${c.q}</td><td class="r">${c.b}</td><td class="r">${esc(Number(p.client_discount_pct))} %</td><td class="xs">${esc(FC.date(p.created_at))}</td></tr>`);
+        const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(p.company || '—')}</b>${p.deletion_requested_at ? ' ' + chip('declined', 'Deletion requested') : ''}</td><td>${esc(p.full_name || '')}<br><span class="xs muted">${esc(p.email)}</span></td><td>${(() => { const g = userGroup(p), o = ofcOf(p.office_id); return g ? esc(g.name) + (o ? '<br><span class="xs muted">' + esc(o.name) + (o.location ? ', ' + esc(o.location) : '') + '</span>' : g.kind === 'open_cover' ? '<br>' + chip('pending', 'No office yet') : '') : '<span class="muted">—</span>'; })()}</td><td>${st}</td><td class="r">${c.i}</td><td class="r">${c.q}</td><td class="r">${c.b}</td><td class="r">${esc(Number(p.client_discount_pct))} %</td><td class="xs">${esc(FC.date(p.created_at))}</td></tr>`);
         tr.addEventListener('click', () => editCustomer(p)); tr.addEventListener('keydown', e => { if(e.key === 'Enter') editCustomer(p); });
         wrap.querySelector('tbody').appendChild(tr);
       });
     };
     tb.querySelector('input').addEventListener('input', paint); paint();
+  }
+  // ---------------- client groups → policies → offices ----------------
+  const RULE_DEF = { icc_c_pct:50, interest_pct:40, deck_loading_pct:50, air_war_permille:0.5, air_freight:{ used_pct:50, cars_pct:50, household_permille:10 }, air_charter:{ used_pct:25, cars_pct:25, household_permille:null } };
+  const KIND = { office:'Office', warehouse:'Warehouse', agent:'Approved agent' };
+  let grpQ = '';
+  function renderGroups(body){
+    const users = Object.values(S.profiles);
+    const usersOf = g => users.filter(p => (userGroup(p) || {}).id === g.id).length;
+    const bar = FC.el(`<div class="toolbar"><input class="input" type="search" id="gpQ" placeholder="Search offices, cities, countries, contacts" value="${esc(grpQ)}" aria-label="Search offices"><span style="flex:1"></span><button class="btn btn-primary btn-sm" type="button" id="gpAdd">+ Add group</button></div>`);
+    body.appendChild(bar);
+    body.appendChild(FC.el(`<p class="small muted" style="margin:0 0 14px">Each user belongs to a group (by assignment or by e-mail domain). In open cover groups every user and every shipment is linked to an office; minimum premium and deductible come from the user, else the office, else the policy. Clients never see rates, minimum premiums, security or contacts here.</p>`));
+    const list = FC.el('<div class="gp-list"></div>'); body.appendChild(list);
+    bar.querySelector('#gpAdd').addEventListener('click', () => groupDialog(null));
+    const paint = () => {
+      const q = grpQ.trim().toLowerCase();
+      list.innerHTML = '';
+      if(!S.groups.length){ list.innerHTML = '<div class="empty card"><h3>No client groups yet</h3><p>Run update_2026-11-12l.sql in Supabase, or add a group.</p></div>'; return; }
+      S.groups.forEach(g => {
+        const pols = S.policies.filter(po => po.group_id === g.id);
+        const card = FC.el(`<section class="card gp-card"><div class="gp-head"><div><h2>${esc(g.name)}</h2>
+            <div class="gp-tags">${chip(g.kind === 'open_cover' ? 'accepted' : 'neutral', g.kind === 'open_cover' ? 'Open cover' : 'Spot / one-off')} ${g.show_premium ? chip('neutral', 'Client sees indicative premium') : chip('pending', 'Request only — premium stays internal')} ${(g.email_domains || []).map(d => chip('neutral', '@' + d)).join(' ')} <span class="xs muted">${usersOf(g)} user(s)</span></div>
+            ${g.notes ? `<p class="xs muted" style="margin:6px 0 0">${esc(g.notes)}</p>` : ''}</div><div class="acts"></div></div><div class="gp-pols"></div></section>`);
+        card.querySelector('.acts').appendChild(btn('Edit group', 'ghost', () => groupDialog(g)));
+        card.querySelector('.acts').appendChild(btn('+ Add policy', 'ghost', () => policyDialog(null, g.id)));
+        const ph = card.querySelector('.gp-pols');
+        if(!pols.length) ph.innerHTML = `<p class="small muted" style="margin:0">${g.kind === 'open_cover' ? 'No policy yet — add the open cover policy.' : 'Spot clients need no policy: terms are set per quotation.'}</p>`;
+        pols.forEach(po => {
+          const offs = S.offices.filter(o => o.policy_id === po.id).filter(o => !q || [o.name, o.location, o.country, cName(o.country), o.contacts, o.subcategory, KIND[o.kind]].join(' ').toLowerCase().includes(q));
+          const sec = (po.security || []).map(x => `${esc(x.insurer)} ${esc(x.share)} %${x.lead ? ' (lead)' : ''}`).join(' · ');
+          const secSum = (po.security || []).reduce((t, x) => t + Number(x.share || 0), 0);
+          const pc = FC.el(`<div class="gp-pol"><div class="gp-pol-head"><div><h3>${esc(po.name)} <span class="muted" style="font-weight:400">${esc(po.policy_no || '')}</span> ${po.active ? '' : chip('declined', 'Inactive')}</h3>
+              <div class="gp-facts">
+                <span><i>Currency</i><b>${esc(po.currency)}</b></span>
+                <span><i>Rating</i><b>${po.rating === 'schedule' ? 'Policy schedules' : 'Standard FREIGHTCON'}</b></span>
+                <span><i>Minimum premium</i><b>${esc(amt(po.min_premium, po.currency))}</b></span>
+                <span><i>Deductible</i><b>${esc(amt(po.deductible, po.currency))}</b></span>
+                <span><i>Any one conveyance</i><b>${esc(amt(po.limit_conveyance, po.currency))}</b></span>
+                <span><i>On deck / barge</i><b>${esc(amt(po.limit_on_deck, po.currency))}</b></span>
+                <span><i>Parcel post</i><b>${esc(amt(po.limit_post, po.currency))}</b></span></div>
+              ${po.policyholder ? `<p class="xs" style="margin:8px 0 0"><span class="muted">Policyholder</span> ${esc(po.policyholder)}</p>` : ''}
+              ${sec ? `<p class="xs" style="margin:4px 0 0"><span class="muted">Security${po.placed_via ? ' via ' + esc(po.placed_via) : ''}</span> ${sec}${secSum !== 100 ? ' ' + chip('declined', 'total ' + secSum + ' %') : ''}</p>` : ''}</div><div class="acts"></div></div>
+            <div class="tbl-wrap"><table class="tbl gp-off"><thead><tr><th>Office / entity</th><th>Location</th><th>Type</th><th class="r">Min. premium</th><th class="r">Deductible</th><th class="r">Users</th></tr></thead><tbody></tbody></table></div></div>`);
+          pc.querySelector('.acts').appendChild(btn('Edit policy', 'ghost', () => policyDialog(po, g.id)));
+          pc.querySelector('.acts').appendChild(btn('+ Add office', 'ghost', () => officeDialog(null, po.id)));
+          const tb = pc.querySelector('tbody');
+          if(!offs.length) tb.innerHTML = `<tr><td colspan="6" class="muted small">${q ? 'No match.' : 'No offices yet.'}</td></tr>`;
+          offs.forEach(o => {
+            const nu = users.filter(p => p.office_id === o.id).length;
+            const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(o.name)}</b>${o.subcategory ? ' ' + chip('neutral', o.subcategory) : ''}${o.active ? '' : ' ' + chip('declined', 'Inactive')}${o.contacts ? '<br><span class="xs muted">' + esc(o.contacts) + '</span>' : ''}</td>
+              <td>${esc(o.location || '')}<br><span class="xs muted">${esc(cName(o.country))}</span></td><td class="xs">${esc(KIND[o.kind] || o.kind)}</td>
+              <td class="r num">${o.min_premium != null ? '<b>' + esc(amt(o.min_premium, po.currency)) + '</b>' : '<span class="muted">' + esc(amt(po.min_premium, po.currency)) + '</span>'}</td>
+              <td class="r num">${o.deductible != null ? '<b>' + esc(amt(o.deductible, po.currency)) + '</b>' : '<span class="muted">' + esc(amt(po.deductible, po.currency)) + '</span>'}</td><td class="r">${nu}</td></tr>`);
+            tr.addEventListener('click', () => officeDialog(o, po.id)); tr.addEventListener('keydown', e => { if(e.key === 'Enter') officeDialog(o, po.id); });
+            tb.appendChild(tr);
+          });
+          ph.appendChild(pc);
+        });
+        list.appendChild(card);
+      });
+    };
+    bar.querySelector('#gpQ').addEventListener('input', e => { grpQ = e.target.value; paint(); });
+    paint();
+  }
+  async function saveRow(table, row, id){
+    const r = id ? await sb.from(table).update(row).eq('id', id) : await sb.from(table).insert(row);
+    if(r.error){ toast('Could not save: ' + r.error.message, 'error'); return false; }
+    toast('Saved.'); await loadAll(); render(); return true;
+  }
+  async function delRow(table, id, title, text){
+    if(!(await FC.confirm(title, text, 'Delete', 'danger'))) return false;
+    const { error } = await sb.from(table).delete().eq('id', id);
+    if(error){ toast('Could not delete: ' + error.message, 'error'); return false; }
+    toast('Deleted.'); await loadAll(); render(); return true;
+  }
+  const numOrNull = v => { const t = String(v == null ? '' : v).trim(); return t === '' ? null : FC.parseNum(t); };
+  function groupDialog(g){
+    const body = FC.el(`<div><div class="grid2">
+        <div class="field"><label for="gdName">Name</label><input id="gdName" maxlength="150" value="${esc(g ? g.name : '')}"></div>
+        <div class="field"><label for="gdKind">Type</label><select id="gdKind"><option value="spot" ${g && g.kind === 'spot' ? 'selected' : ''}>Spot / one-off clients</option><option value="open_cover" ${!g || g.kind === 'open_cover' ? 'selected' : ''}>Open cover client</option></select></div>
+        <div class="field"><label for="gdDom">E-mail domains <span class="muted">(comma separated, e.g. bertling.com)</span></label><input id="gdDom" value="${esc(g ? (g.email_domains || []).join(', ') : '')}"></div>
+        <div class="field"><label for="gdSort">Sort</label><input id="gdSort" inputmode="numeric" value="${esc(g ? g.sort : 100)}"></div></div>
+      <label class="switch"><input type="checkbox" id="gdShow" ${!g || g.show_premium ? 'checked' : ''}><span><b>Client sees the indicative premium</b><span>Off: the portal only takes declarations and requests. Rates and premiums stay in the internal area until you send a quotation.</span></span></label>
+      <div class="field" style="margin-top:12px"><label for="gdNotes">Internal notes</label><textarea id="gdNotes" rows="2" maxlength="1000">${esc(g ? g.notes || '' : '')}</textarea></div>
+      <div class="err-msg" id="gdErr"></div></div>`);
+    const actions = [{ label:'Cancel', kind:'ghost', value:null }];
+    if(g) actions.unshift({ label:'Delete group', kind:'danger', onClick: async () => (await delRow('client_groups', g.id, 'Delete the group ' + g.name + '?', 'Its policies and offices are deleted too. Users keep their account but lose the assignment.')) ? true : undefined });
+    actions.push({ label:'Save', kind:'primary', onClick: async () => {
+      const name = body.querySelector('#gdName').value.trim(); if(!name){ body.querySelector('#gdErr').textContent = 'Name required.'; return; }
+      const doms = body.querySelector('#gdDom').value.split(/[,;\s]+/).map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+      if(doms.some(d => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))){ body.querySelector('#gdErr').textContent = 'Please enter domains like bertling.com.'; return; }
+      const row = { name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, email_domains: doms, notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
+      return (await saveRow('client_groups', row, g && g.id)) ? true : undefined;
+    } });
+    FC.dialog({ title: g ? 'Client group' : 'New client group', body, actions });
+  }
+  function policyDialog(po, groupId){
+    const R = Object.assign({}, (po && po.rules) || {}), rv = (path) => { let v = R; path.forEach(k => v = v && v[k]); return v == null ? '' : v; }, rd = (path) => { let v = RULE_DEF; path.forEach(k => v = v && v[k]); return v == null ? 'on request' : v; };
+    const rIn = (id, path, label) => `<div class="field"><label for="${id}">${label}</label><input id="${id}" data-rule="${path.join('.')}" inputmode="decimal" value="${esc(rv(path))}" placeholder="${esc(rd(path))}"></div>`;
+    const secRow = x => `<div class="gp-sec"><input class="sc-ins" placeholder="Insurer" value="${esc(x.insurer || '')}"><input class="sc-share" inputmode="decimal" placeholder="%" value="${esc(x.share ?? '')}"><label class="xs"><input type="checkbox" class="sc-lead" ${x.lead ? 'checked' : ''} style="width:auto;min-width:0"> Lead</label><button type="button" class="linkbtn sc-del">Remove</button></div>`;
+    const body = FC.el(`<div><div class="grid3">
+        <div class="field"><label for="pdName">Name</label><input id="pdName" maxlength="150" value="${esc(po ? po.name : '')}" placeholder="e.g. Bertling Global"></div>
+        <div class="field"><label for="pdNo">Policy number</label><input id="pdNo" maxlength="60" value="${esc(po ? po.policy_no || '' : '')}"></div>
+        <div class="field"><label for="pdGroup">Client group</label><select id="pdGroup">${S.groups.map(g => `<option value="${g.id}" ${g.id === (po ? po.group_id : groupId) ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></div>
+        <div class="field" style="grid-column:1/-1"><label for="pdHolder">Policyholder (as on the policy)</label><input id="pdHolder" maxlength="300" value="${esc(po ? po.policyholder || '' : '')}"></div>
+        <div class="field"><label for="pdCur">Base currency</label><select id="pdCur">${['EUR','USD','GBP'].map(c => `<option ${po && po.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+        <div class="field"><label for="pdMin">Minimum premium</label><input id="pdMin" inputmode="decimal" value="${esc(po ? po.min_premium : 100)}"></div>
+        <div class="field"><label for="pdDed">Deductible (each and every loss)</label><input id="pdDed" inputmode="decimal" value="${esc(po ? po.deductible ?? '' : 100)}"></div>
+        <div class="field"><label for="pdL1">Limit any one conveyance / storage</label><input id="pdL1" inputmode="decimal" value="${esc(po ? po.limit_conveyance ?? '' : '')}"></div>
+        <div class="field"><label for="pdL2">Limit on deck / barge</label><input id="pdL2" inputmode="decimal" value="${esc(po ? po.limit_on_deck ?? '' : '')}"></div>
+        <div class="field"><label for="pdL3">Limit parcel post / mail</label><input id="pdL3" inputmode="decimal" value="${esc(po ? po.limit_post ?? '' : '')}"></div>
+        <div class="field"><label for="pdRating">Rating</label><select id="pdRating"><option value="schedule" ${!po || po.rating === 'schedule' ? 'selected' : ''}>Policy schedules (zone matrices as they stand)</option><option value="standard" ${po && po.rating === 'standard' ? 'selected' : ''}>Standard FREIGHTCON rating</option></select></div>
+        <div class="field"><label for="pdVia">Placed via</label><input id="pdVia" maxlength="150" value="${esc(po ? po.placed_via || '' : '')}" placeholder="e.g. Assekuranz-Kontor Montan GmbH"></div>
+        <div class="field"><label for="pdSort">Sort</label><input id="pdSort" inputmode="numeric" value="${esc(po ? po.sort : 100)}"></div></div>
+      <h3 style="margin:16px 0 6px">Security</h3><p class="xs muted" style="margin:0 0 8px">Internal only — never shown to clients or on slips.</p>
+      <div id="pdSec">${((po && po.security) || []).map(secRow).join('')}</div><button type="button" class="btn btn-ghost btn-sm" id="pdSecAdd" style="margin-top:6px">+ Add insurer</button> <span class="xs" id="pdSecSum"></span>
+      <h3 style="margin:18px 0 6px">Schedule rules</h3><p class="xs muted" style="margin:0 0 8px">Only used with “Policy schedules”. Empty = the value shown in grey (Bertling 2025).</p>
+      <div class="grid3">
+        ${rIn('ruC', ['icc_c_pct'], 'ICC (C): % of schedule rate')}${rIn('ruI', ['interest_pct'], "Seller's / buyer's interest: % of rate")}${rIn('ruD', ['deck_loading_pct'], 'Conventional on deck: loading %')}
+        ${rIn('ruW', ['air_war_permille'], 'Air: war &amp; strikes A.P. ‰')}${rIn('ruAU', ['air_freight', 'used_pct'], 'Airfreight: used goods loading %')}${rIn('ruAC', ['air_freight', 'cars_pct'], 'Airfreight: cars loading %')}
+        ${rIn('ruAH', ['air_freight', 'household_permille'], 'Airfreight: household goods flat ‰')}${rIn('ruCU', ['air_charter', 'used_pct'], 'Air charter: used goods loading %')}${rIn('ruCC', ['air_charter', 'cars_pct'], 'Air charter: cars loading %')}</div>
+      <label class="switch"><input type="checkbox" id="pdActive" ${!po || po.active ? 'checked' : ''}><span><b>Active</b><span>Inactive policies send every shipment to the brokers.</span></span></label>
+      <div class="field" style="margin-top:12px"><label for="pdNotes">Internal notes</label><textarea id="pdNotes" rows="2" maxlength="2000">${esc(po ? po.notes || '' : '')}</textarea></div>
+      <div class="err-msg" id="pdErr"></div></div>`);
+    const secHost = body.querySelector('#pdSec');
+    const sum = () => { const t = Array.from(secHost.querySelectorAll('.sc-share')).reduce((a, i) => a + (FC.parseNum(i.value) || 0), 0); body.querySelector('#pdSecSum').innerHTML = secHost.children.length ? `Total <b>${Math.round(t * 100) / 100} %</b>${Math.abs(t - 100) > 0.001 ? ' <span class="chip declined">should be 100 %</span>' : ''}` : ''; };
+    secHost.addEventListener('input', sum); secHost.addEventListener('click', e => { if(e.target.closest('.sc-del')){ e.target.closest('.gp-sec').remove(); sum(); } });
+    body.querySelector('#pdSecAdd').addEventListener('click', () => { secHost.appendChild(FC.el(secRow({}))); sum(); }); sum();
+    const actions = [{ label:'Cancel', kind:'ghost', value:null }];
+    if(po) actions.unshift({ label:'Delete policy', kind:'danger', onClick: async () => (await delRow('policies', po.id, 'Delete ' + po.name + '?', 'Its offices are deleted too. Past shipments keep their figures.')) ? true : undefined });
+    actions.push({ label:'Save', kind:'primary', onClick: async () => {
+      const err = t => { body.querySelector('#pdErr').textContent = t; };
+      const v = id => body.querySelector(id).value.trim();
+      if(!v('#pdName')) return err('Name required.');
+      const nums = { min_premium: numOrNull(v('#pdMin')), deductible: numOrNull(v('#pdDed')), limit_conveyance: numOrNull(v('#pdL1')), limit_on_deck: numOrNull(v('#pdL2')), limit_post: numOrNull(v('#pdL3')) };
+      if(nums.min_premium == null) return err('Minimum premium required (0 is allowed).');
+      if(Object.values(nums).some(x => x != null && !(x >= 0))) return err('Amounts must be numbers of 0 or more.');
+      const security = Array.from(secHost.querySelectorAll('.gp-sec')).map(r => ({ insurer: r.querySelector('.sc-ins').value.trim(), share: FC.parseNum(r.querySelector('.sc-share').value), lead: r.querySelector('.sc-lead').checked })).filter(x => x.insurer);
+      if(security.some(x => !(x.share > 0 && x.share <= 100))) return err('Every insurer needs a share between 0 and 100 %.');
+      security.forEach(x => { if(!x.lead) delete x.lead; });
+      const rules = {};
+      for(const inp of body.querySelectorAll('[data-rule]')){
+        const t = inp.value.trim(); if(t === '') continue; const n = FC.parseNum(t); if(!(n >= 0)) return err('Schedule rules must be numbers of 0 or more.');
+        const path = inp.dataset.rule.split('.'); let o = rules; path.slice(0, -1).forEach(k => o = o[k] = o[k] || {}); o[path[path.length - 1]] = n;
+      }
+      const row = Object.assign({ name: v('#pdName'), policy_no: v('#pdNo') || null, group_id: Number(v('#pdGroup')), policyholder: v('#pdHolder') || null, currency: v('#pdCur'),
+        rating: v('#pdRating'), placed_via: v('#pdVia') || null, security, rules, active: body.querySelector('#pdActive').checked, notes: v('#pdNotes') || null, sort: Number(v('#pdSort')) || 100 }, nums);
+      return (await saveRow('policies', row, po && po.id)) ? true : undefined;
+    } });
+    FC.dialog({ title: po ? po.name : 'New policy', wide:true, body, actions });
+  }
+  function officeDialog(o, policyId){
+    const po = polOf(o ? o.policy_id : policyId) || {};
+    const body = FC.el(`<div><div class="grid2">
+        <div class="field" style="grid-column:1/-1"><label for="odName">Entity / office name</label><input id="odName" maxlength="200" value="${esc(o ? o.name : '')}"></div>
+        <div class="field"><label for="odLoc">City / location</label><input id="odLoc" maxlength="200" value="${esc(o ? o.location || '' : '')}"></div>
+        <div class="field"><label for="odCty">Country</label><select id="odCty"><option value="">—</option>${S.countries.map(c => `<option value="${c.iso2}" ${o && o.country === c.iso2 ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="odKind">Type</label><select id="odKind">${Object.entries(KIND).map(([k, l]) => `<option value="${k}" ${o && o.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="field"><label for="odPol">Policy</label><select id="odPol">${S.policies.map(x => `<option value="${x.id}" ${x.id === po.id ? 'selected' : ''}>${esc(x.name)} ${esc(x.policy_no || '')} (${esc(x.currency)})</option>`).join('')}</select></div>
+        <div class="field"><label for="odSub">Subcategory <span class="muted">(e.g. Singapore)</span></label><input id="odSub" maxlength="60" value="${esc(o ? o.subcategory || '' : '')}"></div>
+        <div class="field"><label for="odSort">Sort</label><input id="odSort" inputmode="numeric" value="${esc(o ? o.sort : 100)}"></div>
+        <div class="field"><label for="odMin">Minimum premium <span class="muted">(empty = policy: ${esc(amt(po.min_premium, po.currency))})</span></label><input id="odMin" inputmode="decimal" value="${esc(o ? o.min_premium ?? '' : '')}"></div>
+        <div class="field"><label for="odDed">Deductible <span class="muted">(empty = policy: ${esc(amt(po.deductible, po.currency))})</span></label><input id="odDed" inputmode="decimal" value="${esc(o ? o.deductible ?? '' : '')}"></div>
+        <div class="field" style="grid-column:1/-1"><label for="odCon">Contacts <span class="muted">(internal only)</span></label><input id="odCon" maxlength="500" value="${esc(o ? o.contacts || '' : '')}"></div></div>
+      <label class="switch"><input type="checkbox" id="odActive" ${!o || o.active ? 'checked' : ''}><span><b>Active</b><span>Inactive offices cannot be chosen for new shipments.</span></span></label>
+      <div class="err-msg" id="odErr"></div></div>`);
+    const actions = [{ label:'Cancel', kind:'ghost', value:null }];
+    if(o) actions.unshift({ label:'Delete', kind:'danger', onClick: async () => (await delRow('offices', o.id, 'Delete ' + o.name + '?', 'Users of this office must choose a new one. Past shipments keep their figures.')) ? true : undefined });
+    actions.push({ label:'Save', kind:'primary', onClick: async () => {
+      const v = id => body.querySelector(id).value.trim();
+      if(!v('#odName')) return void (body.querySelector('#odErr').textContent = 'Name required.');
+      const mn = numOrNull(v('#odMin')), dd = numOrNull(v('#odDed'));
+      if((mn != null && !(mn >= 0)) || (dd != null && !(dd >= 0))) return void (body.querySelector('#odErr').textContent = 'Amounts must be numbers of 0 or more, or empty.');
+      const row = { name: v('#odName'), location: v('#odLoc') || null, country: v('#odCty') || null, kind: v('#odKind'), policy_id: Number(v('#odPol')), subcategory: v('#odSub') || null,
+        min_premium: mn, deductible: dd, contacts: v('#odCon') || null, active: body.querySelector('#odActive').checked, sort: Number(v('#odSort')) || 100 };
+      return (await saveRow('offices', row, o && o.id)) ? true : undefined;
+    } });
+    FC.dialog({ title: o ? o.name : 'New office / entity', wide:true, body, actions });
   }
   async function upd(id, patch){
     const { error } = await sb.from('profiles').update(patch).eq('id', id);
@@ -674,46 +889,88 @@
         <div class="field"><label for="ecDisc">Client discount %</label><input id="ecDisc" inputmode="decimal" value="${esc(Number(p.client_discount_pct))}"></div>
         <div class="field"><label for="ecStatus">Access</label><select id="ecStatus"><option value="active" ${p.approved && !p.rejected ? 'selected' : ''}>Active</option><option value="waiting" ${!p.approved && !p.rejected ? 'selected' : ''}>Waiting</option><option value="rejected" ${p.rejected ? 'selected' : ''}>Rejected / blocked</option></select></div>
       </div>
+      <h3 style="margin:18px 0 8px">Client group &amp; office</h3>
+      <div class="grid2">
+        <div class="field"><label for="ecGroup">Client group</label><select id="ecGroup"><option value="">${domainGroup(p.email) ? 'By e-mail domain: ' + esc(domainGroup(p.email).name) : 'None (spot client)'}</option>${S.groups.map(g => `<option value="${g.id}" ${p.group_id === g.id ? 'selected' : ''}>${esc(g.name)}${g.kind === 'open_cover' ? ' (open cover)' : ''}</option>`).join('')}</select></div>
+        <div class="field"><label for="ecOffice">Office / entity</label><select id="ecOffice"></select></div>
+        <div class="field"><label for="ecMin">Minimum premium for this user <span class="muted">(empty = office / policy)</span></label><input id="ecMin" inputmode="decimal" value="${esc(p.min_premium_override ?? '')}"></div>
+        <div class="field"><label for="ecDed">Deductible for this user <span class="muted">(empty = office / policy)</span></label><input id="ecDed" inputmode="decimal" value="${esc(p.deductible_override ?? '')}"></div>
+      </div>
+      <p class="xs muted" id="ecEff" style="margin:-4px 0 0"></p>
       <div class="field" style="margin-top:12px"><label for="ecNote">Internal note</label><textarea id="ecNote" rows="2" maxlength="1000">${esc(p.internal_note || '')}</textarea></div>
       <label class="switch"><input type="checkbox" id="ecAdmin" ${p.is_admin ? 'checked' : ''} ${p.id === me().id ? 'disabled' : ''}><span><b>Staff access (Internal area)</b><span>Sees all customers, rates and requests.</span></span></label>
       <div class="err-msg" id="ecErr"></div></div>`);
-    FC.dialog({ title: p.company || p.email, body, actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Save', kind:'primary', onClick: async () => {
+    const gSel = body.querySelector('#ecGroup'), oSel = body.querySelector('#ecOffice');
+    const paintOffices = () => {
+      const gid = Number(gSel.value) || (domainGroup(p.email) || {}).id || null;
+      const pols = S.policies.filter(po => !gid || po.group_id === gid);
+      oSel.innerHTML = `<option value="">No office</option>` + pols.map(po => `<optgroup label="${esc(po.name + (po.policy_no ? ' · ' + po.policy_no : '') + ' · ' + po.currency)}">${S.offices.filter(o => o.policy_id === po.id).map(o => `<option value="${o.id}" ${p.office_id === o.id ? 'selected' : ''}>${esc(o.name)}${o.location ? ' — ' + esc(o.location) : ''}${o.active ? '' : ' (inactive)'}</option>`).join('')}</optgroup>`).join('');
+      paintEff();
+    };
+    const paintEff = () => {
+      const o = ofcOf(Number(oSel.value)), po = o && polOf(o.policy_id), x = Object.assign({}, p, { min_premium_override: body.querySelector('#ecMin').value.trim() === '' ? null : FC.parseNum(body.querySelector('#ecMin').value), deductible_override: body.querySelector('#ecDed').value.trim() === '' ? null : FC.parseNum(body.querySelector('#ecDed').value) });
+      body.querySelector('#ecEff').textContent = po ? `Applies: ${po.name} ${po.policy_no || ''} in ${po.currency} · minimum premium ${amt(effMin(po, o, x), po.currency)} · deductible ${amt(effDed(po, o, x), po.currency)}` : (x.min_premium_override != null ? 'Spot client: minimum premium ' + x.min_premium_override + ' in the shipment currency.' : 'Spot client: standard FREIGHTCON rating.');
+    };
+    gSel.addEventListener('change', paintOffices); oSel.addEventListener('change', paintEff);
+    body.querySelector('#ecMin').addEventListener('input', paintEff); body.querySelector('#ecDed').addEventListener('input', paintEff);
+    paintOffices();
+    FC.dialog({ title: p.company || p.email, wide:true, body, actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Save', kind:'primary', onClick: async () => {
       const disc = FC.parseNum(body.querySelector('#ecDisc').value);
+      const minO = body.querySelector('#ecMin').value.trim(), dedO = body.querySelector('#ecDed').value.trim();
+      if((minO && !(FC.parseNum(minO) >= 0)) || (dedO && !(FC.parseNum(dedO) >= 0))){ body.querySelector('#ecErr').textContent = 'Minimum premium and deductible must be numbers (or empty).'; return; }
+      const offId = Number(oSel.value) || null, offPol = offId && polOf(ofcOf(offId).policy_id);
       if(!(disc >= 0 && disc < 100)){ body.querySelector('#ecErr').textContent = 'The discount must be between 0 and 99.99 %.'; return; }
       const st = body.querySelector('#ecStatus').value;
       const fn = body.querySelector('#ecFirst').value.trim(), ln = body.querySelector('#ecLast').value.trim();
       const patch = { full_name: [fn, ln].filter(Boolean).join(' ') || null, first_name: fn || null, last_name: ln || null, address_line: body.querySelector('#ecAddr').value.trim() || null, postcode: body.querySelector('#ecZip').value.trim() || null, city: body.querySelector('#ecCity').value.trim() || null, company: body.querySelector('#ecCo').value.trim() || null, country: body.querySelector('#ecCountry').value.trim() || null,
         phone: body.querySelector('#ecPhone').value.trim() || null, client_discount_pct: disc, internal_note: body.querySelector('#ecNote').value.trim() || null,
-        approved: st === 'active', rejected: st === 'rejected' };
+        approved: st === 'active', rejected: st === 'rejected',
+        group_id: offPol ? offPol.group_id : (Number(gSel.value) || null), office_id: offId,
+        min_premium_override: minO ? FC.parseNum(minO) : null, deductible_override: dedO ? FC.parseNum(dedO) : null };
       if(p.id !== me().id) patch.is_admin = body.querySelector('#ecAdmin').checked;
       return (await upd(p.id, patch)) ? true : undefined;
     } }] });
   }
 
   // =================================================================== RATES
-  let rateTab = 'tables', curTable = null;
+  let rateTab = 'tables', curTable = null, rtUnlocked = false;
   // per mille fields: a comma is always the decimal separator here (3,575 = 3.575, never 3575)
   const ppm = v => { const t = String(v == null ? '' : v).trim().replace(/\s/g, '').replace(/\.(?=.*,)/g, '').replace(',', '.'); return t === '' ? NaN : Number(t); };
   const pm = v => v == null || v === '' || !isFinite(Number(v)) ? '' : Number(v).toLocaleString('de-DE', { minimumFractionDigits:2, maximumFractionDigits:4 });
+  // locked data: every change needs a reason and lands in the change log
+  function askReason(summary){
+    return FC.dialog({ title:'Reason for this change', body:`<p class="small" style="margin:0 0 10px">${esc(summary)}</p><div class="field"><label for="rsTxt">Reason <span class="muted">(shown in the change log with your name and the date)</span></label><textarea id="rsTxt" rows="3" maxlength="500" placeholder="e.g. Renewal 2027 agreed with AKM, e-mail of 12 Nov"></textarea></div><div class="err-msg" id="rsErr"></div>`,
+      actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Save with reason', kind:'primary', onClick: async (c, box) => { const t = box.querySelector('#rsTxt').value.trim(); if(t.length < 3){ box.querySelector('#rsErr').textContent = 'Please give a short reason.'; return; } return t; } }] });
+  }
+  const auditFoot = (entity, id, n) => {
+    const rows = S.audit.filter(a => a.entity === entity && (id == null || a.entity_id === id)).slice(0, n || 5);
+    return rows.length ? `<div class="audit-foot"><b>Change log</b>${rows.map(a => `<div><span class="xs muted">${esc(FC.dateTime(a.at))} · ${esc(a.user_name || '')}</span><br>${esc(a.summary)}<br><i>Reason: ${esc(a.reason || '—')}</i></div>`).join('')}</div>` : `<div class="audit-foot"><b>Change log</b><div class="xs muted">No changes recorded yet.</div></div>`;
+  };
+  function rtLog(host){
+    if(!S.audit.length){ host.innerHTML = '<div class="empty card"><h3>No changes yet</h3><p>Changes to schedules and zones are listed here with date, user and reason.</p></div>'; return; }
+    host.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>User</th><th>What</th><th>Change</th><th>Reason</th></tr></thead><tbody>${S.audit.map(a => `<tr><td class="xs">${esc(FC.dateTime(a.at))}</td><td>${esc(a.user_name || '')}</td><td>${esc(a.entity === 'zones' ? 'Country zones' : a.entity_id || a.entity)}</td><td class="small" style="max-width:520px">${esc(a.summary)}</td><td class="small">${esc(a.reason || '')}</td></tr>`).join('')}</tbody></table></div>`;
+  }
   function renderRates(body){
-    body.innerHTML = `<p class="small muted" style="margin:0 0 14px">Rate (‰ of the sum insured) = route base rate (sea / air zone matrix without war, road / rail by band) × cargo class factor × cover × conveyance × packing × on deck × theft loading (land) × extra loading; plus war &amp; strikes (strikes on land) and crisis surcharge; × interest factor for seller's / buyer's interest. Minimum premium per schedule (land: setting). Countries without a zone, local-insurance countries, sanctioned countries and amounts over the limit go on request.</p>
-      <div class="tabs" role="tablist">${[['tables','Schedules (zone matrices)'],['commodities','Cargo types'],['countries','Countries & zones'],['factors','Factors & limits'],['test','Test a calculation']].map(([k, l]) => `<button role="tab" data-rtab="${k}" aria-selected="${k === rateTab}">${l}</button>`).join('')}</div><div id="rtBody"></div>`;
+    body.innerHTML = `<p class="small muted" style="margin:0 0 14px"><b>Open cover policies</b> use the schedules as they stand (incl. war &amp; strikes, never deducted) with the rules of the policy (Customers → Client groups). <b>Spot clients:</b> rate (‰ of the sum insured) = route base rate (sea / air zone matrix without war, road / rail by band) × cargo class factor × cover × conveyance × packing × on deck × theft loading (land) × extra loading; plus war &amp; strikes (strikes on land) and crisis surcharge; × interest factor for seller's / buyer's interest. Minimum premium per schedule (land: setting). Countries without a zone, local-insurance countries, sanctioned countries and amounts over the limit go on request.</p>
+      <div class="tabs" role="tablist">${[['tables','Schedules (zone matrices)'],['commodities','Cargo types'],['countries','Countries & zones'],['factors','Factors & limits'],['test','Test a calculation'],['log','Change log']].map(([k, l]) => `<button role="tab" data-rtab="${k}" aria-selected="${k === rateTab}">${l}</button>`).join('')}</div><div id="rtBody"></div>`;
     $$('[data-rtab]', body).forEach(b => b.addEventListener('click', () => { rateTab = b.dataset.rtab; renderRates(body); }));
     const host = $('#rtBody', body);
-    ({ tables: rtTables, commodities: rtCommodities, countries: rtCountries, factors: rtFactors, test: rtTest })[rateTab](host);
+    ({ tables: rtTables, commodities: rtCommodities, countries: rtCountries, factors: rtFactors, test: rtTest, log: rtLog })[rateTab](host);
   }
   // generic editable table
   function editTable(host, o){
     const wrap = FC.el('<div></div>'); host.appendChild(wrap);
-    const tbar = FC.el(`<div class="toolbar">${o.search ? '<input class="input" type="search" placeholder="Search" aria-label="Search">' : ''}<span class="spacer" style="flex:1"></span>${o.add ? '<button class="btn btn-ghost btn-sm" type="button" data-add>Add row</button>' : ''}<button class="btn btn-primary btn-sm" type="button" data-save disabled><span class="spin"></span>Save changes</button></div>`);
+    let unlocked = false;
+    const tbar = FC.el(`<div class="toolbar">${o.search ? '<input class="input" type="search" placeholder="Search" aria-label="Search">' : ''}<span class="spacer" style="flex:1"></span>${o.lock ? `<span class="chip neutral" data-lockchip>🔒 ${esc(o.lock.label)} locked</span><button class="btn btn-ghost btn-sm" type="button" data-unlock>Unlock ${esc(o.lock.label)}</button>` : ''}${o.add ? '<button class="btn btn-ghost btn-sm" type="button" data-add>Add row</button>' : ''}<button class="btn btn-primary btn-sm" type="button" data-save disabled><span class="spin"></span>Save changes</button></div>`);
     wrap.appendChild(tbar);
+    if(o.lock) tbar.querySelector('[data-unlock]').addEventListener('click', e => { unlocked = !unlocked; e.currentTarget.textContent = (unlocked ? 'Lock ' : 'Unlock ') + o.lock.label; tbar.querySelector('[data-lockchip]').hidden = unlocked; paint(); });
     const tw = FC.el('<div class="tbl-wrap"></div>'); wrap.appendChild(tw);
     const dirty = new Map();
     const rows = o.rows.map(r => Object.assign({}, r));
     const cell = (r, c) => {
       const v = r[c.k];
       if(c.type === 'bool') return `<input type="checkbox" data-k="${c.k}" ${v ? 'checked' : ''} aria-label="${esc(c.l)}" style="width:auto;min-width:0">`;
-      if(c.type === 'select') return `<select data-k="${c.k}" aria-label="${esc(c.l)}">${c.options.map(([ov, ol]) => `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ol)}</option>`).join('')}</select>`;
+      if(c.type === 'select') return `<select data-k="${c.k}" aria-label="${esc(c.l)}" ${o.lock && !unlocked && o.lock.cols.includes(c.k) ? 'disabled' : ''}>${c.options.map(([ov, ol]) => `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ol)}</option>`).join('')}</select>`;
       if(c.type === 'covers') return ['icc_a','icc_b','icc_c'].map(x => `<label class="xs" style="white-space:nowrap;margin-right:6px"><input type="checkbox" data-k="${c.k}" data-v="${x}" ${(v || []).includes(x) ? 'checked' : ''} style="width:auto;min-width:0"> ${x.slice(-1).toUpperCase()}</label>`).join('');
       if(c.ro && !r.__new) return esc(v == null ? '' : v);
       return `<input data-k="${c.k}" value="${esc(v == null ? '' : v)}" ${c.type === 'num' ? 'inputmode="decimal"' : ''} aria-label="${esc(c.l)}" style="${c.w ? 'min-width:' + c.w + 'px' : ''}">`;
@@ -738,12 +995,14 @@
       r[k] = v; el.classList.add('dirty'); dirty.set(r[o.key] || r, r);
       tbar.querySelector('[data-save]').disabled = false;
     };
+    if(o.foot) wrap.appendChild(FC.el(o.foot));
     if(tbar.querySelector('input[type=search]')) tbar.querySelector('input[type=search]').addEventListener('input', paint);
     if(o.add) tbar.querySelector('[data-add]').addEventListener('click', () => { const r = Object.assign({ __new:true }, o.add()); rows.unshift(r); paint(); });
     tbar.querySelector('[data-save]').addEventListener('click', async e => {
       const b = e.currentTarget; busy(b, true);
-      const payload = Array.from(dirty.values()).map(r => { let x = {}; o.cols.forEach(c => { if(!c.virtual && r[c.k] !== undefined) x[c.k] = r[c.k]; }); x[o.key] = r[o.key]; if(o.clean) x = o.clean(x); return x; });
+      let payload = Array.from(dirty.values()).map(r => { let x = {}; o.cols.forEach(c => { if(!c.virtual && r[c.k] !== undefined) x[c.k] = r[c.k]; }); x[o.key] = r[o.key]; if(o.clean) x = o.clean(x); return x; });
       if(payload.some(x => !x[o.key])){ busy(b, false); toast('Every row needs an ID.', 'error'); return; }
+      if(o.beforeSave){ payload = await o.beforeSave(payload); if(!payload){ busy(b, false); return; } }
       const { error } = await sb.from(o.table).upsert(payload, { onConflict: o.key, defaultToNull: false });
       busy(b, false);
       if(error){ toast('Could not save: ' + error.message, 'error'); return; }
@@ -755,6 +1014,16 @@
   // the rate breakdown in words, used in the case and in the test tab
   function explain(d){
     if(!d) return '';
+    if(d.scheme === 'open_cover'){
+      const parts = [['ICC (C)', d.f_cover], ['on deck', d.f_deck], ['loading', d.f_loading]].filter(([, v]) => v != null && Number(v) !== 1).map(([k, v]) => k + ' × ' + pm(v));
+      const extra = [['war', d.war_permille], ['crisis', d.crisis_permille], ['HSSC', d.hssc_permille], ['LiW/DiW', d.liw_permille]].filter(([, v]) => Number(v)).map(([k, v]) => ' + ' + k + ' ' + pm(v) + ' ‰').join('');
+      let t = `Open cover ${d.policy_no || ''} · ${d.table_name}, zone ${d.zone_from} → ${d.zone_to}: schedule ${pm(d.schedule_permille)} ‰${Number(d.war_included_permille) ? ' (incl. ' + pm(d.war_included_permille) + ' ‰ war & strikes, not deducted)' : ''}`;
+      if(parts.length) t += ' × ' + parts.join(' × ') + ' = ' + pm(d.cargo_permille) + ' ‰';
+      t += extra;
+      if(Number(d.f_interest) !== 1) t += ', × interest ' + pm(d.f_interest);
+      if(parts.length || extra || Number(d.f_interest) !== 1) t += ' = ' + pm(d.rate_permille) + ' ‰';
+      return t + ' · min. premium ' + (d.min_premium != null ? money2(d.min_premium, d.currency) : '—');
+    }
     const parts = [['class', d.f_class], ['cover', d.f_cover], ['conveyance', d.f_conveyance], ['packing', d.f_packing], ['on deck', d.f_deck], ['theft', d.f_theft], ['extra', d.f_loading]]
       .filter(([, v]) => v != null && Number(v) !== 1).map(([k, v]) => k + ' ' + pm(v));
     const route = d.mode === 'land' ? 'land ' + String(d.band || '').replace('_', '-') : 'zone ' + d.zone_from + ' → ' + d.zone_to;
@@ -765,8 +1034,11 @@
     if(!curTable || !S.rateTables.find(t => t.id === curTable)) curTable = S.rateTables[0].id;
     const t = S.rateTables.find(x => x.id === curTable);
     const bar = FC.el(`<div class="toolbar"><select class="input" id="tbSel" aria-label="Schedule">${S.rateTables.map(x => `<option value="${esc(x.id)}" ${x.id === curTable ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-      <span style="flex:1"></span><label class="btn btn-ghost btn-sm" style="cursor:pointer">Import Excel sheet<input type="file" id="tbFile" accept=".xls,.xlsx" hidden></label><button class="btn btn-primary btn-sm" id="tbSave" disabled><span class="spin"></span>Save changes</button></div>`);
+      <span style="flex:1"></span>${rtUnlocked ? `<label class="btn btn-ghost btn-sm" style="cursor:pointer">Import Excel sheet<input type="file" id="tbFile" accept=".xls,.xlsx" hidden></label><button class="btn btn-ghost btn-sm" id="tbLock" type="button">Lock again</button>` : `<span class="chip neutral">🔒 Locked</span><button class="btn btn-ghost btn-sm" id="tbUnlock" type="button">Unlock to edit</button>`}<button class="btn btn-primary btn-sm" id="tbSave" disabled ${rtUnlocked ? '' : 'hidden'}><span class="spin"></span>Save changes</button></div>`);
     host.appendChild(bar);
+    const relock = () => { rtUnlocked = !rtUnlocked; host.innerHTML = ''; rtTables(host); };
+    if(bar.querySelector('#tbUnlock')) bar.querySelector('#tbUnlock').addEventListener('click', relock);
+    if(bar.querySelector('#tbLock')) bar.querySelector('#tbLock').addEventListener('click', relock);
     host.appendChild(FC.el(`<div class="grid3" style="margin-bottom:12px">
       <div class="field"><label>Minimum premium</label><input id="tbMin" inputmode="decimal" value="${esc(t.min_premium)}"></div>
       <div class="field"><label>War &amp; strikes inside the rates (‰)</label><input id="tbWar" inputmode="decimal" value="${pm(t.war_included_permille)}"></div>
@@ -786,11 +1058,13 @@
       rowsH += '</tr>';
     }
     tw.innerHTML = `<table class="tbl">${head}${rowsH}</table>`;
+    host.appendChild(FC.el(auditFoot('schedule', t.name, 5)));
+    if(!rtUnlocked) host.querySelectorAll('.grid3 input, .tbl input').forEach(i => { i.disabled = true; });
     const save = bar.querySelector('#tbSave');
     host.addEventListener('input', e => { if(e.target.matches('input')){ e.target.classList.add('dirty'); save.disabled = false; } });
     host.addEventListener('change', e => { if(e.target.type === 'checkbox'){ save.disabled = false; } });
     bar.querySelector('#tbSel').addEventListener('change', e => { curTable = e.target.value; host.innerHTML = ''; rtTables(host); });
-    bar.querySelector('#tbFile').addEventListener('change', async e => {
+    if(bar.querySelector('#tbFile')) bar.querySelector('#tbFile').addEventListener('change', async e => {
       const f = e.target.files[0]; if(!f) return;
       try{
         if(!window.XLSX) await FC.loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
@@ -812,18 +1086,19 @@
       e.target.value = '';
     });
     save.addEventListener('click', async () => {
-      busy(save, true);
       const num = id => { const el = host.querySelector(id); if(!el) return undefined; const x = el.value.trim(); return x === '' ? null : ppm(x); };
-      const meta = { min_premium: num('#tbMin') || 0, war_included_permille: num('#tbWar') || 0, deck_allowed: host.querySelector('#tbDeck').checked, contingency_allowed: host.querySelector('#tbCont').checked, updated_at: new Date().toISOString() };
+      const meta = { min_premium: num('#tbMin') || 0, war_included_permille: num('#tbWar') || 0, deck_allowed: host.querySelector('#tbDeck').checked, contingency_allowed: host.querySelector('#tbCont').checked };
       if(t.mode === 'air'){ meta.used_loading_pct = num('#tbUsed'); meta.cars_loading_pct = num('#tbCars'); meta.household_flat_permille = num('#tbHh'); }
-      const up = [], del = [];
-      tw.querySelectorAll('input.dirty').forEach(inp => { const v = inp.value.trim(), a = Number(inp.dataset.a), b = Number(inp.dataset.b); if(v === '') del.push([a, b]); else { const x = ppm(v); if(isFinite(x) && x >= 0) up.push({ table_id: t.id, zone_a: a, zone_b: b, permille: x }); } });
-      const r1 = await sb.from('rate_tables').update(meta).eq('id', t.id);
-      const r2 = up.length ? await sb.from('rate_cells').upsert(up, { onConflict: 'table_id,zone_a,zone_b' }) : { error: null };
-      for(const [a, b] of del){ await sb.from('rate_cells').delete().eq('table_id', t.id).eq('zone_a', a).eq('zone_b', b); }
+      const up = [], del = []; let bad = 0;
+      tw.querySelectorAll('input.dirty').forEach(inp => { const v = inp.value.trim(), a = Number(inp.dataset.a), b = Number(inp.dataset.b); if(v === '') del.push({ a, b }); else { const x = ppm(v); if(isFinite(x) && x >= 0) up.push({ a, b, v: x }); else bad++; } });
+      if(bad) return toast(bad + ' cell(s) are not valid numbers.', 'error');
+      const reason = await askReason(`${t.name}: ${up.length} rate(s) changed${del.length ? ', ' + del.length + ' removed' : ''}, settings checked for changes.`);
+      if(!reason) return;
+      busy(save, true);
+      const { data, error } = await sb.rpc('admin_save_rate_table', { p_table: t.id, p_meta: meta, p_cells: up, p_removed: del, p_reason: reason });
       busy(save, false);
-      const er = r1.error || r2.error; if(er) return toast('Could not save: ' + er.message, 'error');
-      toast('Saved: ' + up.length + ' rates' + (del.length ? ', ' + del.length + ' removed' : '') + '.'); await loadAll(); host.innerHTML = ''; rtTables(host);
+      if(error) return toast('Could not save: ' + error.message, 'error');
+      toast(data ? data + ' change(s) saved and logged.' : 'Nothing changed.'); rtUnlocked = false; await loadAll(); host.innerHTML = ''; rtTables(host);
     });
   }
   function rtCommodities(host){
@@ -833,7 +1108,8 @@
       cols:[ { k:'id', l:'ID', ro:true, w:110 }, { k:'group_name', l:'Group', w:150 }, { k:'name', l:'Name', w:200 },
         { k:'class_factor', l:'Class factor', type:'num' },
         { k:'allowed_covers', l:'Covers', type:'covers' },
-        { k:'sea_table', l:'Sea base rates', type:'select', options: tables },
+        { k:'sea_table', l:'Sea base rates (spot)', type:'select', options: tables },
+        { k:'oc_class', l:'Open cover schedule', type:'select', options:[['', '— on request —'], ['new', 'New goods'], ['used', 'Used goods'], ['cars_new', 'New vehicles'], ['cars_used', 'Used vehicles'], ['household', 'Household goods']] },
         { k:'air_class', l:'By air', type:'select', options:[['', 'no'], ['new', 'yes']] },
         { k:'theft_attractive', l:'Theft-attractive', type:'bool' }, { k:'temp_controlled', l:'Temp.-controlled', type:'bool' },
         { k:'ext_hssc', l:'Offer HSSC', type:'bool' }, { k:'ext_liw', l:'Offer LiW / DiW', type:'bool' },
@@ -841,16 +1117,28 @@
         { k:'on_request', l:'Always on request', type:'bool' }, { k:'active', l:'Active', type:'bool' }, { k:'sort', l:'Sort', type:'num' },
         { k:'deductible', l:'Deductible (shown to clients)', w:240 },
         { k:'description', l:'Description (shown to clients)', w:220 }, { k:'conditions', l:'Special conditions', w:280 } ],
-      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; ['theft_attractive','temp_controlled','ext_hssc','ext_liw','on_request','active'].forEach(k => { if(k in r && r[k] == null) r[k] = k === 'active'; }); return r; } });
+      clean: r => { if(r.sea_table === '') r.sea_table = null; if(r.air_class === '') r.air_class = null; if(r.oc_class === '') r.oc_class = null; if(r.class_factor == null) r.class_factor = 1; if(r.loading_pct == null) r.loading_pct = 0; ['theft_attractive','temp_controlled','ext_hssc','ext_liw','on_request','active'].forEach(k => { if(k in r && r[k] == null) r[k] = k === 'active'; }); return r; } });
   }
   function rtCountries(host){
     const zs = n => [['', '— none —']].concat(Array.from({ length:n }, (_, i) => [String(i + 1), String(i + 1)]));
     const sea = (S.rateTables.find(t => t.mode === 'sea') || {}).zones || 19, air = (S.rateTables.find(t => t.mode === 'air') || {}).zones || 12;
     editTable(host, { table:'countries', key:'iso2', rows:S.countries.map(c => Object.assign({}, c, { sea_zone: c.sea_zone == null ? '' : String(c.sea_zone), air_zone: c.air_zone == null ? '' : String(c.air_zone) })), search:true,
+      lock: { cols:['sea_zone','air_zone'], label:'zones' },
+      beforeSave: async payload => {
+        const changed = payload.filter(x => { const o = S.countries.find(c => c.iso2 === x.iso2) || {}; return ('sea_zone' in x && x.sea_zone !== o.sea_zone) || ('air_zone' in x && x.air_zone !== o.air_zone); });
+        if(changed.length){
+          const reason = await askReason(changed.length + ' countr' + (changed.length > 1 ? 'ies' : 'y') + ' moved to another zone: ' + changed.map(x => x.iso2).join(', ') + '.');
+          if(!reason) return false;
+          const { error } = await sb.rpc('admin_set_zones', { p_rows: changed.map(x => ({ iso2: x.iso2, sea_zone: x.sea_zone, air_zone: x.air_zone })), p_reason: reason });
+          if(error){ toast('Could not save the zones: ' + error.message, 'error'); return false; }
+        }
+        return payload.map(x => { const y = Object.assign({}, x); delete y.sea_zone; delete y.air_zone; return y; });
+      },
       cols:[ { k:'iso2', l:'ISO', ro:true }, { k:'name', l:'Name', w:170 },
         { k:'sea_zone', l:'Sea zone', type:'select', options: zs(sea) }, { k:'air_zone', l:'Air zone', type:'select', options: zs(air) },
         { k:'local_insurance', l:'Local insurance rules (*)', type:'bool' }, { k:'crisis_permille', l:'Crisis surcharge ‰', type:'num' },
         { k:'on_request', l:'On request', type:'bool' }, { k:'sanctioned', l:'Sanctioned', type:'bool' }, { k:'note', l:'Note', w:200 } ],
+      foot: auditFoot('zones', null, 5),
       clean: r => { r.sea_zone = r.sea_zone === '' || r.sea_zone == null ? null : Number(r.sea_zone); r.air_zone = r.air_zone === '' || r.air_zone == null ? null : Number(r.air_zone); if(r.crisis_permille == null) r.crisis_permille = 0; return r; } });
   }
   function rtFactors(host){
@@ -915,24 +1203,27 @@
         <div class="field"><label>Conveyance</label><select id="ttV">${Object.entries(FC.CONVEYANCE).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}</select></div>
         <div class="field"><label>From</label><select id="ttO">${cty.map(c => `<option value="${c.iso2}" ${c.iso2 === 'DE' ? 'selected' : ''}>${esc(c.name)}${c.sea_zone || c.air_zone ? ' (S' + (c.sea_zone || '–') + ' / A' + (c.air_zone || '–') + ')' : ''}</option>`).join('')}</select></div>
         <div class="field"><label>To</label><select id="ttD">${cty.map(c => `<option value="${c.iso2}" ${c.iso2 === 'CN' ? 'selected' : ''}>${esc(c.name)}${c.sea_zone || c.air_zone ? ' (S' + (c.sea_zone || '–') + ' / A' + (c.air_zone || '–') + ')' : ''}</option>`).join('')}</select></div>
-        <div class="field"><label>Invoice value (EUR)</label><input id="ttI" value="100000" inputmode="decimal"></div>
+        <div class="field"><label>Invoice value <span class="muted" id="ttCur">(EUR)</span></label><input id="ttI" value="100000" inputmode="decimal"></div>
         <div class="field"><label>Cover</label><select id="ttK"><option value="icc_a">ICC A</option><option value="icc_b">ICC B</option><option value="icc_c">ICC C</option></select></div>
+        <div class="field"><label>As office (open cover)</label><select id="ttOf"><option value="">— spot client (standard rating) —</option>${S.policies.map(po => `<optgroup label="${esc(po.name + ' · ' + po.currency)}">${S.offices.filter(o => o.policy_id === po.id && o.active).map(o => `<option value="${o.id}" data-cur="${po.currency}">${esc(o.name)}${o.location ? ' — ' + esc(o.location) : ''}</option>`).join('')}</optgroup>`).join('')}</select></div>
         <div class="field"><label>Packaging</label><select id="ttP">${Object.keys(Object.assign({ '':1 }, setting('packing_factors', {}))).map(k => `<option value="${esc(k)}">${esc(k || 'Not stated')}</option>`).join('')}</select></div>
       </div><div class="small" style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap"><label><input type="checkbox" id="ttW" checked> War &amp; strikes</label><label><input type="checkbox" id="ttDk"> On deck</label><label><input type="checkbox" id="ttHs"> HSSC</label><label><input type="checkbox" id="ttLw"> LiW / DiW</label><label><input type="checkbox" id="ttIn"> Interest only</label></div>
       <div id="ttRun" style="margin-top:12px"></div><div id="ttOut" style="margin-top:14px"></div></div>`);
     host.appendChild(body);
+    body.querySelector('#ttOf').addEventListener('change', e => { const o = e.target.selectedOptions[0]; body.querySelector('#ttCur').textContent = '(' + ((o && o.dataset.cur) || 'EUR') + ')'; });
     body.querySelector('#ttRun').appendChild(btn('Calculate', 'primary', async b => {
       busy(b, true);
       const v = id => body.querySelector(id).value, c = id => body.querySelector(id).checked;
-      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:'EUR', ext_hssc:c('#ttHs'), ext_liw:c('#ttLw'), uplift_pct:10, cover:v('#ttK'), packaging:v('#ttP'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
+      const of = body.querySelector('#ttOf'), cur = (of.selectedOptions[0] && of.selectedOptions[0].dataset.cur) || 'EUR';
+      const { data, error } = await sb.rpc('calc_indication', { p: { commodity_id:v('#ttC'), goods_description:'Rate test', conveyance:v('#ttV'), origin_country:v('#ttO'), dest_country:v('#ttD'), invoice_value:FC.parseNum(v('#ttI')), currency:cur, office_id: of.value || null, ext_hssc:c('#ttHs'), ext_liw:c('#ttLw'), uplift_pct:10, cover:v('#ttK'), packaging:v('#ttP'), war_strikes:c('#ttW'), on_deck:c('#ttDk'), interest_only:c('#ttIn') } });
       busy(b, false);
       if(error){ body.querySelector('#ttOut').innerHTML = `<div class="notice danger" style="margin:0">${esc(error.message)}</div>`; return; }
       await sb.from('indications').update({ is_test:true, hidden_by_user:true }).eq('id', data.id);
       loadAll();
       const d = data.calc_detail || {};
       body.querySelector('#ttOut').innerHTML = data.status === 'quoted'
-        ? `<div class="notice ok" style="margin:0"><b>${esc(money2(data.premium, 'EUR'))} at ${esc(pm(d.rate_permille))} ‰</b>${esc(explain(d))}. Sum insured ${esc(money2(data.sum_insured, 'EUR'))}${data.min_applied ? ', minimum premium applied' : ''}${Number(data.discount_pct) ? ', your own discount ' + esc(Number(data.discount_pct)) + ' % applied' : ''}. Deductible: ${esc(data.deductible_text || '')}.</div>`
-        : `<div class="notice warn" style="margin:0"><b>${esc(FC.STATUS[data.status])}</b>${esc((data.reasons || []).join('; '))}</div>`;
+        ? `<div class="notice ok" style="margin:0"><b>${esc(money2(data.premium, data.currency))} at ${esc(pm(d.rate_permille))} ‰</b>${esc(explain(d))}. Sum insured ${esc(money2(data.sum_insured, data.currency))}${data.min_applied ? ', minimum premium applied' : ''}${Number(data.discount_pct) ? ', your own discount ' + esc(Number(data.discount_pct)) + ' % applied' : ''}. Deductible: ${esc(data.deductible_text || '')}.</div>`
+        : `<div class="notice warn" style="margin:0"><b>${esc(FC.STATUS[data.status])}</b>${esc((data.reasons || []).join('; '))}${(data.notes || []).length ? '<br><i>For the broker: ' + esc(data.notes.join('; ')) + '</i>' : ''}</div>`;
     }));
   }
 

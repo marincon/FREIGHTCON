@@ -85,7 +85,7 @@
     const n = Number(t);
     return isFinite(n) ? n : NaN;
   };
-  const SYM = { EUR:'€', USD:'$' };
+  const SYM = { EUR:'€', USD:'$', GBP:'£' };
   FC.money = (n, cur, dec) => {
     if(n == null || n === '' || !isFinite(Number(n))) return '—';
     const d = dec == null ? (Math.abs(Number(n)) < 1000 && Number(n) % 1 !== 0 ? 2 : 0) : dec;

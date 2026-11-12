@@ -975,3 +975,27 @@ a.cl-thumb:hover{border-color:var(--amber)}
   .qv-pt.r{text-align:left}
   .qv-mini{border-left:0;border-top:1px solid var(--line-soft)}
 }
+
+/* ---------- internal: client groups, policies, offices ---------- */
+.gp-list{display:grid;gap:18px}
+.gp-card{padding:20px 22px}
+.gp-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.gp-head h2{margin:0 0 6px;font-size:var(--fs-lg)}
+.gp-head .acts,.gp-pol-head .acts{display:flex;gap:8px;flex-wrap:wrap}
+.gp-tags{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.gp-pols{display:grid;gap:14px;margin-top:16px}
+.gp-pol{border:1px solid var(--line-soft);border-radius:var(--r);padding:16px 18px;background:var(--fog)}
+.gp-pol-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}
+.gp-pol-head h3{margin:0 0 10px;font-size:var(--fs);color:var(--harbour)}
+.gp-facts{display:flex;flex-wrap:wrap;gap:8px}
+.gp-facts span{display:grid;gap:1px;padding:6px 11px;border-radius:8px;background:var(--paper);border:1px solid var(--line-soft);min-width:96px}
+.gp-facts i{font-style:normal;font-size:11.5px;color:var(--steel)}
+.gp-facts b{font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.gp-pol .tbl-wrap{background:var(--paper)}
+.gp-off td{vertical-align:top}
+.gp-sec{display:grid;grid-template-columns:minmax(0,1fr) 80px auto auto;gap:8px;align-items:center;margin-bottom:6px}
+.audit-foot{margin-top:14px;padding:12px 16px;border-left:3px solid var(--amber);background:var(--fog);border-radius:0 var(--r) var(--r) 0;font-size:var(--fs-sm);display:grid;gap:8px}
+.audit-foot i{color:var(--steel)}
+.tbl select:disabled{opacity:.75;cursor:not-allowed}
+#resultHost .pr-hero .amount.amount-sm,.pr-hero .amount.amount-sm{font-size:clamp(28px,3.2vw,40px);letter-spacing:.01em}
+#officeField{margin-bottom:14px}
