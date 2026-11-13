@@ -1155,7 +1155,7 @@
     const agreements = [taTxt, special, war, (d.coAssured || []).length ? 'Co-assured / loss payee: ' + d.coAssured.join('; ') : '', d.deductible ? 'Deductible: ' + d.deductible : ''].filter(Boolean).join('\n');
     const inc = (r.incoterm || '').toUpperCase();
     const def = existing ? existing.data : {
-      no: pv ? pv.number : '', polNo: cu.cert_open_policy || cf.open_policy || '3441', doc: 'Original', docNo: '1.', originals: '1',
+      no: pv ? pv.number : '', polNo: (!r.is_standalone_one_off && og.policy && og.policy.policy_no) || cu.cert_open_policy || cf.open_policy || '', doc: 'Original', docNo: '1.', originals: '1',
       curr: d.currency || r.currency, sum: fmt(d.sumInsured || r.sum_insured), perc: String(100 + Number(r.uplift_pct || 0)), valueType: ['CIF','CIP'].includes(inc) ? 'CIF Value' : 'Invoice Value',
       date: dmy, ref: [r.ref, r.customer_ref].filter(Boolean).join(' / '), holder: cu.cert_holder || [d.client || r.insured_name || who(r).company, d.clientAddress].filter(Boolean).join(', '),
       goods, from: [d.originPlace || r.origin_place, cName(d.originCountry || r.origin_country)].filter(Boolean).join(', '), to: [d.destPlace || r.dest_place, cName(d.destCountry || r.dest_country)].filter(Boolean).join(', '),
@@ -1166,7 +1166,7 @@
       ${!accepted && q ? `<label class="switch" style="margin-top:0"><input type="checkbox" id="ceAccept"><span><b>Client accepted outside the portal</b><span>Marks quotation version ${q.version} as accepted before the certificate is issued.</span></span></label>` : ''}
       ${existing ? '' : `<div class="field"><label>Certificate number</label><div class="seg" id="ceNumMode" role="radiogroup" aria-label="Certificate number"><button type="button" data-v="auto" aria-checked="true">${pv.mode === 'matrix' ? 'Auto from matrix ' + esc(pv.matrix || '') : 'Auto (running number)'}</button><button type="button" data-v="manual" aria-checked="false" ${pv.mode === 'matrix' && pv.allow_manual === false ? 'disabled title="Manual numbers are switched off for this matrix"' : ''}>Manual number</button></div><span class="hint" id="ceNumHint">Next number: <b>${esc(pv.number)}</b> (assigned when the certificate is saved)</span></div>`}
       <div class="grid3" style="margin-top:6px">
-        ${f('ceNo', 'Certificate no.', def.no, { req:true })}${f('cePol', 'Open policy no. (form)', def.polNo)}${f('ceRef', 'Order / ref. no.', def.ref)}
+        ${f('ceNo', 'Certificate no.', def.no, { req:true })}${f('cePol', 'Open policy no. (from the policy)', def.polNo)}${f('ceRef', 'Order / ref. no.', def.ref)}
         ${f('ceCurr', 'Currency', def.curr, { req:true, opts:['USD','EUR','GBP','SGD'] })}${f('ceSum', 'Sum insured', def.sum, { req:true })}${f('ceDate', 'Date of issue', def.date, { req:true })}
         ${f('cePerc', '% of', def.perc)}${f('ceVal', 'Type of value', def.valueType, { opts:['CIF Value','Invoice Value'] })}${f('ceOri', 'Originals', def.originals)}
         ${f('ceDoc', 'Document', def.doc, { opts:['Original','Copy'] })}${f('ceDocNo', 'Document no.', def.docNo, { opts:['1.','2.','3.'] })}

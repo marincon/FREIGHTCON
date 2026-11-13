@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-13b';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-13c';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)

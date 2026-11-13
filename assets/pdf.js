@@ -223,22 +223,29 @@
     0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x2013:0x96, 0x2014:0x97, 0x02DC:0x98, 0x2122:0x99, 0x0161:0x9A, 0x203A:0x9B, 0x0153:0x9C, 0x017E:0x9E, 0x0178:0x9F };
   P.cp1252 = str => { const out = new Uint8Array(str.length); let n = 0; for(const ch of str){ const c = ch.codePointAt(0); out[n++] = (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) ? c : (CP1252[c] || 0x3F); } return out.slice(0, n); };
   // FDF 1.2 for Adobe: literal strings with \( \) \\ escaped and line breaks as \r
-  // exact AcroForm field names of the MARINCON / AKM certificate form (plus the generic names ConditionNo / Additional Agreements)
+  // the certificate form's AcroForm fields (checked against the Bertling master PDF)
   // Sum Insured raw with two decimals (33562.80): the form's AFNumber_Format script rejects 33,562.80; Perc and Ori's digits only
   const digits = v => String(v == null ? '' : v).replace(/[^\d]/g, '');
-  P.certFields = x => [['Curr', x.curr], ['Sum Insured', FC.fdfNum(x.sum)], ['Perc', digits(x.perc)], ['Type of Value', x.valueType], ['Date of Issue', x.date], ['Doc', x.doc], ['Doc No', x.docNo], ["Ori's", digits(x.originals)],
-    ['Pol No', x.polNo], ['No', x.no], ['Order/Ref No', x.ref], ['The holder of this policy', x.holder], ['Description of Goods', x.goods], ['voyage from', x.from], ['voyage to', x.to], ['conveyance', x.conveyance],
-    ['1', '1'], ['5', x.box === '5' ? '5' : ''], ['6', x.box === '6' ? '6' : ''], ['ConditionNo', x.box], ['LC Info', x.agreements], ['Additional Agreements', x.agreements], ['wwwvhtnetworkde', x.claims]];
+  // exactly the AcroForm fields of BERTLING_MASTER_TRANSPORT_POLICY_(OHNE|MIT)_STEMPEL_202304.pdf, in Acrobat's export order.
+  // Field (5) is the condition box between 4 and 7: value 5 = sea / road / rail / multimodal, 6 = air. There is no field (6),
+  // (ConditionNo) or (Additional Agreements): the L/C / additional agreements box is (LC Info). (Submit) is the form's button.
+  P.certFields = x => [['1', x.box1 || '14'], ['5', x.box === '6' ? '6' : '5'], ['Curr', x.curr], ['Date of Issue', x.date], ['Description of Goods', x.goods],
+    ['Doc', x.doc], ['Doc No', x.docNo], ['LC Info', x.agreements], ['No', x.no], ['Order/Ref No', x.ref], ["Ori's", digits(x.originals)], ['Perc', digits(x.perc)],
+    ['Pol No', x.polNo], ['Submit', null], ['Sum Insured', FC.fdfNum(x.sum)], ['The holder of this policy', x.holder], ['Type of Value', x.valueType],
+    ['conveyance', x.conveyance], ['voyage from', x.from], ['voyage to', x.to], ['wwwvhtnetworkde', x.claims]];
+  // document ID of the Bertling master forms (OHNE and MIT STEMPEL share it); window.FREIGHTCON_CERT_PDF_ID overrides it
+  P.CERT_PDF_ID = ['7401983548D31473297C83C35F105E61', '68BBD8637470604BBC0EA12D94EAC37F'];
   // on screen 33,562.80; in the .fdf FC.fdfNum gives 33562.80; dates 06.10.2026
   P.certNum = n => Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
   P.certDate = d => { d = d ? new Date(d) : new Date(); const t = n => String(n).padStart(2, '0'); return t(d.getDate()) + '.' + t(d.getMonth() + 1) + '.' + d.getFullYear(); };
-  // completely without /F and /UF: Acrobat imports the fields into whichever master PDF is open (any file name)
-  P.fdf = (pdfFile, fields) => {
+  // like the working Acrobat export: compact syntax, no /F or /UF (any copy or renamed master works),
+  // /ID of the master form and /Type/Catalog; Windows-1252 bytes
+  P.fdf = (pdfFile, fields, id) => {
     const lit = v => '(' + FC.dash(v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r\n|\n|\r/g, '\\r') + ')';
-    // no /F: the .fdf never opens or looks for a master PDF; it is imported into the form by the user
-    const body = '%FDF-1.2\n%âãÏÓ\n1 0 obj\n<<\n/FDF <<\n/Fields [\n'
-      + fields.map(([t, v]) => '<< /T ' + lit(t) + ' /V ' + lit(v) + ' >>').join('\n')
-      + '\n]\n>>\n>>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n';
+    const ids = (id || window.FREIGHTCON_CERT_PDF_ID || P.CERT_PDF_ID).map(h => '<' + String(h).replace(/[^0-9A-Fa-f]/g, '').toUpperCase() + '>').join('');
+    const body = '%FDF-1.2\n%âãÏÓ\n1 0 obj\n<</FDF<</Fields['
+      + fields.map(([t, v]) => '<</T' + lit(t) + (v === null ? '' : '/V' + lit(v == null ? '' : v)) + '>>').join('')
+      + ']/ID[' + ids + ']>>/Type/Catalog>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n';
     return P.cp1252(body);
   };
   // fill the blank form directly (fields stay editable)
@@ -250,6 +257,7 @@
     if(bf){ doc.registerFontkit(window.fontkit); font = await doc.embedFont(bf.r, { subset:false }); }
     const missing = [];
     fields.forEach(([name, value]) => {
+      if(value === null) return;   // buttons such as Submit
       let f; try{ f = form.getField(name); }catch(e){ missing.push(name); return; }
       const v = String(value == null ? '' : value);
       if(f instanceof PDFTextField){ if(f.getMaxLength && f.getMaxLength() != null && v.length > f.getMaxLength()) f.setMaxLength(v.length); f.setText(v); }
