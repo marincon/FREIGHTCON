@@ -135,3 +135,7 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Policenjahre pro Police mit Status (active / extended / expired); ohne gültiges Jahr sind Angebote und Zertifikate unter der Police gesperrt. Nummernkreis (Matrix) pro Policenjahr mit Vorschau. Beim Update bekommt jede Police das laufende Kalenderjahr als aktives Policenjahr.
 * Deutsche Versicherungsteuer (19 %): Regeln nach Route und Sitz von Versicherungsnehmer / Versichertem, pro Kunde / Police / Angebot an, auto oder aus.
 * .fdf: ohne /F, Sum Insured als 33562.80, Download direkt im Fall, im Tab Certificates und im ⋮-Menü.
+
+## Update 2026-11-13 u (Version 2026-11-13c)
+
+`update_2026-11-13u.sql` ausführen (nach t) und die Website hochladen. Die .fdf enthält jetzt genau die Felder des Bertling-Masterformulars (1, 5, Curr … LC Info, Pol No, Submit, wwwvhtnetworkde), kompakt wie der funktionierende Acrobat-Export, mit /ID des Masterformulars und /Type/Catalog, ohne /F. Feld (5) = 5 für See / Straße / Bahn, 6 für Luft. Die Policennummer kommt aus der Police des Falls.
