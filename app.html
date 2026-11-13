@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="fc-version" content="2026-11-12e">
+<meta name="fc-version" content="2026-11-13a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FREIGHTCON — Cargo insurance indications, quotations & cover</title>
+<title>FREIGHTCON - Cargo insurance indications, quotations & cover</title>
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-11-12e">
+<link rel="stylesheet" href="assets/style.css?v=2026-11-13a">
 </head>
 <body>
 <div id="maintBanner" class="banner" hidden>The platform is in maintenance. Calculations and requests are paused for a short while.</div>
@@ -20,6 +20,8 @@
       <button class="navbtn" data-view="quotes">My shipments<span class="badge" id="quoteBadge" hidden></span></button>
       <button class="navbtn" data-view="history">History</button>
       <button class="navbtn" data-view="upload">Bulk upload</button>
+      <button class="navbtn" data-view="cover" hidden>My cover</button>
+      <button class="navbtn" data-view="insurer" hidden>Insurer dashboard</button>
     </nav>
     <div class="spacer"></div>
     <button class="internal-pill" id="internalBtn" data-view="admin" aria-pressed="false" hidden><span id="internalLbl">Internal</span><span class="badge" id="adminBadge" hidden></span></button>
@@ -70,7 +72,7 @@
               <option>Bags / big bags</option><option>Drums / IBCs</option><option>Bulk</option><option>Unpacked, lashed</option><option>Other</option>
             </select></div>
           <details class="more" id="moreDetails">
-            <summary>More shipment details <span class="muted">(optional — helps us quote faster)</span></summary>
+            <summary>More shipment details <span class="muted">(optional - helps us quote faster)</span></summary>
             <div class="grid3" style="margin-top:12px">
               <div class="field"><label for="dEquip">Equipment</label><select id="dEquip"><option value="">Not stated</option><option>FCL</option><option>LCL</option><option>SOC (shipper's own container)</option><option>Flat rack</option><option>Open top</option><option>Breakbulk</option><option>RoRo</option></select></div>
               <div class="field"><label for="dPieces">Pieces</label><input id="dPieces" inputmode="numeric" maxlength="8" placeholder="e.g. 4"></div>
@@ -79,7 +81,7 @@
               <div class="field"><label for="dHs">HS code</label><input id="dHs" maxlength="20" placeholder="e.g. 8458 11"></div>
               <div class="field"><label for="dStorage">Storage before / after transit</label><select id="dStorage"><option value="">None or up to 30 days</option><option value="30">30 to 60 days</option><option value="60">More than 60 days</option></select></div>
             </div>
-            <div class="field" style="margin-top:12px"><label for="dParties">Co-assureds / loss payees <span class="muted">(one per line)</span></label><textarea id="dParties" rows="2" maxlength="1000" placeholder="e.g. Commerzbank AG, Hamburg — loss payee"></textarea></div>
+            <div class="field" style="margin-top:12px"><label for="dParties">Co-assureds / loss payees <span class="muted">(one per line)</span></label><textarea id="dParties" rows="2" maxlength="1000" placeholder="e.g. Commerzbank AG, Hamburg - loss payee"></textarea></div>
           </details>
         </div>
         <div class="form-sec">
@@ -95,7 +97,7 @@
             <div class="field"><label for="fDest">To (country)</label><select id="fDest" required></select><span class="err">Choose the destination country.</span></div>
             <div class="field"><label for="fDestPlace">City / port</label><input id="fDestPlace" maxlength="100" placeholder="e.g. Shanghai"></div>
           </div>
-          <div class="field transit" style="margin-top:12px"><span class="lbl" id="transitLbl">Transit countries <span class="muted">(optional — transhipment or on-carriage via)</span></span>
+          <div class="field transit" style="margin-top:12px"><span class="lbl" id="transitLbl">Transit countries <span class="muted">(optional - transhipment or on-carriage via)</span></span>
             <div class="transit-row"><div id="transitChips" class="chips" aria-labelledby="transitLbl"></div><select id="fTransitAdd" aria-label="Add a transit country"><option value="">+ Add transit country</option></select></div></div>
           <div class="field" id="redSeaField" style="margin-top:12px"><span class="lbl" id="redLbl">Routing via Suez Canal / Red Sea?</span><div class="seg" id="fRed" role="radiogroup" aria-labelledby="redLbl"><button type="button" role="radio" data-v="auto" aria-checked="true">Not sure</button><button type="button" role="radio" data-v="yes" aria-checked="false">Yes, via Suez</button><button type="button" role="radio" data-v="no" aria-checked="false">No, e.g. via the Cape</button></div><span class="hint" id="redHint"></span></div>
           <div class="field" style="margin-top:12px;max-width:240px"><label for="fDep">Departure date / ETA of loading</label><input id="fDep" type="date"><span class="err">The departure date / ETA of loading cannot lie in the past.</span></div>
@@ -108,7 +110,7 @@
           </div>
           <div class="field" style="margin-top:12px"><label for="fFreight">Freight and costs not in the invoice <span class="muted">(optional)</span></label><input id="fFreight" inputmode="decimal" placeholder="e.g. 4,800" style="max-width:240px"><span class="hint" id="freightHint">Add freight only if it is not already in the invoice value.</span></div>
           <div class="field" style="margin-top:12px;max-width:240px"><label for="fUplift">Uplift on invoice value</label><div class="with-unit"><input id="fUplift" inputmode="decimal" value="10"><span class="unit">%</span></div><span class="hint">Usually 10 % to cover freight and costs.</span><span class="err">Between 0 and 30 %.</span></div>
-          <div class="si-line"><span>Sum insured</span><b id="siOut">—</b></div>
+          <div class="si-line"><span>Sum insured</span><b id="siOut">-</b></div>
         </div>
         <div class="form-sec">
           <h2><span id="icUser"></span>Assured</h2>
@@ -129,7 +131,7 @@
           <h2><span id="icDoc"></span>Terms of sale</h2>
           <div class="grid2">
             <div class="field"><label for="fInco">Incoterm</label><select id="fInco"><option value="">Not known</option></select></div>
-            <div class="field"><span class="lbl" id="partyLbl">Cover is for the</span><div class="seg" id="fParty" role="radiogroup" aria-labelledby="partyLbl"><button type="button" role="radio" data-v="seller" aria-checked="true">Seller (exporter)</button><button type="button" role="radio" data-v="buyer" aria-checked="false">Buyer (importer)</button></div></div>
+            <div class="field"><label for="fParty">Your role in this shipment</label><select id="fParty"></select><input id="fPartyOther" maxlength="100" placeholder="Please specify your role" aria-label="Your role (other)" hidden style="margin-top:6px"></div>
           </div>
           <div id="incoExplain" class="inco" aria-live="polite"></div>
           <label class="switch" id="interestField" hidden><input type="checkbox" id="fInterest"><span><b>Insure only this party's own interest</b><span id="interestTxt"></span></span></label>
@@ -144,8 +146,15 @@
             <label class="switch" id="liwField"><input type="checkbox" id="fLiw"><span><b id="liwLbl">Loss / difference in weight (LiW / DiW)</b><span id="liwTxt">Covers shortage between the weight loaded and the weight delivered. Deductible 0.5 % of the sum insured. Small surcharge on the rate.</span></span></label>
           </div>
         </div>
+        <div class="form-sec">
+          <h2>Documents <span class="muted" style="font-weight:400;font-size:13px">(optional)</span></h2>
+          <label class="dropzone" id="docDrop"><input type="file" id="docFiles" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.jpg,.jpeg,.png,.msg,.eml" hidden>
+            <b>Attach documents</b><span>Commercial invoice, packing list, B/L / waybill / AWB, survey report, photos, drawings or L/C terms. PDF, Word, Excel, JPG, PNG, MSG, EML up to 25 MB each.</span></label>
+          <ul class="doc-list" id="docList"></ul>
+        </div>
         <div class="form-foot">
           <button class="btn btn-primary" type="submit" id="calcBtn"><span class="spin"></span>Calculate indication</button>
+          <button class="btn btn-ghost" type="button" id="directCertBtn" hidden><span class="spin"></span>Issue certificate directly</button>
           <span class="xs muted" id="formMsg" role="status"></span>
         </div>
       </form>
@@ -156,7 +165,7 @@
             <div class="ns-live-top"><span>Your shipment</span><span class="ns-prog-txt" id="nsProgTxt">0 of 5 details</span></div>
             <div class="ns-prog"><i id="nsProg"></i></div>
             <dl class="ns-facts" id="nsFacts"></dl>
-            <div class="ns-live-foot"><div><span class="xs muted">Sum insured</span><b id="nsSi">—</b></div><button class="btn btn-primary" type="button" id="nsCalc" disabled><span class="spin"></span>Calculate indication</button></div>
+            <div class="ns-live-foot"><div><span class="xs muted">Sum insured</span><b id="nsSi">-</b></div><button class="btn btn-primary" type="button" id="nsCalc" disabled><span class="spin"></span>Calculate indication</button></div>
           </div>
           <div class="card ns-help"><span class="ns-help-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6A8 8 0 1 1 21 12z"/></svg></span><div><b>Not sure about something?</b><span class="xs muted">Unusual cargo, high values or special routes: write to us, a cargo broker answers personally.</span></div><button class="btn btn-ghost btn-sm" type="button" id="nsHelp">Ask us</button></div>
         </div>
@@ -207,6 +216,8 @@
   </section>
 
   <!-- ============ INTERNAL (admin) ============ -->
+  <section id="view-cover" data-view-panel="cover" hidden><div class="wrap" id="coverHost"></div></section>
+  <section id="view-insurer" data-view-panel="insurer" hidden><div class="wrap" id="insurerHost"></div></section>
   <section id="view-admin" data-view-panel="admin" hidden></section>
 </main>
 
@@ -219,9 +230,9 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-11-12e"></script>
-<script src="assets/pdf.js?v=2026-11-12e"></script>
-<script src="assets/globe.js?v=2026-11-12e"></script>
-<script src="assets/app.js?v=2026-11-12e"></script>
+<script src="assets/core.js?v=2026-11-13a"></script>
+<script src="assets/pdf.js?v=2026-11-13a"></script>
+<script src="assets/globe.js?v=2026-11-13a"></script>
+<script src="assets/app.js?v=2026-11-13a"></script>
 </body>
 </html>

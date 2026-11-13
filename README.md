@@ -1,6 +1,6 @@
 # FREIGHTCON
 
-Cargo Insurance Indications, Quotations & Cover — Kundenportal für Transportversicherung nach dem EWRICON-Prinzip:
+Cargo Insurance Indications, Quotations & Cover - Kundenportal für Transportversicherung nach dem EWRICON-Prinzip:
 Kunde gibt Ware, Route und Wert ein → sieht sofort eine Indikation → fordert mit einem Klick eine Quotation an → nimmt sie online an → erhält Cover Note und Rechnung.
 
 ## Was drin ist
@@ -95,7 +95,7 @@ Bewusst nicht übernommen, weil für Cargo nicht sinnvoll: Karte, Vessel Trackin
 - Nicht getestet (braucht eure Zugänge): echter Supabase-Login, Telegram, SMTP.
 
 
-## Update 2026-11-12p / Version 2026-11-12e — Mandanten-Trennung
+## Update 2026-11-12p / Version 2026-11-12e - Mandanten-Trennung
 
 1. SQL Editor → `supabase/update_2026-11-12p.sql` ausführen (nach o).
 2. Edge Functions deployen:
@@ -106,3 +106,18 @@ Bewusst nicht übernommen, weil für Cargo nicht sinnvoll: Karte, Vessel Trackin
 
 Struktur: Gruppe → Kunde → Policen & Büros. Jede Tarif-Konfiguration gehört zu einem Scope: *General (one-offs)*, *Kunde* oder *Police*.
 One-offs werden ausschließlich aus dem General-Pool gerechnet; Bertling hat nach dem Update eine eigene Kopie.
+
+
+## Update 2026-11-13 q / r / s (Version 2026-11-13a)
+
+Reihenfolge im SQL Editor: `update_2026-11-13q.sql` → `update_2026-11-13r.sql` → `update_2026-11-13s.sql`.
+
+* q (Paket 1): Rabatt pro Kunde + Rabattmodus pro Nutzer, Zertifikat-Schalter pro Kunde, Rollen der Kunden (Seller, Buyer, Forwarder ...),
+  Standalone One-offs, Direktzertifikate, Dokumente an Anfragen (Bucket `request-documents`), keine Gedankenstriche (Trigger).
+* r (Paket 2): Master-Klauselbibliothek, Listen (One-offs / Kunde / Police) mit aktiv / standby, 67 Bertling-Klauseln (standby),
+  Editor.pdf-Standardblöcke für Bertling.
+* s (Paket 3): Nutzergruppen, Abteilungen, Staff-Rollen (Admins / Placing / Claims), Rechte-Matrix, Versicherer-Dashboard,
+  Zertifikate durch Kunden, Zonen an/aus pro Ebene.
+
+Edge Functions neu deployen: `notify` und `admin-manage-user`.
+MARINCON-Logo als `assets/brand/marincon-logo.png` ablegen (sonst steht "MARINCON" als Text im PDF-Kopf).

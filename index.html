@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FREIGHTCON — Log in</title>
+<title>FREIGHTCON - Log in</title>
 <meta name="description" content="Cargo insurance indications, quotations and cover for forwarders, traders and shippers.">
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-11-12d">
+<link rel="stylesheet" href="assets/style.css?v=2026-11-13a">
 </head>
 <body>
 <div class="auth">
@@ -134,7 +134,7 @@
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-11-12d"></script>
+<script src="assets/core.js?v=2026-11-13a"></script>
 <script>
 (async () => {
   const { $, sb, busy, esc } = FC;
@@ -177,7 +177,7 @@
     if(!email || !password){ msg('#liMsg', 'Please enter your e-mail and password.'); return; }
     busy(b, true); msg('#liMsg', '');
     const { error } = await sb.auth.signInWithPassword({ email, password });
-    if(error){ busy(b, false); msg('#liMsg', /confirm/i.test(error.message) ? 'Please confirm your e-mail address first — check your inbox for our message.' : 'E-mail or password is not correct.'); return; }
+    if(error){ busy(b, false); msg('#liMsg', /confirm/i.test(error.message) ? 'Please confirm your e-mail address first - check your inbox for our message.' : 'E-mail or password is not correct.'); return; }
     if(!(await enterIfAllowed())) busy(b, false);
   });
 
