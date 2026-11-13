@@ -1,4 +1,4 @@
-/* FREIGHTCON — the voyage globe (canvas, orthographic projection, land as a dot matrix).
+/* FREIGHTCON - the voyage globe (canvas, orthographic projection, land as a dot matrix).
    FC.Globe.mount(canvas) → { setRoute(from, to, mode), clear() }
    from / to: { lat, lon, label, sub }  ·  mode: 'sea' | 'air' | 'land' */
 (function(){

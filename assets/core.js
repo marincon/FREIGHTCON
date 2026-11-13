@@ -1,4 +1,4 @@
-/* FREIGHTCON — shared helpers (loaded by every page after config.js and supabase-js) */
+/* FREIGHTCON - shared helpers (loaded by every page after config.js and supabase-js) */
 (function(){
   'use strict';
   const FC = window.FC = {};
@@ -33,7 +33,22 @@
   FC.supportEmail = window.FREIGHTCON_SUPPORT_EMAIL || '';
 
   // ---------- text & numbers ----------
-  FC.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
+  // persistent release footer on every page (version from app.html's meta, else the version of this file)
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-13a';
+  const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
+  // client / assured role (staff can extend the list in Settings: setting party_roles)
+  FC.PARTY_ROLES = [['seller','Client is the Seller (Exporter)'],['buyer','Client is the Buyer (Importer)'],['forwarder','Client is the Freight Forwarder'],['obo_seller','Acting on behalf of Seller'],
+    ['obo_buyer','Acting on behalf of Buyer'],['obo_owner','Acting on behalf of Cargo Owner / Third Party'],['planner','Shipping Planner / Logistics Coordinator'],['cargo_owner','Cargo Owner'],
+    ['charterer','Charterer / Vessel Operator'],['epc','Project Contractor / EPC'],['other','Other (specify role)']];
+  FC.setPartyRoles = list => { if(Array.isArray(list) && list.length){ const l = list.filter(x => x && x.code && x.label).map(x => [String(x.code), FC.dash(x.label)]); if(!l.some(x => x[0] === 'other')) l.push(['other', 'Other (specify role)']); if(l.length > 1) FC.PARTY_ROLES = l; } };
+  FC.partyLabel = (code, other) => code === 'other' && other ? 'Other: ' + other : ((FC.PARTY_ROLES.find(x => x[0] === code) || [0, code || ''])[1]);
+  // which side of the sale a role stands on (for Incoterm risk and interest-only cover)
+  FC.partySide = code => /^(seller|obo_seller)$/.test(code || '') ? 'seller' : /^(buyer|obo_buyer)$/.test(code || '') ? 'buyer' : null;
+  FC.partyOptions = (sel) => FC.PARTY_ROLES.map(([k, l]) => `<option value="${k}" ${k === (sel || 'seller') ? 'selected' : ''}>${FC.esc(l)}</option>`).join('');
+  FC.dash = s => String(s == null ? '' : s).replace(/[\u2012\u2013\u2014\u2015\u2212]/g, '-');
+  FC.esc = s => FC.dash(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   // counts a number up to its value (respects reduced motion)
   FC.reducedMotion = () => { const m = FC.motionPref(); if(m === 'on') return false; if(m === 'off') return true; try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } };
   // route arc for the result card: air flies a high arc, sea a flat one, road and rail a straight line
@@ -87,18 +102,18 @@
   };
   const SYM = { EUR:'€', USD:'$', GBP:'£', SGD:'S$' };
   FC.money = (n, cur, dec) => {
-    if(n == null || n === '' || !isFinite(Number(n))) return '—';
+    if(n == null || n === '' || !isFinite(Number(n))) return '-';
     const d = dec == null ? (Math.abs(Number(n)) < 1000 && Number(n) % 1 !== 0 ? 2 : 0) : dec;
     return (SYM[cur] || (cur ? cur + ' ' : '')) + Number(n).toLocaleString('en-GB', { minimumFractionDigits:d, maximumFractionDigits:d });
   };
   FC.money2 = (n, cur) => FC.money(n, cur, 2);
-  FC.pct = (n, d) => n == null ? '—' : Number(n).toLocaleString('en-GB', { minimumFractionDigits:d == null ? 3 : d, maximumFractionDigits:4 }) + ' %';
+  FC.pct = (n, d) => n == null ? '-' : Number(n).toLocaleString('en-GB', { minimumFractionDigits:d == null ? 3 : d, maximumFractionDigits:4 }) + ' %';
   FC.groupInput = el => {
     el.addEventListener('blur', () => { const n = FC.parseNum(el.value); if(isFinite(n) && n > 0) el.value = n.toLocaleString('en-GB', { maximumFractionDigits:2 }); });
     el.addEventListener('focus', () => { const n = FC.parseNum(el.value); if(isFinite(n) && n > 0) el.value = String(n); });
   };
-  FC.date = v => { if(!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); };
-  FC.dateTime = v => { if(!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); };
+  FC.date = v => { if(!v) return '-'; const d = new Date(v); return isNaN(d) ? '-' : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); };
+  FC.dateTime = v => { if(!v) return '-'; const d = new Date(v); return isNaN(d) ? '-' : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); };
   FC.ago = v => {
     const s = (Date.now() - new Date(v).getTime()) / 1000;
     if(!isFinite(s)) return '';
@@ -125,8 +140,8 @@
     icc_b: { label:'Named perils, extended', clause:'Institute Cargo Clauses (B)', text:'Named perils incl. heavy weather water entry, earthquake and loss overboard.' },
     icc_c: { label:'Named perils, basic', clause:'Institute Cargo Clauses (C)', text:'Major casualties only: fire, sinking, stranding, collision, overturning, general average.' }
   };
-  // Incoterms 2020: where the risk passes from seller to buyer (pt on a 0–3 journey line) and who must insure.
-  // stops on the 0–3 risk line: [position, label]
+  // Incoterms 2020: where the risk passes from seller to buyer (pt on a 0-3 journey line) and who must insure.
+  // stops on the 0-3 risk line: [position, label]
   FC.JOURNEY = [[0, "Seller's premises"], [1, 'Handover to carrier'], [2, 'On board vessel'], [3, 'Destination']];
   FC.INCOTERMS = {
     EXW: { name:'Ex Works', pt:0, sea:false, point:"at the seller's premises, before loading",
@@ -227,7 +242,7 @@
     const foot = box.querySelector('.dlg-foot');
     const prevFocus = document.activeElement;
     const close = v => { document.removeEventListener('keydown', onKey); back.remove(); try{ prevFocus && prevFocus.focus(); }catch(e){} resolve(v); };
-    const onKey = e => { if(e.key === 'Escape' && o.dismissible !== false) close(null); };
+    const onKey = e => { if(e.key === 'Escape' && o.dismissible !== false && back === Array.from(document.querySelectorAll('.dlg-back')).pop()) close(null); };
     (o.actions || [{ label:'Close', kind:'ghost', value:null }]).forEach(a => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-' + (a.kind || 'ghost');
       b.innerHTML = '<span class="spin"></span>' + FC.esc(a.label);
@@ -270,17 +285,20 @@
   };
   // the same wording with inline styles, for pasting into an e-mail
   FC.emailHtml = html => {
-    const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(html);
-    d.querySelectorAll('h4').forEach(e => e.setAttribute('style', 'font:700 14px Calibri,Arial,sans-serif;color:#003A79;margin:16px 0 6px'));
-    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', 'font:14px Calibri,Arial,sans-serif;color:#0E1B2C;margin:0 0 6px'));
-    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', 'font:14px Calibri,Arial,sans-serif;border:1px solid #003A79;padding:8px 12px;margin:6px 0'));
+    // Editor.pdf format: Calibri 10 pt, black, bold + underlined headings, 8 pt after each paragraph
+    const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(FC.dash(html));
+    const P = 'margin:0 0 8pt 0;font-family:Calibri,sans-serif;font-size:10pt;line-height:1.35;color:#000000';
+    d.querySelectorAll('h4').forEach(e => { const p = document.createElement('p'); p.innerHTML = '<b><u>' + e.innerHTML + '</u></b>'; e.replaceWith(p); });
+    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', P));
+    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', P + ';border:1px solid #000000;padding:6pt 8pt'));
     d.querySelectorAll('.big').forEach(e => e.setAttribute('style', 'font-size:120%'));
     d.querySelectorAll('mark').forEach(e => e.setAttribute('style', 'background:#FFF2A8'));
     d.querySelectorAll('[class]').forEach(e => e.removeAttribute('class'));
     d.querySelectorAll('[data-cat]').forEach(e => e.removeAttribute('data-cat'));
-    return '<div style="font-family:Calibri,Arial,sans-serif">' + d.innerHTML + '</div>';
+    return '<div style="font-family: Calibri, sans-serif; font-size: 10pt; line-height: 1.35; color: #000000;">' + d.innerHTML + '</div>';
   };
   FC.copyRich = async (html, text) => {
+    html = FC.dash(html); text = FC.dash(text);
     try{
       if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
         await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type:'text/html' }), 'text/plain': new Blob([text], { type:'text/plain' }) })]);
@@ -292,7 +310,7 @@
     let ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
     sel.removeAllRanges(); d.remove(); return ok;
   };
-  FC.htmlText = html => { const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(html); d.querySelectorAll('h4,p,div,li').forEach(e => e.insertAdjacentText('afterend', '\n')); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
+  FC.htmlText = html => { const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(FC.dash(html)); d.querySelectorAll('h4,p,div,li').forEach(e => e.insertAdjacentText('afterend', '\n')); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
   FC.confirm = (title, text, okLabel, kind) => FC.dialog({
     title, body: `<p style="margin:0">${FC.esc(text)}</p>`,
     actions: [{ label:'Cancel', kind:'ghost', value:false }, { label: okLabel || 'Confirm', kind: kind || 'primary', value:true }]

@@ -1,4 +1,4 @@
-/* FREIGHTCON — PDF documents (indication, quotation, cover note) with pdf-lib */
+/* FREIGHTCON - PDF documents (indication, quotation, cover note) with pdf-lib */
 (function(){
   'use strict';
   const LIB = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
@@ -7,10 +7,10 @@
   // Standard PDF fonts only cover WinAnsi: transliterate Cyrillic, map arrows, drop the rest
   const CYR = {'А':'A','Б':'B','В':'V','Г':'H','Ґ':'G','Д':'D','Е':'E','Є':'Ye','Ж':'Zh','З':'Z','И':'Y','І':'I','Ї':'Yi','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch','Ь':'','Ю':'Yu','Я':'Ya','Ы':'Y','Э':'E','Ё':'Yo','Ъ':''};
   let RICH = false;   // true once the Calibri-compatible font (Carlito) is embedded: keeps ș, ł, ğ …
-  const T = s => String(s == null ? '' : s)
+  const T = s => String(s == null ? '' : s).replace(/[\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[Ѐ-ӿ]/g, ch => { const u = ch.toUpperCase(); const t = CYR[u]; if(t == null) return '?'; return ch === u ? t : t.toLowerCase(); })
     .replace(/[→⟶➔]/g, '>').replace(/[←]/g, '<').replace(/[≥]/g, '>=').replace(/[≤]/g, '<=').replace(/[   ]/g, ' ')
-    .replace(RICH ? /[^\x20-\x7E\u00A0-\u024F€–—‘’“”•…·‰]/g : /[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
+    .replace(RICH ? /[^\x20-\x7E\u00A0-\u024F€‘’“”•…·‰]/g : /[^\x20-\x7E -ÿ€‘’“”•…·‰]/g, '');
   P.text = T;
 
   const C = { harbour:[0,58,121], teal:[0,58,121], amber:[0,159,227], steel:[102,104,107], ink:[14,27,44], line:[212,217,224], fog:[241,244,248], white:[255,255,255] };
@@ -29,11 +29,23 @@
     return FONTS;
   }
 
+  // MARINCON logo: assets/brand/marincon-logo.png (or the website copy if the browser may load it); text fallback
+  const LOGO_URLS = [window.MARINCON_LOGO_URL || 'assets/brand/marincon-logo.png'];
+  let LOGO = null;
+  async function marinconLogo(){
+    if(LOGO !== null) return LOGO;
+    LOGO = false;
+    for(const u of LOGO_URLS){ try{ const x = await fetch(u, { mode:'cors' }); if(x.ok){ const b = await x.arrayBuffer(); if(b.byteLength > 100){ LOGO = { bytes: b, png: /\.png($|\?)/i.test(u) || new Uint8Array(b)[0] === 0x89 }; break; } } }catch(e){} }
+    return LOGO;
+  }
+  P.ISSUER = 'MARINCON';
   // A tiny layout engine: pages, cursor, wrapping
   async function newDoc(meta){
     const { PDFDocument, StandardFonts, rgb } = await ensure();
     const doc = await PDFDocument.create();
-    doc.setTitle(T(meta.title)); doc.setAuthor(T(FC.brand)); doc.setCreator(T(FC.brand)); doc.setProducer(T(FC.brand));
+    doc.setTitle(T(meta.title)); doc.setAuthor(P.ISSUER); doc.setCreator(P.ISSUER); doc.setProducer(P.ISSUER);
+    const lg = await marinconLogo(); let logoImg = null;
+    if(lg){ try{ logoImg = lg.png ? await doc.embedPng(lg.bytes) : await doc.embedJpg(lg.bytes); }catch(e){ logoImg = null; } }
     const bf = await brandFonts(); let f;
     if(bf){ doc.registerFontkit(window.fontkit); f = { r: await doc.embedFont(bf.r, { subset:true }), b: await doc.embedFont(bf.b, { subset:true }) }; RICH = true; }
     else{ f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) }; RICH = false; }
@@ -42,17 +54,14 @@
     const ctx = { doc, f, col, W, H, M, page:null, y:0, pages:[], meta };
     ctx.addPage = () => {
       const pg = doc.addPage([W, H]); ctx.page = pg; ctx.pages.push(pg);
-      // header band
-      pg.drawRectangle({ x:0, y:H-78, width:W, height:78, color:col(C.harbour) });
-      pg.drawRectangle({ x:0, y:H-82, width:W, height:4, color:col(C.amber) });
-      // official wordmark as vector paths: white letters, lime square
-      const L = FC.LOGO, sc = 150 / L.w;
-      pg.drawSvgPath(L.letters, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.white) });
-      pg.drawSvgPath(L.square, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.amber) });
-      pg.drawText(T('Cargo insurance indications, quotations & cover'), { x: M, y: H - 62, size: 7.5, font: f.r, color: rgb(.72, .85, .76) });
+      // header: issued by MARINCON (logo), navy rule
+      pg.drawRectangle({ x:0, y:H-82, width:W, height:82, color:col(C.white) });
+      pg.drawRectangle({ x:0, y:H-84, width:W, height:2.5, color:col(C.harbour) });
+      if(logoImg){ const h = 40, w = Math.min(210, logoImg.width * h / logoImg.height); pg.drawImage(logoImg, { x: M, y: H - 22 - h, width: w, height: w * logoImg.height / logoImg.width }); }
+      else{ pg.drawText('MARINCON', { x: M, y: H - 46, size: 22, font: f.b, color: col(C.harbour) }); pg.drawText(T('Marine Insurance Brokers - Hamburg'), { x: M, y: H - 62, size: 8, font: f.r, color: col(C.steel) }); }
       const tt = T(meta.title).toUpperCase(), tw = f.b.widthOfTextAtSize(tt, 12);
-      pg.drawText(tt, { x:W-M-tw, y:H-44, size:12, font:f.b, color:col(C.white) });
-      if(meta.ref){ const rw = f.r.widthOfTextAtSize(T(meta.ref), 9); pg.drawText(T(meta.ref), { x:W-M-rw, y:H-58, size:9, font:f.r, color:rgb(.85,.92,.93) }); }
+      pg.drawText(tt, { x:W-M-tw, y:H-44, size:12, font:f.b, color:col(C.harbour) });
+      if(meta.ref){ const rw = f.r.widthOfTextAtSize(T(meta.ref), 9); pg.drawText(T(meta.ref), { x:W-M-rw, y:H-58, size:9, font:f.r, color:col(C.steel) }); }
       ctx.y = H - 112;
       return pg;
     };
@@ -161,7 +170,7 @@
     return ctx;
   }
 
-  const legal = () => (window.FREIGHTCON_LEGAL_LINE || FC.brand);
+  const legal = () => (/marincon/i.test(window.FREIGHTCON_LEGAL_LINE || '') ? FC.dash(window.FREIGHTCON_LEGAL_LINE) : 'MARINCON GmbH & Co. KG, Hamburg');
   const placeOf = (place, name) => [place, name].filter(Boolean).join(', ');
 
   // ---------------- indication ----------------
@@ -182,7 +191,7 @@
       ['Special', [r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Seller's / buyer's own interest only (contingency cover)" : ''].filter(Boolean).join(', ')],
       ['Extensions', [r.ext_hssc ? 'Heating, sweating & spontaneous combustion (HSSC)' : '', r.ext_liw ? 'Loss / difference in weight (LiW / DiW)' : ''].filter(Boolean).join(', ')],
       ['Vessel', /^sea_/.test(r.conveyance) ? (r.vessel || 'To be declared') : ''],
-      ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + '), insured for the ' + (r.insured_party || 'seller') : '']
+      ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + ')' : ''], ['Role of the client', r.insured_party ? FC.partyLabel(r.insured_party, r.party_role_other) : '']
     ]);
     ctx.heading('Cover');
     const cov = FC.COVER[r.cover] || {};
@@ -214,11 +223,19 @@
     0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x2013:0x96, 0x2014:0x97, 0x02DC:0x98, 0x2122:0x99, 0x0161:0x9A, 0x203A:0x9B, 0x0153:0x9C, 0x017E:0x9E, 0x0178:0x9F };
   P.cp1252 = str => { const out = new Uint8Array(str.length); let n = 0; for(const ch of str){ const c = ch.codePointAt(0); out[n++] = (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) ? c : (CP1252[c] || 0x3F); } return out.slice(0, n); };
   // FDF 1.2 for Adobe: literal strings with \( \) \\ escaped and line breaks as \r
+  // exact AcroForm field names of the MARINCON / AKM certificate form (plus the generic names ConditionNo / Additional Agreements)
+  P.certFields = x => [['Curr', x.curr], ['Sum Insured', x.sum], ['Perc', x.perc], ['Type of Value', x.valueType], ['Date of Issue', x.date], ['Doc', x.doc], ['Doc No', x.docNo], ["Ori's", x.originals],
+    ['Pol No', x.polNo], ['No', x.no], ['Order/Ref No', x.ref], ['The holder of this policy', x.holder], ['Description of Goods', x.goods], ['voyage from', x.from], ['voyage to', x.to], ['conveyance', x.conveyance],
+    ['1', '1'], ['5', x.box === '5' ? '5' : ''], ['6', x.box === '6' ? '6' : ''], ['ConditionNo', x.box], ['LC Info', x.agreements], ['Additional Agreements', x.agreements], ['wwwvhtnetworkde', x.claims]];
+  // 33,562.80 and 06.10.2026
+  P.certNum = n => Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  P.certDate = d => { d = d ? new Date(d) : new Date(); const t = n => String(n).padStart(2, '0'); return t(d.getDate()) + '.' + t(d.getMonth() + 1) + '.' + d.getFullYear(); };
   P.fdf = (pdfFile, fields) => {
-    const lit = v => '(' + String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r\n|\n|\r/g, '\\r') + ')';
-    const body = '%FDF-1.2\n%âãÏÓ\n1 0 obj\n<< /FDF << /F ' + lit(pdfFile) + ' /Fields [\n'
+    const lit = v => '(' + FC.dash(v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r\n|\n|\r/g, '\\r') + ')';
+    // no /F: the .fdf never opens or looks for a master PDF; it is imported into the form by the user
+    const body = '%FDF-1.2\n%âãÏÓ\n1 0 obj\n<<\n/FDF <<\n/Fields [\n'
       + fields.map(([t, v]) => '<< /T ' + lit(t) + ' /V ' + lit(v) + ' >>').join('\n')
-      + '\n] >> >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n';
+      + '\n]\n>>\n>>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n';
     return P.cp1252(body);
   };
   // fill the blank form directly (fields stay editable)
@@ -243,7 +260,7 @@
   P.quotation = async (q, ind) => {
     const d = q.data || {};
     const ctx = await newDoc({ title:'Quotation', ref: (ind && ind.ref ? ind.ref : '') + (q.version > 1 ? ' / v' + q.version : '') });
-    ctx.para('Issued ' + FC.dateTime(d.issuedAt || q.created_at) + '  —  valid until ' + FC.dateTime(q.valid_until || d.validUntil), { color:C.steel, size:9 });
+    ctx.para('Issued ' + FC.dateTime(d.issuedAt || q.created_at) + '  -  valid until ' + FC.dateTime(q.valid_until || d.validUntil), { color:C.steel, size:9 });
     const conv = (FC.CONVEYANCE[d.conveyance] || {}).short || d.conveyance || '';
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.heading('Assured & shipment');
@@ -298,7 +315,7 @@
   P.coverNote = async (cn, ind) => {
     const d = cn.data || {};
     const ctx = await newDoc({ title:'Cover note', ref: cn.number || d.number || '' });
-    ctx.para('Issued ' + FC.dateTime(cn.issued_at || d.issuedAt) + (ind && ind.ref ? '  —  reference ' + ind.ref : ''), { color:C.steel, size:9 });
+    ctx.para('Issued ' + FC.dateTime(cn.issued_at || d.issuedAt) + (ind && ind.ref ? '  -  reference ' + ind.ref : ''), { color:C.steel, size:9 });
     const conv = (FC.CONVEYANCE[d.conveyance] || {}).short || d.conveyance || '';
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.para('We confirm that insurance has been effected as follows:', { bold:true });
