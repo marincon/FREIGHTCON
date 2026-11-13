@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-13a';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-13b';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -180,7 +180,42 @@
   };
   FC.noRisk = (term, party) => term && party && ((FC.INCOTERMS[term] || {}).pt === 0 ? party === 'seller' : (FC.INCOTERMS[term] || {}).pt === 3 ? party === 'buyer' : false);
   FC.STATUS = { quoted:'Indication', on_request:'On request', sanctioned:'Compliance review' };
-  FC.STAGE = { new:'New', in_progress:'In quotation', quoted:'Quoted', accepted:'Accepted', declined:'Declined', bound:'Bound', lost:'Lost', closed:'Closed' };
+  // request lifecycle (older names are mapped by the database)
+  FC.STAGE = { request:'Request', working_on_it:'Working on it', quotation:'Quotation', certificate:'Certificate', closed:'Closed' };
+  FC.STAGE_OLD = { new:'request', in_progress:'working_on_it', quoted:'quotation', accepted:'certificate', bound:'certificate', declined:'closed', lost:'closed' };
+  FC.stageOf = s => FC.STAGE_OLD[s] || s || 'request';
+  FC.CLOSURE = { completed:'Completed', declined_by_insurer:'Declined by insurer', not_taken_up:'Not taken up by client', cancelled:'Cancelled' };
+  // what clients see on quotations
+  FC.DISPLAY = { both:'Rate and premium', rate_only:'Rate only', premium_only:'Premium only' };
+  FC.showRate = m => m !== 'premium_only';
+  FC.showPremium = m => m !== 'rate_only';
+  // German insurance premium tax: same rules as public.ipt_eval
+  FC.IPT_MODE = { auto:'Auto (rules)', on:'Apply by default', off:'Turned off' };
+  FC.iptEval = (s, mode, from, to, holder, assured) => {
+    s = s || { default_rate:19, default_mode:'off' };
+    const r = Number(s.default_rate), rs = String(Math.round(r * 100) / 100), m = mode || s.default_mode;
+    if(m === 'off') return { applied:false, rate:r, mode:m, reason:'German IPT turned off' };
+    if(m === 'on') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: set to apply by default' };
+    const U = x => String(x || '').toUpperCase(), why = [];
+    if(s.rule_holder_de && U(holder) === 'DE') why.push('German Policyholder');
+    if(s.rule_assured_de && U(assured) === 'DE') why.push('German Assured');
+    const dom = why.length > 0 || !(s.rule_holder_de || s.rule_assured_de);
+    let route = false;
+    if(s.rule_domestic && U(from) === 'DE' && U(to) === 'DE'){ why.push('Domestic German transport'); route = true; }
+    else{ if(s.rule_from_de && U(from) === 'DE'){ why.push('Route from Germany'); route = true; } if(s.rule_to_de && U(to) === 'DE'){ why.push('Route to Germany'); route = true; } }
+    if(!(s.rule_domestic || s.rule_from_de || s.rule_to_de)) route = s.combine === 'domicile_and_route';
+    const ok = s.combine === 'any' ? why.length > 0 : dom && route;
+    return { applied: ok, rate:r, mode:m, reason: ok ? 'German IPT ' + rs + '% applied: ' + why.join(' & ') : 'No German IPT: ' + (why.length ? why.join(' & ') + ' only' : 'no German policyholder, assured or route') };
+  };
+  // merge tags for text templates
+  FC.MERGE_TAGS = [['client_name','Client name'],['assured_name','Assured name'],['policy_number','Policy number'],['certificate_number','Certificate number'],['reference','Our reference'],
+    ['cargo_description','Cargo description'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['conveyance','Conveyance'],['departure_date','Departure date'],['sum_insured','Sum insured'],['currency','Currency'],
+    ['rate_pct','Rate %'],['premium_amount','Premium (net)'],['ipt_amount','German IPT amount'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
+  FC.merge = (html, ctx) => String(html || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => ctx && ctx[k] != null && ctx[k] !== '' ? FC.esc(FC.dash(ctx[k])) : '');
+  // .fdf: Acrobat's number format script wants 33562.80 (no thousands separator)
+  FC.fdfNum = n => { const v = typeof n === 'number' ? n : FC.parseNum ? FC.parseNum(n) : Number(String(n).replace(/,/g, '')); return isFinite(v) ? v.toFixed(2) : ''; };
+  FC.FDF_HINT = 'Open your local master PDF in Adobe Acrobat first, then drag and drop this .fdf file directly onto the open PDF window.';
+  FC.fdfHint = () => FC.toast('.fdf downloaded. ' + FC.FDF_HINT, 'info', 10000);
 
   // ---------- icons ----------
   const svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -222,12 +257,12 @@
   FC.busy = (btn, on) => { if(!btn) return; btn.disabled = !!on; btn.classList.toggle('busy', !!on); };
 
   // ---------- toast ----------
-  FC.toast = (msg, kind) => {
+  FC.toast = (msg, kind, ms) => {
     let host = document.getElementById('toasts');
     if(!host){ host = document.createElement('div'); host.id = 'toasts'; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite'); document.body.appendChild(host); }
     const t = document.createElement('div'); t.className = 'toast' + (kind === 'error' ? ' error' : ''); t.textContent = msg;
     host.appendChild(t);
-    setTimeout(() => t.remove(), kind === 'error' ? 6500 : 3800);
+    setTimeout(() => t.remove(), ms || (kind === 'error' ? 6500 : 3800));
   };
 
   // ---------- dialog ----------
@@ -267,16 +302,25 @@
   // ---------- rich text (quotation wording): only a few safe tags and classes survive ----------
   const RT_TAGS = new Set(['SECTION','H4','P','DIV','UL','OL','LI','B','STRONG','I','EM','U','MARK','BR','SPAN']);
   const RT_CLS = new Set(['box','big']);
+  // inline styles from the formatting toolbar: font, size, colours, alignment
+  const RT_STYLE = { 'font-family': /^[\w\s,'"-]{1,80}$/, 'font-size': /^(\d{1,2}(\.\d)?(pt|px)|\d{2,3}%|x?x-small|small|medium|large|x?x-large)$/, 'color': /^(#[0-9a-f]{3,6}|rgba?\([\d\s.,%]+\))$/i,
+    'background-color': /^(#[0-9a-f]{3,6}|rgba?\([\d\s.,%]+\)|transparent)$/i, 'text-align': /^(left|center|right|justify)$/, 'font-weight': /^(bold|700|normal|400)$/, 'font-style': /^(italic|normal)$/, 'text-decoration': /^(underline|none)$/, 'text-decoration-line': /^(underline|none)$/ };
+  const safeStyle = st => String(st || '').split(';').map(x => { const i = x.indexOf(':'); if(i < 0) return ''; const k = x.slice(0, i).trim().toLowerCase(), v = x.slice(i + 1).trim(); return RT_STYLE[k] && RT_STYLE[k].test(v) ? k + ':' + v : ''; }).filter(Boolean).join(';');
   FC.cleanHtml = html => {
     const doc = new DOMParser().parseFromString('<div>' + String(html || '') + '</div>', 'text/html');
+    let walkOne;
     const walk = node => {
-      Array.from(node.childNodes).forEach(n => {
+      Array.from(node.childNodes).forEach(walkOne = n => {
         if(n.nodeType === 3) return;
+        if(n.nodeType === 1 && n.tagName === 'FONT'){ const sp = doc.createElement('span'); const st = [n.getAttribute('face') ? 'font-family:' + n.getAttribute('face') : '', n.getAttribute('color') ? 'color:' + n.getAttribute('color') : '', n.style && n.style.cssText || ''].filter(Boolean).join(';'); if(st) sp.setAttribute('style', st); while(n.firstChild) sp.appendChild(n.firstChild); n.replaceWith(sp); return walkOne(sp); }
         if(n.nodeType !== 1 || !RT_TAGS.has(n.tagName)){ if(n.nodeType === 1 && !['SCRIPT','STYLE','IFRAME','OBJECT'].includes(n.tagName)){ walk(n); n.replaceWith(...n.childNodes); } else n.remove(); return; }
-        const cls = Array.from(n.classList).filter(c => RT_CLS.has(c)), cat = n.tagName === 'SECTION' ? n.getAttribute('data-cat') : null;
+        const cls = Array.from(n.classList).filter(c => RT_CLS.has(c)), cat = n.tagName === 'SECTION' ? n.getAttribute('data-cat') : null, st = safeStyle(n.getAttribute('style'));
+        const al = n.getAttribute('align');
         Array.from(n.attributes).forEach(a => n.removeAttribute(a.name));
         if(cls.length) n.className = cls.join(' ');
-        if(cat && /^[a-z]+$/.test(cat)) n.setAttribute('data-cat', cat);
+        if(cat && /^[a-z][a-z0-9_]{0,39}$/.test(cat)) n.setAttribute('data-cat', cat);
+        const st2 = [st, al && /^(left|center|right|justify)$/.test(al) ? 'text-align:' + al : ''].filter(Boolean).join(';');
+        if(st2) n.setAttribute('style', st2);
         walk(n);
       });
     };
@@ -284,18 +328,22 @@
     return doc.body.firstChild.innerHTML;
   };
   // the same wording with inline styles, for pasting into an e-mail
-  FC.emailHtml = html => {
-    // Editor.pdf format: Calibri 10 pt, black, bold + underlined headings, 8 pt after each paragraph
+  // default typography (text formatting of the level): Calibri 10 pt, line height 1.35, 8 pt after each paragraph
+  FC.FMT = { font_family:'Calibri', font_size_pt:10, line_height:1.35, paragraph_spacing_pt:8, text_color:'#000000' };
+  FC.fmtCss = f => { f = Object.assign({}, FC.FMT, f || {}); const fam = String(f.font_family).replace(/[^\w\s,-]/g, ''); return 'font-family:' + fam + ',sans-serif;font-size:' + Number(f.font_size_pt) + 'pt;line-height:' + Number(f.line_height) + ';color:' + f.text_color; };
+  FC.emailHtml = (html, fmt) => {
+    // Editor.pdf format: bold + underlined headings; typography from the level's default formatting
+    const f = Object.assign({}, FC.FMT, fmt || {});
     const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(FC.dash(html));
-    const P = 'margin:0 0 8pt 0;font-family:Calibri,sans-serif;font-size:10pt;line-height:1.35;color:#000000';
+    const P = 'margin:0 0 ' + Number(f.paragraph_spacing_pt) + 'pt 0;' + FC.fmtCss(f);
     d.querySelectorAll('h4').forEach(e => { const p = document.createElement('p'); p.innerHTML = '<b><u>' + e.innerHTML + '</u></b>'; e.replaceWith(p); });
-    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', P));
-    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', P + ';border:1px solid #000000;padding:6pt 8pt'));
+    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', P + (e.getAttribute('style') ? ';' + e.getAttribute('style') : '')));
+    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', e.getAttribute('style') + ';border:1px solid ' + f.text_color + ';padding:6pt 8pt'));
     d.querySelectorAll('.big').forEach(e => e.setAttribute('style', 'font-size:120%'));
     d.querySelectorAll('mark').forEach(e => e.setAttribute('style', 'background:#FFF2A8'));
     d.querySelectorAll('[class]').forEach(e => e.removeAttribute('class'));
     d.querySelectorAll('[data-cat]').forEach(e => e.removeAttribute('data-cat'));
-    return '<div style="font-family: Calibri, sans-serif; font-size: 10pt; line-height: 1.35; color: #000000;">' + d.innerHTML + '</div>';
+    return '<div style="' + FC.fmtCss(f) + '">' + d.innerHTML + '</div>';
   };
   FC.copyRich = async (html, text) => {
     html = FC.dash(html); text = FC.dash(text);

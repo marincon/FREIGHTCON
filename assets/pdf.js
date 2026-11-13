@@ -224,12 +224,15 @@
   P.cp1252 = str => { const out = new Uint8Array(str.length); let n = 0; for(const ch of str){ const c = ch.codePointAt(0); out[n++] = (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) ? c : (CP1252[c] || 0x3F); } return out.slice(0, n); };
   // FDF 1.2 for Adobe: literal strings with \( \) \\ escaped and line breaks as \r
   // exact AcroForm field names of the MARINCON / AKM certificate form (plus the generic names ConditionNo / Additional Agreements)
-  P.certFields = x => [['Curr', x.curr], ['Sum Insured', x.sum], ['Perc', x.perc], ['Type of Value', x.valueType], ['Date of Issue', x.date], ['Doc', x.doc], ['Doc No', x.docNo], ["Ori's", x.originals],
+  // Sum Insured raw with two decimals (33562.80): the form's AFNumber_Format script rejects 33,562.80; Perc and Ori's digits only
+  const digits = v => String(v == null ? '' : v).replace(/[^\d]/g, '');
+  P.certFields = x => [['Curr', x.curr], ['Sum Insured', FC.fdfNum(x.sum)], ['Perc', digits(x.perc)], ['Type of Value', x.valueType], ['Date of Issue', x.date], ['Doc', x.doc], ['Doc No', x.docNo], ["Ori's", digits(x.originals)],
     ['Pol No', x.polNo], ['No', x.no], ['Order/Ref No', x.ref], ['The holder of this policy', x.holder], ['Description of Goods', x.goods], ['voyage from', x.from], ['voyage to', x.to], ['conveyance', x.conveyance],
     ['1', '1'], ['5', x.box === '5' ? '5' : ''], ['6', x.box === '6' ? '6' : ''], ['ConditionNo', x.box], ['LC Info', x.agreements], ['Additional Agreements', x.agreements], ['wwwvhtnetworkde', x.claims]];
-  // 33,562.80 and 06.10.2026
+  // on screen 33,562.80; in the .fdf FC.fdfNum gives 33562.80; dates 06.10.2026
   P.certNum = n => Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
   P.certDate = d => { d = d ? new Date(d) : new Date(); const t = n => String(n).padStart(2, '0'); return t(d.getDate()) + '.' + t(d.getMonth() + 1) + '.' + d.getFullYear(); };
+  // completely without /F and /UF: Acrobat imports the fields into whichever master PDF is open (any file name)
   P.fdf = (pdfFile, fields) => {
     const lit = v => '(' + FC.dash(v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r\n|\n|\r/g, '\\r') + ')';
     // no /F: the .fdf never opens or looks for a master PDF; it is imported into the form by the user
@@ -271,24 +274,44 @@
     ctx.heading('Cover');
     ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.doc ? '' : d.special]]);
     ctx.heading('Premium');
-    const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate), FC.money2(l.premium, d.currency)]);
-    if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
-    if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
-    if(Number(d.taxPct) > 0) rows.push(['Insurance tax ' + Number(d.taxPct) + ' %', '', '', FC.money2(d.tax, d.currency)]);
-    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
-    ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
+    // display mode: rate only, premium only, or both
+    const mode = d.displayMode || 'both', sR = FC.showRate(mode), sP = FC.showPremium(mode), tax = Number(d.taxPct) > 0;
+    const taxLbl = (d.iptApplied !== false ? 'German IPT' : 'Insurance tax') + ' (' + Number(d.taxPct) + '%)';
+    if(sR && sP){
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate), FC.money2(l.premium, d.currency)]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
+      if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
+      if(tax){ rows.push(['Net premium', '', '', FC.money2(d.net, d.currency)]); rows.push([taxLbl, '', '', FC.money2(d.tax, d.currency)]); }
+      rows.push({ cells:[tax ? 'Gross total incl. IPT' : 'Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
+      ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
+    }else if(sP){
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.money2(l.premium, d.currency)]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount ' + Number(d.discountPct) + ' %', '', '- ' + FC.money2(d.discountAmount, d.currency)]);
+      if(d.minApplied) rows.push(['Minimum premium applied', '', '']);
+      if(tax){ rows.push(['Net premium', '', FC.money2(d.net, d.currency)]); rows.push([taxLbl, '', FC.money2(d.tax, d.currency)]); }
+      rows.push({ cells:[tax ? 'Gross total incl. IPT' : 'Total premium payable', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
+      ctx.table(['Cover', 'Sum insured', 'Premium'], rows, [.5, .25, .25], { right:[1,2] });
+    }else{
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate)]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %']);
+      if(tax) rows.push([taxLbl + ' on the premium', '', 'added']);
+      ctx.table(['Cover', 'Sum insured', 'Rate'], rows, [.5, .25, .25], { right:[1,2] });
+    }
+    if(tax && d.iptReason) ctx.para(d.iptReason, { size:8, color:C.steel });
     // minimum premium and, where war & strikes are excluded, both rates side by side
     const W = d.warExcl, terms = [];
     if(Number(d.minPremium) > 0) terms.push(['Minimum premium', FC.money2(d.minPremium, d.currency)]);
     if(W && W.offerBuyback){
-      terms.push(['Rate, W&S excluded', FC.pct(W.rateExcl) + '  (' + FC.money2(W.totalExcl, d.currency) + ' payable)']);
-      terms.push(['Rate, W&S re-included', FC.pct(W.rateIncl) + ' with war & strikes re-included for ' + W.areas.join(', ') + '  (' + FC.money2(W.totalIncl, d.currency) + ' payable)']);
+      const pay = v => sP && v != null ? '  (' + FC.money2(v, d.currency) + ' payable)' : '';
+      terms.push(['Rate, W&S excluded', (sR ? FC.pct(W.rateExcl) : 'as quoted') + pay(W.totalExcl)]);
+      terms.push(['Rate, W&S re-included', (sR ? FC.pct(W.rateIncl) + ' with' : 'With') + ' war & strikes re-included for ' + W.areas.join(', ') + pay(W.totalIncl)]);
     }
     if(terms.length) ctx.kv(terms);
     if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for these areas at the rate shown, say so when you accept.' : ''), [224,160,48]);
     if(d.doc){
       // the broker's wording: sections as headings, outlined paragraphs as boxes, bold paragraphs in bold
       const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc);
+      const fm = Object.assign({}, FC.FMT, d.fmt || {}), fs = Math.min(12, Math.max(7, Number(fm.font_size_pt) - 1)), sp = Number(fm.paragraph_spacing_pt);
       x.querySelectorAll('section').forEach(sec => {
         if(sec.dataset.cat === 'pricing') return;
         const h = sec.querySelector('h4'); ctx.heading(h ? h.textContent.trim() : 'Terms');
@@ -299,7 +322,7 @@
             const t = it.textContent.replace(/\s+/g, ' ').trim(); if(!t) return;
             const allBold = it.querySelector('b,strong') && Array.from(it.querySelectorAll('b,strong')).map(b => b.textContent).join('').replace(/\s+/g, '') === t.replace(/\s+/g, '');
             if(it.classList.contains('box')) ctx.box('', t, C.teal);
-            else ctx.para((it.tagName === 'LI' ? '•  ' : '') + t, { size:9, bold: !!allBold, after:3 });
+            else ctx.para((it.tagName === 'LI' ? '•  ' : '') + t, { size: fs, bold: !!allBold, after: Math.max(1, Math.round(sp * .4)) });
           });
         });
       });

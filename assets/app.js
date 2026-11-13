@@ -5,12 +5,14 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-13a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-13b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
   if(!session){ location.replace('index.html'); return; }
   const featP = sb.rpc('my_features').then(r => r.data || {}, () => ({}));   // in parallel with the profile
+  // what this client sees: rate only, premium only or both (set by staff per configuration, client and policy)
+  let DMODE = 'both'; sb.rpc('my_display_mode').then(r => { if(r && r.data) DMODE = r.data; }, () => {});
   const { data: profile } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
   if(!profile || !profile.approved || profile.rejected || profile.is_active === false){ await sb.auth.signOut(); location.replace('index.html'); return; }
   FC.profile = profile;
@@ -484,11 +486,15 @@
       body = `<div class="notice ok"><b>${FC.tick}Thank you - we have your declaration</b>Our brokers check the shipment against your open cover and send you the confirmation with the premium. You find it under My shipments. Questions? Reply to the e-mail or write to us via the feedback button.</div>
         ${r.conditions ? `<div class="notice info"><b>Special conditions</b>${esc(r.conditions)}</div>` : ''}`;
     }else if(r.status === 'quoted'){
+      const sR = FC.showRate(DMODE), sP = FC.showPremium(DMODE), ipt = !!r.ipt_applied && r.ipt_amount != null;
       hero = `<div class="premium pr-hero">
-          <div class="pr-main"><span class="pr-lbl">Your indicative premium</span><div class="amount">${esc(money2(r.premium, r.currency))}</div><span class="pr-sub">excl. insurance tax${r.min_applied ? ' · minimum premium applies' : ''}${Number(r.discount_pct) > 0 ? ' · incl. your ' + esc(Number(r.discount_pct)) + ' % discount' : ''}</span></div>
-          <div class="pr-side"><div><span>Rate on sum insured</span><b>${esc(FC.pct(r.rate_pct))}</b></div><div><span>Sum insured</span><b>${esc(money2(r.sum_insured, r.currency))}</b></div><div><span>Cover</span><b>${esc((cov.clause || '').replace('Institute Cargo Clauses', 'ICC'))}</b></div></div>
+          <div class="pr-main">${sP ? `<span class="pr-lbl">Your indicative premium</span><div class="amount">${esc(money2(r.premium, r.currency))}</div><span class="pr-sub">${ipt ? 'net, plus German IPT' : 'excl. insurance tax'}${r.min_applied ? ' · minimum premium applies' : ''}${Number(r.discount_pct) > 0 ? ' · incl. your ' + esc(Number(r.discount_pct)) + ' % discount' : ''}</span>`
+            : `<span class="pr-lbl">Your indicative rate</span><div class="amount">${esc(FC.pct(r.rate_pct))}</div><span class="pr-sub">on the sum insured${r.min_applied ? ' · minimum premium applies' : ''}${Number(r.discount_pct) > 0 ? ' · incl. your ' + esc(Number(r.discount_pct)) + ' % discount' : ''}</span>`}</div>
+          <div class="pr-side">${sR && sP ? `<div><span>Rate on sum insured</span><b>${esc(FC.pct(r.rate_pct))}</b></div>` : ''}<div><span>Sum insured</span><b>${esc(money2(r.sum_insured, r.currency))}</b></div><div><span>Cover</span><b>${esc((cov.clause || '').replace('Institute Cargo Clauses', 'ICC'))}</b></div></div>
         </div>`;
-      body = `${Number(r.discount_pct) > 0 ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
+      body = `${Number(r.discount_pct) > 0 && sP ? `<p class="breakdown">Includes your discount of ${esc(Number(r.discount_pct))} % (${esc(money2(r.premium_gross, r.currency))} before discount).</p>` : ''}
+        ${ipt ? (sP ? `<div class="ipt-box"><span class="ipt-badge on">${esc(r.ipt_reason || 'German IPT applied')}</span><table class="qv-tab"><tr><td>Net premium</td><td class="r">${esc(money2(r.premium, r.currency))}</td></tr><tr><td>German IPT (${esc(Number(r.ipt_rate))}%)</td><td class="r">${esc(money2(r.ipt_amount, r.currency))}</td></tr><tr class="tot"><td>Gross total incl. IPT</td><td class="r">${esc(money2(Number(r.premium) + Number(r.ipt_amount), r.currency))}</td></tr></table></div>`
+              : `<p class="breakdown"><span class="ipt-badge on">${esc(r.ipt_reason || 'German IPT applied')}</span> German IPT (${esc(Number(r.ipt_rate))}%) is added to the premium.</p>`) : ''}
         ${r.conditions ? `<div class="notice info"><b>Special conditions</b>${esc(r.conditions)}</div>` : ''}`;
     }else if(r.status === 'on_request'){
       body = r.is_out_of_cover ? `<div class="notice warn"><b>Outside your open cover</b>This shipment is not attached to your policy. We quote it separately as a single shipment:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>` : `<div class="notice warn"><b>We quote this shipment individually</b>It cannot be priced automatically because:<ul>${(r.reasons || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul>Request a quotation and we come back to you.</div>`;
@@ -497,8 +503,6 @@
     }
     // war & strikes not covered in some areas of this voyage (open cover terms)
     if((r.war_excluded || []).length) body += `<div class="notice warn"><b>War &amp; strikes excluded for: ${esc(r.war_excluded.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage. ${r.intake ? 'We tell you in the confirmation whether it can be bought back.' : 'Ask us if you need it bought back for these areas.'}</div>`;
-    // German insurance tax on purely domestic transport
-    if(r.origin_country === 'DE' && r.dest_country === 'DE' && r.status === 'quoted' && !r.intake) body += `<p class="breakdown">Domestic German transport: plus 19 % insurance tax = <b>${esc(money2(Math.round(Number(r.premium) * 19) / 100, r.currency))}</b>, total <b>${esc(money2(Math.round(Number(r.premium) * 119) / 100, r.currency))}</b>.</p>`;
     const requested = !!r.quote_requested_at;
     const card = FC.el(`<article class="card consign" aria-live="polite">
       <div class="consign-top"><span class="ref">${esc(r.ref || FC.STATUS[r.status] || 'Indication')}</span><span class="when">${esc(FC.dateTime(r.created_at))}</span></div>
@@ -537,7 +541,7 @@
     </article>`);
     const host = $('#resultHost'); host.innerHTML = ''; host.appendChild(card);
     FC.playRoute(card.querySelector('.track'), animate);
-    if(animate && r.status === 'quoted') FC.countUp(card.querySelector('.premium .amount'), Number(r.premium), v => money2(Math.round(v * 100) / 100, r.currency), 800);
+    if(animate && r.status === 'quoted' && FC.showPremium(DMODE)) FC.countUp(card.querySelector('.premium .amount'), Number(r.premium), v => money2(Math.round(v * 100) / 100, r.currency), 800);
     const ab = card.querySelector('#againBtn');
     if(ab) ab.addEventListener('click', () => { $('#clearBtn').click(); });
     const rb = card.querySelector('#reqBtn');
@@ -802,7 +806,7 @@
   // certificates issued by the client (.fdf data file for the certificate form; no PDF is opened automatically)
   async function clientCertificate(indId, shipment, preset){
     const t = FCPDF.certDate();
-    const body = FC.el(`<div><p class="small" style="margin-top:0">${indId ? 'Certificate for your accepted shipment.' : 'The shipment is recorded with us now and the certificate number is issued at once.'} You receive the certificate as an .fdf data file: open your blank certificate form in Adobe Acrobat and drag the file onto it.</p><div class="grid2">
+    const body = FC.el(`<div><p class="small" style="margin-top:0">${indId ? 'Certificate for your accepted shipment.' : 'The shipment is recorded with us now and the certificate number is issued at once.'} You receive the certificate as an .fdf data file. ${esc(FC.FDF_HINT)}</p><div class="grid2">
       <div class="field"><label for="ccRef">Order / ref. no.</label><input id="ccRef" maxlength="100" value="${esc(preset.ref || '')}"></div>
       <div class="field"><label for="ccDate">Date of issue</label><input id="ccDate" maxlength="10" value="${esc(t)}"></div>
       <div class="field"><label for="ccDoc">Document</label><select id="ccDoc"><option>Original</option><option>Copy</option></select></div>
@@ -818,9 +822,9 @@
       const x = { curr: data.currency, sum: FCPDF.certNum(data.sum_insured), perc: String(100 + Number(data.uplift_pct || 0)), valueType: ['CIF','CIP'].includes(String(data.incoterm || '').toUpperCase()) ? 'CIF Value' : 'Invoice Value',
         date: cert.date, doc: cert.doc, docNo: '1.', originals: cert.originals, polNo: data.pol_no || '', no: data.number, ref: [data.ref, cert.ref].filter(Boolean).join(' / '), holder: data.holder || '',
         goods: data.goods || '', from: data.from || '', to: data.to || '', conveyance: [(FC.CONVEYANCE[data.conveyance] || {}).label, data.vessel].filter(Boolean).join(' - '), box: air ? '6' : '5',
-        agreements: [data.conditions, cert.agreements].filter(Boolean).join('\n'), claims: data.claims || '' };
-      FC.saveBlob(FCPDF.fdf('', FCPDF.certFields(x)), 'Certificate_' + data.number + (data.ref ? '_' + data.ref : '') + '.fdf', 'application/vnd.fdf');
-      toast('Certificate ' + data.number + ' issued - .fdf downloaded.'); refreshBadges(); return true; } }] });
+        agreements: [data.agreements ? FC.htmlText(data.agreements) : '', data.conditions, cert.agreements].filter(Boolean).join('\n'), claims: data.claims || '' };
+      FC.saveBlob(FCPDF.fdf('', FCPDF.certFields(x)), 'Certificate_' + String(data.number).replace(/[^\w-]+/g, '_') + (data.ref ? '_' + data.ref : '') + '.fdf', 'application/vnd.fdf');
+      FC.toast('Certificate ' + data.number + ' issued - .fdf downloaded. ' + FC.FDF_HINT, 'info', 10000); refreshBadges(); return true; } }] });
   }
   $('#directCertBtn').addEventListener('click', async () => { const v = readForm(); if(!validate(v)) return; await clientCertificate(null, v, { ref: v.customer_ref }); });
   async function go(v){
@@ -842,7 +846,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-13a');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-13b');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -852,7 +856,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-13a').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-13b').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -893,6 +897,8 @@
     return `<div class="steps">${['Quoted','Accepted','Covered'].map((l, i) => `<span class="${i < st ? 'on' : ''}${i === st - 1 ? ' cur' : ''}">${l}</span>`).join('')}</div>`;
   };
   const coverable = q => q.cover_note || q.status === 'accepted';
+  // amount shown for a quotation: total, or the rate when the client sees rates only
+  const qAmt = q => { const d = q.data || {}, m = q.display_mode || d.displayMode; return FC.showPremium(m) ? money2(d.total, d.currency) : 'rate ' + FC.pct(((d.lines || [])[0] || {}).rate); };
   function renderQuotes(){
     const host = $('#qList'); host.innerHTML = '';
     $('#waitBadge').hidden = !waiting.length; $('#waitBadge').textContent = waiting.length;
@@ -903,7 +909,7 @@
         const it = FC.el(`<div class="item ship${!q.seen_at ? ' new' : ''}">
           <div class="ship-main">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}
             <div><div class="t">${esc(d.goods || '')}</div>
-            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''} · <b class="num">${esc(money2(d.total, d.currency))}</b>${q.status === 'open' ? ' · valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}${cls.length ? ' · <span class="chip pending">' + cls.length + ' claim' + (cls.length > 1 ? 's' : '') + '</span>' : ''}</div>
+            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''} · <b class="num">${esc(qAmt(q))}</b>${q.status === 'open' ? ' · valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}${cls.length ? ' · <span class="chip pending">' + cls.length + ' claim' + (cls.length > 1 ? 's' : '') + '</span>' : ''}</div>
             ${shipSteps(q)}</div></div>
           <div class="acts"></div></div>`);
         if(st === 'bound' || st === 'accepted'){
@@ -1205,15 +1211,17 @@
     const wording = d.doc ? (() => { const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc); x.querySelectorAll('section[data-cat="pricing"]').forEach(e => e.remove()); return x.innerHTML; })() : '';
     const place = (p, c) => `<b>${esc(p || countryName(c) || c || '')}</b><span>${esc(p ? countryName(c) || c || '' : '')}</span>`;
     const fact = (k, v) => v ? `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>` : '';
-    const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<span>${esc(money2(l.sum, cur))} × ${esc(FC.pct(l.rate))}</span></td><td class="r">${esc(money2(l.premium, cur))}</td></tr>`).join('');
+    const mode = q.display_mode || d.displayMode || 'both', sR = FC.showRate(mode), sP = FC.showPremium(mode), tax = Number(d.taxPct) > 0;
+    const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<span>${esc(money2(l.sum, cur))}${sR ? ' × ' + esc(FC.pct(l.rate)) : ''}</span></td><td class="r">${sP ? esc(money2(l.premium, cur)) : esc(FC.pct(l.rate))}</td></tr>`).join('');
     const next = q.cover_note ? `Your cover is in place. Cover note <b>${esc(q.cover_note.number)}</b> is ready to download. If something happens in transit, report it under <b>Claims</b>.`
       : q.status === 'accepted' ? 'Thank you for your instruction. We are placing the cover with the insurer and send you the cover note shortly.'
       : q.status === 'open' ? 'Take your time to review. If everything fits, accept the quotation and we place the cover and send you the cover note. Questions or changes? Just write us a message below.'
       : 'This quotation is no longer open. Calculate the shipment again or contact us for a new offer.';
     return `<div class="qv">
       <div class="qv-hero st-${esc(st)}">
-        <div class="qv-amt"><span class="qv-lbl">Total premium payable</span><span class="amount num">${esc(money2(d.total, cur))}</span>
-          <span class="qv-sub">${Number(d.taxPct) > 0 ? 'incl. ' + esc(Number(d.taxPct)) + ' % insurance tax' : 'no insurance tax applied'}${(d.lines || [])[0] ? ' · sum insured ' + esc(money2(d.lines[0].sum, cur)) : ''}</span></div>
+        <div class="qv-amt">${sP ? `<span class="qv-lbl">${tax ? 'Gross total incl. IPT' : 'Total premium payable'}</span><span class="amount num">${esc(money2(d.total, cur))}</span>
+          <span class="qv-sub">${tax ? 'incl. German IPT (' + esc(Number(d.taxPct)) + '%)' : 'no insurance tax applied'}${(d.lines || [])[0] ? ' · sum insured ' + esc(money2(d.lines[0].sum, cur)) : ''}</span>`
+          : `<span class="qv-lbl">Premium rate</span><span class="amount num">${esc(FC.pct(((d.lines || [])[0] || {}).rate))}</span><span class="qv-sub">on the sum insured${(d.lines || [])[0] ? ' of ' + esc(money2(d.lines[0].sum, cur)) : ''}${tax ? ' · plus German IPT (' + esc(Number(d.taxPct)) + '%)' : ''}</span>`}</div>
         <div class="qv-st"><span class="qv-pill">${esc(stTxt)}</span><span class="qv-valid">${FC.icon.clock}<span>Valid until<br><b>${esc(validTxt)}</b></span></span>${shipSteps(q)}</div>
       </div>
       <div class="qv-route">
@@ -1234,20 +1242,21 @@
       </div>
       <div class="qv-sec"><h3>${FC.icon.coin} Premium</h3>
         <table class="qv-tab">${lines}
-          ${Number(d.discountPct) > 0 ? `<tr><td>Client discount ${esc(Number(d.discountPct))} %</td><td class="r">− ${esc(money2(d.discountAmount, cur))}</td></tr>` : ''}
-          ${Number(d.taxPct) > 0 ? `<tr><td>Insurance tax ${esc(Number(d.taxPct))} %</td><td class="r">${esc(money2(d.tax, cur))}</td></tr>` : ''}
-          <tr class="tot"><td>Total premium payable</td><td class="r">${esc(money2(d.total, cur))}</td></tr></table>
+          ${Number(d.discountPct) > 0 ? `<tr><td>Client discount ${esc(Number(d.discountPct))} %</td><td class="r">${sP ? '- ' + esc(money2(d.discountAmount, cur)) : '- ' + esc(Number(d.discountPct)) + ' %'}</td></tr>` : ''}
+          ${sP && tax ? `<tr><td>Net premium</td><td class="r">${esc(money2(d.net, cur))}</td></tr><tr><td>German IPT (${esc(Number(d.taxPct))}%)</td><td class="r">${esc(money2(d.tax, cur))}</td></tr>` : ''}
+          ${sP ? `<tr class="tot"><td>${tax ? 'Gross total incl. IPT' : 'Total premium payable'}</td><td class="r">${esc(money2(d.total, cur))}</td></tr>` : tax ? `<tr><td colspan="2">German IPT (${esc(Number(d.taxPct))}%) is added to the premium.</td></tr>` : ''}</table>
+        ${tax && d.iptReason ? `<p class="xs muted" style="margin:6px 0 0">${esc(d.iptReason)}</p>` : ''}
         ${Number(d.minPremium) > 0 || d.warExcl ? `<div class="qv-terms">
           ${Number(d.minPremium) > 0 ? `<div class="qv-term"><span>Minimum premium</span><b>${esc(money2(d.minPremium, cur))}</b>${d.minApplied ? '<i>applies to this shipment</i>' : ''}</div>` : ''}
-          ${d.warExcl && d.warExcl.offerBuyback ? `<div class="qv-term"><span>Rate with war &amp; strikes excluded</span><b>${esc(FC.pct(d.warExcl.rateExcl))}</b><i>${esc(money2(d.warExcl.totalExcl, cur))} payable</i></div>
-            <div class="qv-term alt"><span>Rate with war &amp; strikes re-included for ${esc(d.warExcl.areas.join(', '))}</span><b>${esc(FC.pct(d.warExcl.rateIncl))}</b><i>${esc(money2(d.warExcl.totalIncl, cur))} payable</i></div>` : ''}
+          ${d.warExcl && d.warExcl.offerBuyback ? `<div class="qv-term"><span>${sR ? 'Rate' : 'Premium'} with war &amp; strikes excluded</span><b>${esc(sR ? FC.pct(d.warExcl.rateExcl) : money2(d.warExcl.totalExcl, cur))}</b>${sR && sP ? `<i>${esc(money2(d.warExcl.totalExcl, cur))} payable</i>` : ''}</div>
+            <div class="qv-term alt"><span>${sR ? 'Rate' : 'Premium'} with war &amp; strikes re-included for ${esc(d.warExcl.areas.join(', '))}</span><b>${esc(sR ? FC.pct(d.warExcl.rateIncl) : money2(d.warExcl.totalIncl, cur))}</b>${sR && sP ? `<i>${esc(money2(d.warExcl.totalIncl, cur))} payable</i>` : ''}</div>` : ''}
         </div>` : ''}
         ${d.warExcl ? `<div class="notice warn" style="margin-top:12px"><b>War &amp; strikes excluded for: ${esc(d.warExcl.areas.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage.${d.warExcl.offerBuyback ? ' To re-include it for these areas, say so in your message when you accept.' : ''}</div>` : ''}
       </div>
       ${d.note ? `<div class="notice info"><b>Note from us</b>${esc(d.note)}</div>` : ''}
       ${q.response_note ? `<div class="notice ok"><b>Your message</b>${esc(q.response_note)}</div>` : ''}
       <div class="qv-next st-${esc(st)}">${FC.icon.send}<p>${next}</p></div>
-      ${wording ? `<div class="qv-sec"><h3>${FC.icon.doc} Terms &amp; conditions</h3><div class="qv-wording">${wording}</div></div>` : ''}
+      ${wording ? `<div class="qv-sec"><h3>${FC.icon.doc} Terms &amp; conditions</h3><div class="qv-wording" style="${esc(d.fmt ? FC.fmtCss(d.fmt) : '')}">${wording}</div></div>` : ''}
       ${!d.doc && (d.subjectivities || []).length ? `<details class="qv-subj"><summary>This offer is subject to ${d.subjectivities.length} standard terms</summary><ul>${d.subjectivities.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : ''}
     </div>`;
   }
@@ -1265,7 +1274,7 @@
       actions, onOpen: box => { const x = box.querySelector('.x'); if(x) x.focus({ preventScroll:true }); box.scrollTop = 0; } });
   }
   async function respond(q, accept, box, close){
-    if(accept && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms for ' + money2(q.data.total, q.data.currency) + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
+    if(accept && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms ' + (q.data.total != null ? 'for ' + money2(q.data.total, q.data.currency) : 'at the rate quoted') + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
     const { error } = await sb.rpc('respond_to_quotation', { p_quotation_id: q.id, p_accept: accept, p_note: box.querySelector('#qrNote').value });
     if(error){ box.querySelector('#qrErr').textContent = FC.errText(error); return; }
     if(accept) justStamped = q.id;
@@ -1290,7 +1299,7 @@
       const it = FC.el(`<div class="item"><div>
           <div class="route">${esc(r.origin_country)} → ${esc(r.dest_country)} ${r.is_out_of_cover ? '<span class="chip on_request">Outside open cover</span>' : r.intake ? '<span class="chip approved">Declared</span>' : `<span class="chip ${esc(r.status)}">${esc(FC.STATUS[r.status])}</span>${r.quote_requested_at ? ' <span class="chip neutral">Requested</span>' : ''}`}</div>
           <div class="t">${esc(r.goods_description)}${r.insured_name ? ' <span class="muted">for ' + esc(r.insured_name) + '</span>' : ''}</div>
-          <div class="meta">${esc(FC.dateTime(r.created_at))}${r.ref ? ', ' + esc(r.ref) : ''}${r.customer_ref ? ', your ref. ' + esc(r.customer_ref) : ''}, sum insured ${esc(money2(r.sum_insured, r.currency))}${r.status === 'quoted' ? ', premium ' + esc(money2(r.premium, r.currency)) : ''}</div>
+          <div class="meta">${esc(FC.dateTime(r.created_at))}${r.ref ? ', ' + esc(r.ref) : ''}${r.customer_ref ? ', your ref. ' + esc(r.customer_ref) : ''}, sum insured ${esc(money2(r.sum_insured, r.currency))}${r.status === 'quoted' ? (FC.showPremium(DMODE) ? ', premium ' + esc(money2(r.premium, r.currency)) : ', rate ' + esc(FC.pct(r.rate_pct))) : ''}</div>
         </div><div class="acts"></div></div>`);
       const a = it.querySelector('.acts');
       a.appendChild(btn('Open', 'ghost', () => { go('new'); writeForm(r); current = Object.assign({}, r); renderResult(current, false); }));

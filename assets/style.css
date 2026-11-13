@@ -1226,3 +1226,62 @@ th.cb input,td.cb input{width:auto;min-width:0;margin:0}
 .zo input{width:16px;height:16px;min-width:16px}
 .cl-item .chip,.cl-libitem .chip{display:inline-flex !important;width:auto !important;margin:0 0 0 6px;vertical-align:middle}
 .cl-row .cl-item > span > span:last-child{display:block;margin-top:3px}
+
+/* ---------- 2026-11-13b: lifecycle, sending, templates, categories, policy years, IPT ---------- */
+.chip.in_progress{background:#E7F0FB;color:#1F4E8C}
+.stage-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.stage-tabs button{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+.stage-tabs button[aria-selected="true"]{background:var(--harbour);border-color:var(--harbour);color:#fff}
+.stage-tabs .n{font-variant-numeric:tabular-nums;opacity:.75;margin-left:2px}
+.stage-times{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.stage-times span{display:flex;flex-direction:column;font-size:12px;padding:6px 10px;border-radius:8px;background:var(--fog);color:var(--steel);min-width:120px}
+.stage-times span b{font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.stage-times span.on{background:var(--teal-wash, #E3F4F2);color:var(--ink)}
+.case-actions{position:sticky;top:0;z-index:2;background:var(--paper);padding:10px 0;margin:0 0 6px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.case-actions .notice{flex-basis:100%;margin:6px 0 0}
+.pol-lock{border-left:4px solid var(--danger, #C0392B)}
+.ipt-badge{display:inline-block;font-size:12px;line-height:1.35;padding:4px 10px;border-radius:999px;background:var(--fog);color:var(--steel);margin:6px 0 0}
+.ipt-badge.on{background:#FFF4D6;color:#7A5200;border:1px solid #F0D58A}
+.ipt-box{margin:10px 0}
+.ipt-box .qv-tab{margin-top:6px}
+.ipt-card{padding:18px;margin:0 0 18px}
+.ipt-test{margin-top:10px}
+.ipt-test .input{width:74px;text-transform:uppercase}
+.fdf-help{margin:10px 0 0}
+.send-log li{position:relative}
+.send-log li .linkbtn{display:block;margin-top:4px}
+.rt-bar select{border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:3px 6px;font-size:13px;color:var(--ink);max-width:170px}
+.rt-bar .rt-col{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 6px;font-size:13px;font-weight:700;cursor:pointer}
+.rt-bar .rt-col input{width:22px;height:20px;padding:0;border:0;background:none;cursor:pointer}
+.rt-bar .rt-col.hl span{background:#FFF2A8;padding:0 3px;border-radius:3px}
+.rt-bar .rt-sep{width:1px;height:20px;background:var(--line);margin:0 2px}
+.rt-bar button svg{vertical-align:-2px}
+.qe-doc p,.qe-doc li{margin:0 0 var(--para, 6px)}
+.qe-doc ul,.qe-doc ol,.qv-wording ul,.qv-wording ol{margin:0 0 8px;padding-left:22px}
+.qe-doc .box,.qv-wording .box{border:1px solid currentColor;padding:6px 8px}
+.cat-list{display:flex;flex-direction:column;gap:8px}
+.cat-row{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:0}
+.cat-row.dragging{opacity:.5}
+.cat-row .grip{cursor:grab;color:var(--steel)}
+.cat-no{font-variant-numeric:tabular-nums;font-weight:700;color:var(--steel);min-width:20px}
+.cat-main{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.cat-acts{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.cl-mv{display:inline-flex;gap:2px;margin-right:6px}
+.cl-mv .btn{padding:2px 7px;min-height:0}
+.sort-list{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto}
+.sort-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.sort-row .grip{cursor:grab;color:var(--steel)}
+.so-t{flex:1;display:flex;flex-direction:column;min-width:0}
+.tpl-grid{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:14px;align-items:start}
+.tpl-card{padding:0;overflow:hidden}
+.tpl-card .toolbar,.tpl-card .err-msg{padding:0 12px 12px}
+.tpl-ed{min-height:320px}
+.tpl-fmt{padding:14px}
+.tpl-fmt h3{margin:0 0 4px}
+.tpl-tags{margin:12px 0 0}
+.tpl-tags code{background:var(--fog);padding:1px 4px;border-radius:4px;font-size:12px}
+.py-tbl td{vertical-align:top}
+.py-acts{white-space:nowrap}
+.mx-prev{margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--fog);font-size:14px}
+.mx-prev b{font-family:ui-monospace,Menlo,Consolas,monospace}
+@media (max-width:860px){ .tpl-grid{grid-template-columns:1fr} .cat-row{flex-wrap:wrap} .cat-acts{width:100%;justify-content:flex-start} .py-acts{white-space:normal} }
