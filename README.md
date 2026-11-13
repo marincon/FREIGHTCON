@@ -121,3 +121,17 @@ Reihenfolge im SQL Editor: `update_2026-11-13q.sql` → `update_2026-11-13r.sql`
 
 Edge Functions neu deployen: `notify` und `admin-manage-user`.
 MARINCON-Logo als `assets/brand/marincon-logo.png` ablegen (sonst steht "MARINCON" als Text im PDF-Kopf).
+
+
+## Update 2026-11-13 t (Version 2026-11-13b)
+
+SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Dateien hochladen und die Edge Function `notify` neu deployen.
+
+* Kategorien: anlegen, umbenennen, beschreiben, löschen (Klauseln verschieben oder mitlöschen), per Drag & Drop oder Pfeilen sortieren; Klauseln frei sortierbar (Bibliothek und Listen).
+* Textvorlagen pro Ebene (General / Kunde / Police): Angebotswortlaut, E-Mail-Text an den Kunden, Text an den Versicherer, Zusatzvereinbarungen auf dem Zertifikat. Platzhalter wie `{{client_name}}`, Blöcke `[[clauses]]`, `[[category:...]]`, `[[clause:...]]`, `[[pricing]]`. Standardformatierung (Schrift, Größe, Zeilenhöhe, Absatzabstand, Farbe) pro Ebene.
+* Angebote: „Save quotation“ (nicht sichtbar für den Kunden) oder „Save & send to client“; im Tab Quotations über ⋮ senden / erneut senden (Portal + E-Mail oder manuell), unveränderliches Versandprotokoll mit Snapshot.
+* Anzeige für Kunden: nur Rate, nur Prämie oder beides (Konfiguration → Kunde → Police → einzelnes Angebot).
+* Ablauf: Request → Working on it → Quotation → Certificate → Closed (mit Abschlussgrund).
+* Policenjahre pro Police mit Status (active / extended / expired); ohne gültiges Jahr sind Angebote und Zertifikate unter der Police gesperrt. Nummernkreis (Matrix) pro Policenjahr mit Vorschau. Beim Update bekommt jede Police das laufende Kalenderjahr als aktives Policenjahr.
+* Deutsche Versicherungsteuer (19 %): Regeln nach Route und Sitz von Versicherungsnehmer / Versichertem, pro Kunde / Police / Angebot an, auto oder aus.
+* .fdf: ohne /F, Sum Insured als 33562.80, Download direkt im Fall, im Tab Certificates und im ⋮-Menü.
