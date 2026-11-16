@@ -157,3 +157,11 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Zertifikate für jeden Kunden mit „Can issue certificates“: im Fall (oben und bei den Cover notes), im ⋮-Menü von All cases, Quotations und Certificates, im Kundenportal (direkt und auf angenommenen Angeboten, inkl. Download). Ein Zertifikat kann intern in jeder Phase ausgestellt werden.
 * Intern: Navigation links als Seitenleiste in vier Gruppen; unter 900 px als Auswahlfeld.
 * „Requests“ heißt „All cases“ und zeigt alle Fälle; Filter (Phasen ein- / ausschließen, Bearbeiter, Zeitraum, Kunde, Cover-Typ, Alerts), Sortierung (Auswahl und Spaltenköpfe), Filter-Chips, „Reset all“, „Showing X of Y“. Dasselbe für Certificates (inkl. Stornieren / Ändern) und Claims (inkl. Schadenart).
+
+## Update 2026-11-16 x (Version 2026-11-16c)
+
+`update_2026-11-16x.sql` ausführen (nach w) und die Website hochladen.
+
+* Zertifikate hängen nur noch an einem Schalter: „Can issue certificates“ des Kunden (Unterkategorie kann übersteuern). Der Kunde eines Falls wird über Fall → Unterkategorie → Office → Firma des Nutzers gefunden, auch wenn am Fall kein Kunde hinterlegt ist. Der separate Schalter „Direct certificate issuance“ entfällt; die alten Flags folgen automatisch.
+* New quotation: „Issue certificate directly“ für jeden freigeschalteten Kunden; der Fall wird nachträglich angelegt. Im Tab Certificates gibt es dafür „+ New certificate“.
+* Neuer Tab „Cover notes“ (neben Certificates): alle Deckungsnoten mit Suche, Filtern (Status, Aussteller, Zeitraum, Kunde / Unterkategorie, Cover-Typ), Sortierung, Link zum Fall, Kunde, Ausstellungszeit und ⋮-Menü (PDF, Druck aus Vorlage, Fall öffnen, Stornieren / Wiederherstellen), CSV-Export. Das Badge zeigt die Deckungsnoten der letzten 7 Tage.
