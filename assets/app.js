@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-13c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-16a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -805,14 +805,14 @@
   }
   // certificates issued by the client (.fdf data file for the certificate form; no PDF is opened automatically)
   async function clientCertificate(indId, shipment, preset){
-    const t = FCPDF.certDate();
-    const body = FC.el(`<div><p class="small" style="margin-top:0">${indId ? 'Certificate for your accepted shipment.' : 'The shipment is recorded with us now and the certificate number is issued at once.'} You receive the certificate as an .fdf data file. ${esc(FC.FDF_HINT)}</p><div class="grid2">
+    const t = FCPDF.certDate(), pdfMode = FEAT.certificate_mode !== 'fdf_export';
+    const body = FC.el(`<div><p class="small" style="margin-top:0">${indId ? 'Certificate for your accepted shipment.' : 'The shipment is recorded with us now and the certificate number is issued at once.'} ${pdfMode ? 'You receive the MARINCON certification document to print or save as PDF.' : 'You receive the certificate as an .fdf data file. ' + esc(FC.FDF_HINT)}</p><div class="grid2">
       <div class="field"><label for="ccRef">Order / ref. no.</label><input id="ccRef" maxlength="100" value="${esc(preset.ref || '')}"></div>
       <div class="field"><label for="ccDate">Date of issue</label><input id="ccDate" maxlength="10" value="${esc(t)}"></div>
       <div class="field"><label for="ccDoc">Document</label><select id="ccDoc"><option>Original</option><option>Copy</option></select></div>
       <div class="field"><label for="ccOri">Originals</label><input id="ccOri" maxlength="20" value="One (1)"></div>
       <div class="field" style="grid-column:1/-1"><label for="ccAgr">Letter of credit / additional agreements</label><textarea id="ccAgr" rows="3" maxlength="1500"></textarea></div></div><div class="err-msg" id="ccErr"></div></div>`);
-    return FC.dialog({ title:'Certificate', wide:true, body, actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Issue and download .fdf', kind:'primary', onClick: async () => {
+    return FC.dialog({ title:'Certificate', wide:true, body, actions:[{ label:'Cancel', kind:'ghost', value:null }, { label: pdfMode ? 'Issue certificate' : 'Issue and download .fdf', kind:'primary', onClick: async () => {
       const v = id => body.querySelector(id).value.trim(), date = v('#ccDate');
       if(!/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(date)) return void (body.querySelector('#ccErr').textContent = 'Date of issue as DD.MM.YYYY.');
       const cert = { ref: v('#ccRef'), date: date.split('.').map((x, i) => i < 2 ? x.padStart(2, '0') : x).join('.'), doc: v('#ccDoc'), originals: v('#ccOri'), agreements: v('#ccAgr') };
@@ -823,6 +823,13 @@
         date: cert.date, doc: cert.doc, docNo: '1.', originals: cert.originals, polNo: data.pol_no || '', no: data.number, ref: [data.ref, cert.ref].filter(Boolean).join(' / '), holder: data.holder || '',
         goods: data.goods || '', from: data.from || '', to: data.to || '', conveyance: [(FC.CONVEYANCE[data.conveyance] || {}).label, data.vessel].filter(Boolean).join(' - '), box: air ? '6' : '5',
         agreements: [data.agreements ? FC.htmlText(data.agreements) : '', data.conditions, cert.agreements].filter(Boolean).join('\n'), claims: data.claims || '' };
+      if(pdfMode){
+        // platform certification document: the client's template, printed by the browser (save as PDF)
+        const { data: tpl } = await sb.rpc('my_document_template', { p_doc: 'certificate' });
+        if(!tpl){ toast('Certificate ' + data.number + ' issued. The document template is not set up yet - we send you the certificate.', 'info', 9000); refreshBadges(); return true; }
+        await FCPDF.printDoc(FCPDF.docHtml(tpl, Object.assign({ deductible: data.deductible || '' }, x), { clausesHtml: data.conditions ? '<p><b>Conditions:</b> ' + FC.esc(data.conditions) + '</p>' : '', clientName: profile.company, title: 'Certificate ' + data.number }));
+        FC.toast('Certificate ' + data.number + ' issued - choose "Save as PDF" in the print dialog to keep it.', 'info', 9000); refreshBadges(); return true;
+      }
       FC.saveBlob(FCPDF.fdf('', FCPDF.certFields(x)), 'Certificate_' + String(data.number).replace(/[^\w-]+/g, '_') + (data.ref ? '_' + data.ref : '') + '.fdf', 'application/vnd.fdf');
       FC.toast('Certificate ' + data.number + ' issued - .fdf downloaded. ' + FC.FDF_HINT, 'info', 10000); refreshBadges(); return true; } }] });
   }
@@ -846,7 +853,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-13c');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16a');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -856,7 +863,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-13c').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16a').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
@@ -1264,7 +1271,7 @@
     const open = q.status === 'open';
     const actions = [{ label:'Quotation PDF', kind:'ghost', onClick: async () => { await pdfQuote(q); } }];
     if(q.cover_note) actions.push({ label:'Cover note PDF', kind:'primary', onClick: async () => { await pdfCover(q); } });
-    if(q.status === 'accepted' && FEAT.fdf_certificate === true) actions.push({ label:'Certificate (.fdf)', kind:'ghost', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
+    if(q.status === 'accepted' && FEAT.fdf_certificate === true) actions.push({ label: FEAT.certificate_mode === 'fdf_export' ? 'Generate .fdf' : 'Issue certificate', kind:'ghost', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
     if(open){
       actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, false, box, close) });
       actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, true, box, close) });

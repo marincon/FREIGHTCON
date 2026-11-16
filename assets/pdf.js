@@ -369,5 +369,61 @@
     return ctx.finish(legal() + '. This cover note is issued as evidence of insurance; terms as per the policy wording. Not negotiable unless stated.');
   };
 
+
+  // ---------- document templates (certificate / cover note): HTML with tokens and matrices, printed by the browser ----------
+  P.DOC_TOKENS = [['certificate_no','Certificate / document no.'],['date_of_issue','Date of issue'],['policy_holder','Policy holder'],['open_policy_no','Open policy no.'],['order_ref','Order / ref. no.'],
+    ['description_of_goods','Description of goods'],['conveyance','Conveyance'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['currency','Currency'],['sum_insured','Sum insured'],
+    ['valuation_basis','Valuation basis'],['uplift_pct','Uplift / percentage'],['deductible','Deductible'],['condition_code','Condition code (5 / 6)'],['clauses_block','Clauses block'],
+    ['additional_agreements','Additional agreements'],['survey_agent_url','Survey agent']];
+  P.DOC_FONTS = ['Calibri', 'Arial', 'Times New Roman'];
+  // the certificate data (same object as for the .fdf) as token values
+  P.docTokens = x => ({ certificate_no: x.no, date_of_issue: x.date, policy_holder: x.holder, open_policy_no: x.polNo, order_ref: x.ref, description_of_goods: x.goods,
+    conveyance: x.conveyance, voyage_from: x.from, voyage_to: x.to, currency: x.curr, sum_insured: x.sum, valuation_basis: x.valueType, uplift_pct: x.perc,
+    deductible: x.deductible || '', condition_code: x.box === '6' ? '6 (air)' : '5 (sea / road / rail / multimodal)', additional_agreements: x.agreements, survey_agent_url: x.claims || 'www.vht-network.de' });
+  const absUrl = u => { try{ return new URL(u, location.href).href; }catch(e){ return u; } };
+  P.matrixHtml = (m, vals) => {
+    const rows = Array.isArray(m.rows) ? m.rows : [], bc = /^#[0-9a-f]{6}$/i.test(m.border_color || '') ? m.border_color : '#1F3F8F', hb = /^#[0-9a-f]{6}$/i.test(m.header_bg || '') ? m.header_bg : '#1F3F8F';
+    const cell = (v, h) => `<${h ? 'th' : 'td'} style="border:1px solid ${bc};padding:4pt 6pt;text-align:left;vertical-align:top;${h ? 'background:' + hb + ';color:#fff;font-weight:700' : ''}">${FC.merge(FC.esc(FC.dash(v == null ? '' : v)), vals).replace(/\n/g, '<br>')}</${h ? 'th' : 'td'}>`;
+    return `<div class="mx">${m.title ? `<div class="mx-t" style="color:${hb}">${FC.esc(FC.dash(m.title))}</div>` : ''}<table style="border-collapse:collapse;width:100%;border:1px solid ${bc}">${rows.map((r, i) => '<tr>' + r.map(v => cell(v, i === 0)).join('') + '</tr>').join('')}</table></div>`;
+  };
+  // tpl: { body, settings, matrices }, x: certificate data, o: { clausesHtml, clientName }
+  P.docHtml = (tpl, x, o) => {
+    tpl = tpl || {}; o = o || {};
+    const st = Object.assign({ font_family:'Calibri', font_size_pt:10, orientation:'portrait', border:'thin', show_header:true, client_logo_url:'' }, tpl.settings || {});
+    const fs = Math.min(14, Math.max(8, Number(st.font_size_pt) || 10)), fam = P.DOC_FONTS.includes(st.font_family) ? st.font_family : 'Calibri';
+    const vals = P.docTokens(x || {});
+    const mats = Array.isArray(tpl.matrices) ? tpl.matrices : [], used = new Set();
+    let body = FC.cleanHtml(FC.dash(tpl.body || ''));
+    body = body.replace(/\{\{\s*clauses_block\s*\}\}/g, () => FC.cleanHtml(o.clausesHtml || ''));
+    body = body.replace(/\{\{\s*additional_agreements\s*\}\}/g, () => FC.esc(FC.dash(vals.additional_agreements || '')).replace(/\n/g, '<br>'));
+    body = FC.merge(body, vals);
+    body = body.replace(/(<p>\s*)?\[\[matrix:([\w-]+)\]\](\s*<\/p>)?/g, (all, a, id) => { const m = mats.find(z => String(z.id) === id); if(!m) return ''; used.add(m.id); return P.matrixHtml(m, vals); });
+    const rest = mats.filter(m => !used.has(m.id)).map(m => P.matrixHtml(m, vals)).join('');
+    const frame = st.border === 'double' ? '4px double #1F3F8F' : st.border === 'none' ? '0' : '1px solid #1F3F8F';
+    const logo = absUrl(window.MARINCON_LOGO_URL || 'assets/brand/marincon-logo.png');
+    const head = st.show_header !== false ? `<header class="hd"><div class="hd-l"><img src="${FC.esc(logo)}" alt="MARINCON" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><b class="hd-txt" style="display:none">MARINCON</b></div>
+      <div class="hd-r">${st.client_logo_url ? `<img src="${FC.esc(absUrl(st.client_logo_url))}" alt="${FC.esc(o.clientName || 'Client')}" onerror="this.remove()">` : ''}<span>MARINCON GmbH &amp; Co. KG<br>Marine insurance brokers, Hamburg</span></div></header>` : '';
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${FC.esc(FC.dash(o.title || 'MARINCON document'))}</title><style>
+      @page{size:A4 ${st.orientation === 'landscape' ? 'landscape' : 'portrait'};margin:12mm}
+      *{box-sizing:border-box} html,body{margin:0;background:#fff}
+      body{font-family:'${fam}',${fam === 'Times New Roman' ? 'serif' : 'Arial,sans-serif'};font-size:${fs}pt;line-height:1.35;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .frame{border:${frame};padding:${st.border === 'none' ? '0' : '10mm'};min-height:calc(100vh - 2px)}
+      .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #1F3F8F;padding-bottom:8px;margin-bottom:14px}
+      .hd img{max-height:46px;max-width:220px} .hd-txt{font-size:20pt;color:#1F3F8F;letter-spacing:.04em}
+      .hd-r{display:flex;gap:12px;align-items:center;text-align:right;font-size:${Math.max(7, fs - 2)}pt;color:#333}
+      h4{font-size:${fs + 3}pt;color:#1F3F8F;margin:0 0 10px} p{margin:0 0 7pt} ul,ol{margin:0 0 7pt;padding-left:18pt}
+      .box{border:1px solid #000;padding:6pt 8pt;margin:6pt 0} mark{background:#fff2a8}
+      .mx{margin:8pt 0 10pt;page-break-inside:avoid} .mx-t{font-weight:700;margin:0 0 4pt} table{font-size:${Math.max(7, fs - 1)}pt}
+      .ft{margin-top:16px;border-top:1px solid #ccc;padding-top:6px;font-size:${Math.max(7, fs - 3)}pt;color:#555}
+    </style></head><body><div class="frame">${head}${body}${rest}<div class="ft">MARINCON GmbH &amp; Co. KG, Hamburg</div></div></body></html>`;
+  };
+  // print through a hidden frame: the browser's print dialog saves it as PDF
+  P.printDoc = html => new Promise(res => {
+    const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    f.onload = () => { setTimeout(() => { try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ console.error(e); } res(f); setTimeout(() => f.remove(), 60000); }, 350); };
+    f.srcdoc = html;
+  });
+
   P.fileName = (kind, ref, extra) => [kind, ref, extra].filter(Boolean).join('_').replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_') + '.pdf';
 })();

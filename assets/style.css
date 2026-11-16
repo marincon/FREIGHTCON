@@ -1285,3 +1285,36 @@ th.cb input,td.cb input{width:auto;min-width:0;margin:0}
 .mx-prev{margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--fog);font-size:14px}
 .mx-prev b{font-family:ui-monospace,Menlo,Consolas,monospace}
 @media (max-width:860px){ .tpl-grid{grid-template-columns:1fr} .cat-row{flex-wrap:wrap} .cat-acts{width:100%;justify-content:flex-start} .py-acts{white-space:normal} }
+
+/* ---------- 2026-11-16a: FREIGHTCON by MARINCON ---------- */
+.wordmark .wm-row{display:inline-flex;align-items:center;gap:8px}
+.wordmark .by-mc{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--steel);border:1px solid var(--line);border-radius:999px;padding:2px 7px;line-height:1.2;white-space:nowrap}
+.auth-art .wordmark .by-mc{color:#fff;border-color:rgba(255,255,255,.45)}
+.zone-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.zone-card{padding:12px 14px;margin:0;display:flex;flex-direction:column;gap:8px}
+.zc-h{display:flex;align-items:center;gap:8px}
+.zc-sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.15);flex-shrink:0}
+.zc-n{color:var(--steel);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zc-c{display:flex;flex-wrap:wrap;gap:4px}
+.zc-c .chip{font-size:11px;padding:1px 6px}
+.zc-a{display:flex;gap:6px;justify-content:flex-end;margin-top:auto}
+.guide{background:var(--fog);border-radius:10px;padding:12px 14px;font-size:13px}
+.guide ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.guide code{background:var(--paper);padding:0 4px;border-radius:4px;font-size:12px}
+.cert-set{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 14px;margin:0 0 10px}
+.cert-set > div{display:flex;flex-direction:column;flex:1;min-width:220px}
+.cert-set select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--paper);color:var(--ink)}
+.dt-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.dt-edit{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dt-set{padding:12px 14px;margin:0}
+.dt-ins{padding:6px 12px 0;margin:0}
+.dt-ins select{border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:13px;background:var(--paper);color:var(--ink);max-width:260px}
+.dt-ed{min-height:260px}
+.dt-mx{padding:12px 14px;margin:0}
+.mx-ed{border:1px solid var(--line-soft);border-radius:10px;padding:10px;margin:0 0 10px}
+.mx-grid td{padding:3px}
+.mx-grid input{width:100%;min-width:90px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12.5px;background:var(--paper);color:var(--ink)}
+.mx-grid input.mx-h{font-weight:700;background:var(--fog)}
+.dt-prev{position:sticky;top:12px;padding:12px;margin:0}
+.dt-prev iframe{width:100%;height:78vh;border:1px solid var(--line);border-radius:8px;background:#fff}
+@media (max-width:1100px){ .dt-grid{grid-template-columns:1fr} .dt-prev{position:static} .dt-prev iframe{height:60vh} }
