@@ -149,3 +149,11 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Zertifikate pro Kunde: „Can issue certificates“ und „Certificate generation“ (Platform-PDF aus Vorlage oder .fdf), Unterkategorie kann übersteuern.
 * Neuer Tab „Templates & Matrices“: Zertifikats- und Deckungsnoten-Vorlage pro General / Kunde / Unterkategorie, Editor, Tokens, Matrix-Tabellen, Live-Vorschau, Drucken / PDF.
 * Rates: neue Kunden starten leer; Ebene „Client group“ (Reihenfolge Unterkategorie → Kunde → Kundengruppe); Unterreiter „Zones“ (anlegen, bearbeiten, entfernen); „Clear setup configuration“; „Import Excel (.xlsx / .csv) & guideline“ mit Muster-Datei.
+
+## Update 2026-11-16 w (Version 2026-11-16b)
+
+`update_2026-11-16w.sql` ausführen (nach v) und die Website hochladen. Das ist die vom Kollegen gewünschte „20261116b_cert_and_tracking_fix.sql“.
+
+* Zertifikate für jeden Kunden mit „Can issue certificates“: im Fall (oben und bei den Cover notes), im ⋮-Menü von All cases, Quotations und Certificates, im Kundenportal (direkt und auf angenommenen Angeboten, inkl. Download). Ein Zertifikat kann intern in jeder Phase ausgestellt werden.
+* Intern: Navigation links als Seitenleiste in vier Gruppen; unter 900 px als Auswahlfeld.
+* „Requests“ heißt „All cases“ und zeigt alle Fälle; Filter (Phasen ein- / ausschließen, Bearbeiter, Zeitraum, Kunde, Cover-Typ, Alerts), Sortierung (Auswahl und Spaltenköpfe), Filter-Chips, „Reset all“, „Showing X of Y“. Dasselbe für Certificates (inkl. Stornieren / Ändern) und Claims (inkl. Schadenart).
