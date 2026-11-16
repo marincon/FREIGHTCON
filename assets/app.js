@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-16b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-16c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -23,6 +23,8 @@
   FC.setPartyRoles(settings.party_roles);
   // features switched on by staff (loaded early: everything below is wired without waiting)
   const FEAT = await featP;
+  // the one rule for certificates: can_issue_certificates of the client company (subcategory may override), resolved in my_features()
+  const canClientIssueCertificate = () => FEAT.can_issue_certificates === true;
   // open cover clients: office → policy; some groups only send requests (no premium shown)
   let org = null; try{ const r = await sb.rpc('my_org'); org = r.data || null; }catch(e){}
   FC.org = org;
@@ -782,7 +784,7 @@
     if(!can('claims') && $('#claimBtn')) $('#claimBtn').hidden = true;
     if(FEAT.policy_clauses === true || FEAT.zone_map === true) $$('[data-view="cover"]').forEach(b => b.hidden = false);
   }
-  if(FEAT.direct_certificate === true && !isInsurer) $('#directCertBtn').hidden = false;
+  if(canClientIssueCertificate() && !isInsurer) $('#directCertBtn').hidden = false;
   // insurers: the cases and claims placed with their market only
   async function loadInsurer(){
     const host = $('#insurerHost'); host.innerHTML = '<div class="empty">Loading...</div>';
@@ -853,7 +855,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16b');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16c');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -863,7 +865,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16b').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16c').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
@@ -883,7 +885,7 @@
   async function loadQuotes(){
     $('#qList').innerHTML = '<div class="empty">Loading…</div>';
     const [a, w, inv, cl, ce] = await Promise.all([sb.rpc('my_quotations'), sb.rpc('my_pending_requests'), sb.from('invoices').select('*').order('created_at', { ascending:false }), sb.rpc('my_claims'),
-      FEAT.fdf_certificate === true ? sb.from('certificates').select('id,indication_id,number,data,status,created_at').order('created_at') : Promise.resolve({ data: [] })]);
+      canClientIssueCertificate() ? sb.from('certificates').select('id,indication_id,number,data,status,created_at').order('created_at') : Promise.resolve({ data: [] })]);
     myCerts = ((ce && ce.data) || []).filter(c => c.status !== 'cancelled');
     if(a.error || w.error){ $('#qList').innerHTML = '<div class="empty">Could not load your shipments. Please reload the page.</div>'; return; }
     quotes = a.data || []; waiting = w.data || []; invoices = inv.data || []; claims = cl.error ? [] : (cl.data || []);
@@ -1286,7 +1288,7 @@
     // certificates: any client with can_issue_certificates; download the one already issued
     const myC = myCerts.filter(c => c.indication_id === q.indication_id).pop();
     if(myC) actions.push({ label:'Download certificate', kind:'ok', onClick: async () => { await downloadMyCert(myC); } });
-    if(q.status === 'accepted' && FEAT.fdf_certificate === true) actions.push({ label: myC ? 'Issue new certificate' : FEAT.certificate_mode === 'fdf_export' ? 'Generate certificate (.fdf)' : 'Issue certificate', kind: myC ? 'ghost' : 'primary', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
+    if(q.status === 'accepted' && canClientIssueCertificate()) actions.push({ label: myC ? 'Issue new certificate' : FEAT.certificate_mode === 'fdf_export' ? 'Generate certificate (.fdf)' : 'Issue certificate', kind: myC ? 'ghost' : 'primary', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
     if(open){
       actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, false, box, close) });
       actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, true, box, close) });

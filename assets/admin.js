@@ -10,7 +10,7 @@
   const myInitials = () => FC.initials(me().full_name || me().email);
   const setting = (k, d) => (S.settings[k] !== undefined ? S.settings[k] : d);
 
-  const TABS = [['newq','New quotation'],['requests','All cases'],['quotations','Quotations'],['certificates','Certificates'],['templates','Templates & Matrices'],['claims','Claims'],['overview','Overview'],['ledger','Ledger'],['customers','Customers'],['rates','Rates'],['clauses','Clauses'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
+  const TABS = [['newq','New quotation'],['requests','All cases'],['quotations','Quotations'],['certificates','Certificates'],['covernotes','Cover notes'],['templates','Templates & Matrices'],['claims','Claims'],['overview','Overview'],['ledger','Ledger'],['customers','Customers'],['rates','Rates'],['clauses','Clauses'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
 
   A.open = async (host) => {
     root = host;
@@ -39,11 +39,11 @@
   };
   // the sidebar: groups and labels; one place keeps sidebar, dropdown and the tab in step
   const TAB_LABEL = Object.fromEntries(TABS);
-  const NAV_GROUPS = [['Operations', ['newq','requests','quotations','certificates','claims']], ['Finance & analytics', ['overview','ledger']],
+  const NAV_GROUPS = [['Operations', ['newq','requests','quotations','certificates','covernotes','claims']], ['Finance & analytics', ['overview','ledger']],
     ['Configuration', ['customers','templates','rates','clauses','insurers']], ['System', ['feedback','settings']]];
   const syncNav = () => { if(!root) return; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === tab))); const sel = $('#admNavSel', root); if(sel) sel.value = tab; };
   // staff roles: admin (everything), placing (requests, quotations, clients, policies), claims (claims)
-  const TAB_ROLES = { newq:['placing'], requests:['placing'], quotations:['placing'], certificates:['placing'], templates:['placing'], claims:['claims'], overview:['placing','claims'], ledger:['placing'], customers:['placing'], rates:['placing'], clauses:['placing'], insurers:['admin'], feedback:['admin'], settings:['admin'] };
+  const TAB_ROLES = { newq:['placing'], requests:['placing'], quotations:['placing'], certificates:['placing'], covernotes:['placing'], templates:['placing'], claims:['claims'], overview:['placing','claims'], ledger:['placing'], customers:['placing'], rates:['placing'], clauses:['placing'], insurers:['admin'], feedback:['admin'], settings:['admin'] };
   const roles = () => S.myRoles || [];
   const hasRole = r => roles().includes('admin') || roles().includes(r);
   const isStaffAdmin = () => roles().includes('admin');
@@ -132,13 +132,14 @@
     const n = openRequests().length + acceptedNoCover().length, u = pendingUsers().length, k = S.claims.filter(claimNeedsAction).length;
     const set = (key, v) => { const b = root && root.querySelector(`[data-abadge="${key}"]`); if(b){ b.hidden = !v; b.textContent = v; } };
     set('requests', n); set('customers', u); set('claims', k);
+    const wk = Date.now() - 7 * 864e5; set('covernotes', [].concat(...Object.values(S.coverNotes)).filter(c => (c.status || 'issued') === 'issued' && new Date(c.issued_at) > wk).length);
     const ib = document.getElementById('adminBadge'); if(ib){ ib.hidden = !(n + u + k); ib.textContent = n + u + k; }
   }
   A.paintBadges = paintBadges;
 
   function render(){
     const body = $('#admBody', root); body.innerHTML = '';
-    ({ newq: renderNewQuote, quotations: renderQuotations, certificates: renderCertificates, templates: renderDocTemplates, requests: renderRequests, claims: renderClaimsAdmin, overview: renderOverview, ledger: renderLedger, customers: renderCustomers, rates: renderRates, clauses: renderClauses, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
+    ({ newq: renderNewQuote, quotations: renderQuotations, certificates: renderCertificates, covernotes: renderCoverNotesAdminTab, templates: renderDocTemplates, requests: renderRequests, claims: renderClaimsAdmin, overview: renderOverview, ledger: renderLedger, customers: renderCustomers, rates: renderRates, clauses: renderClauses, insurers: renderInsurers, feedback: renderFeedback, settings: renderSettings })[tab](body);
   }
   const chip = (cls, t) => `<span class="chip ${esc(cls)}">${esc(t)}</span>`;
   const btn = (label, kind, fn) => { const b = FC.el(`<button type="button" class="btn btn-${kind} btn-sm"><span class="spin"></span>${esc(label)}</button>`); b.addEventListener('click', e => fn(b, e)); return b; };
@@ -167,7 +168,7 @@
   const readDiscMode = box => { const m = box.querySelector('#dmMode').value, v = FC.parseNum(box.querySelector('#dmPct').value);
     if(m === 'special' && !(v >= 0 && v < 100)) return { error: 'The special discount must be between 0 and 99.99 %.' };
     return { discount_mode: m, special_discount_pct: m === 'special' ? v : null }; };
-  const orgOfCase = r => { const o = ofcOf(r.office_id), po = polOf(r.policy_id) || (o && polOf(o.policy_id)), cu = custOf(r.customer_id) || (po && custOf(po.customer_id)) || (o && custOf(o.customer_id));
+  const orgOfCase = r => { const o = ofcOf(r.office_id), po = polOf(r.policy_id) || (o && polOf(o.policy_id)), cu = custOf(r.customer_id) || (po && custOf(po.customer_id)) || (o && custOf(o.customer_id)) || custOf((ofcOf((S.profiles[r.user_id] || {}).office_id) || {}).customer_id) || custOf((S.profiles[r.user_id] || {}).customer_id) || domainCust((S.profiles[r.user_id] || {}).email);
     return { office:o, policy: r.is_out_of_cover ? null : po, declared: r.is_out_of_cover ? polOf(r.declared_policy_id) : null, customer: cu, group: cu ? grpOf(cu.group_id) : po ? grpOf(po.group_id) : null }; };
   // currencies: office → policy → customer → group → general pool (first non-empty list, as allowed_currencies())
   const CURS = ['USD', 'GBP', 'EUR', 'SGD'];
@@ -430,13 +431,14 @@
 
   // ---------------- certificates: one rule for every client ----------------
   // can_issue_certificates of the subcategory (if set), else of the client; direct certificates always
+  // the one rule: can_issue_certificates of the client (subcategory may override); no name or cover type checks anywhere
   const canClientIssueCertificate = x => {
     if(!x) return false;
-    if(x.indication_id !== undefined || x.goods_description !== undefined){
-      const v = S.certRights[x.id]; if(v) return !!v.can_issue_certificates;
-      return certOn(x);
+    if(x.goods_description !== undefined || x.quote_requested_at !== undefined){   // a case
+      const v = S.certRights[x.id];
+      return (v && v.can_issue_certificates === true) || certOn(x);
     }
-    return !!x.can_issue_certificates;   // a client (company) record
+    return x.can_issue_certificates === true;   // a client (company) record
   };
   A.canClientIssueCertificate = canClientIssueCertificate;
   const certModeOf = r => (S.certRights[r.id] || {}).certificate_mode || certMode(r);
@@ -555,6 +557,8 @@
   function renderCertificates(body){
     const all = () => S.certs.map(c => ({ c, r: S.rows.find(x => x.id === c.indication_id) })).filter(x => x.r);
     body.appendChild(FC.el(`<div class="notice info fdf-help" style="margin:0 0 12px"><b>Certificates</b>Every certificate in every state. ${esc(FC.FDF_HINT)}</div>`));
+    const nb = btn('+ New certificate', 'primary', () => { nq.mode = 'client'; tab = 'newq'; syncNav(); render(); toast('Pick the client, calculate and use "Issue certificate directly". The case is created retroactively.'); });
+    nb.style.margin = '0 0 12px'; body.appendChild(nb);
     const host = FC.el('<div></div>'), list = FC.el('<div></div>'); body.appendChild(host); body.appendChild(list);
     const clients = Array.from(new Map(all().map(x => { const lv = caseLevel(x.r); return lv.polId ? ['p' + lv.polId, 'Subcategory ' + polLabel(polOf(lv.polId))] : ['c' + (lv.custId || 0), (custOf(lv.custId) || {}).name || who(x.r).company]; })).entries());
     const num = x => Number(String(x.c.number).replace(/[^\d.]/g, '')) || 0;
@@ -596,6 +600,53 @@
       const { error } = await sb.from('certificates').update({ status:'cancelled', status_note: why }).eq('id', c.id); if(error){ box.querySelector('#ccErr').textContent = error.message; return; } return true; } }] });
     if(ok){ toast('Certificate ' + c.number + ' cancelled.'); await loadAll(); render(); }
   }
+
+  // =================================================================== COVER NOTES
+  const CN_STATE = { issued:'Issued', cancelled:'Cancelled / void' };
+  const cnSel = new Set();
+  const cnPdf = async (cn, r) => { try{ FC.saveBlob(await FCPDF.coverNote(cn, r), FCPDF.fileName('MARINCON_CoverNote', cn.number)); }catch(e){ console.error(e); toast('PDF failed.', 'error'); } };
+  function renderCoverNotesAdminTab(body){
+    const all = () => [].concat(...Object.values(S.coverNotes)).map(cn => ({ cn, r: S.rows.find(x => x.id === cn.indication_id) })).filter(x => x.r);
+    body.appendChild(FC.el(`<div class="notice info" style="margin:0 0 12px"><b>Cover notes</b>Every cover note issued in any case, across clients and subcategories. Issue new ones from the case (Cover notes section).</div>`));
+    const host = FC.el('<div></div>'), list = FC.el('<div></div>'); body.appendChild(host); body.appendChild(list);
+    const lvKey = x => { const lv = caseLevel(x.r); return lv.polId ? 'p' + lv.polId : 'c' + (lv.custId || 0); };
+    const clients = Array.from(new Map(all().map(x => { const lv = caseLevel(x.r); return [lvKey(x), lv.polId ? 'Subcategory ' + polLabel(polOf(lv.polId)) : (custOf(lv.custId) || {}).name || who(x.r).company]; })).entries());
+    const issuer = cn => (S.profiles[cn.created_by] || {}).full_name || (S.profiles[cn.created_by] || {}).email || '';
+    const kit = filterKit(host, { id:'covernotes', noun:'cover notes', placeholder:'Search number, reference, customer, assured, goods', rows: all,
+      states: Object.entries(CN_STATE), stateOf: x => x.cn.status || 'issued',
+      handlers: Array.from(new Set(all().map(x => issuer(x.cn)).filter(Boolean))).sort(), handlerOf: x => issuer(x.cn), meName: () => [me().full_name || me().email], handlerLabel:'Issued by',
+      dates: [['issued','Issue date', x => x.cn.issued_at]],
+      clients, clientOf: lvKey, clientLabel:'Client / subcategory', coverOf: x => coverOfCase(x.r),
+      searchOf: x => [x.cn.number, x.r.ref, who(x.r).company, (x.cn.data || {}).client, (x.cn.data || {}).goods, x.r.goods_description].join(' '),
+      sorts: [['newest','Issue date newest', (a, b) => new Date(b.cn.issued_at) - new Date(a.cn.issued_at)], ['oldest','Issue date oldest', (a, b) => new Date(a.cn.issued_at) - new Date(b.cn.issued_at)],
+        ['number','Cover note No.', byStr(x => x.cn.number)], ['customer','Customer A-Z', byStr(x => who(x.r).company)], ['sum','Sum insured (high-low)', (a, b) => (Number(b.r.sum_insured) || 0) - (Number(a.r.sum_insured) || 0)]],
+      paint: rows => {
+        list.innerHTML = '';
+        selList({ host: list, rows, id: x => x.cn.id, sel: cnSel, empty:'No cover notes match. Change or reset the filters.',
+          cols:[ { l:'Cover note', html: x => `<b>${esc(x.cn.number)}</b> ${chip(x.cn.status === 'cancelled' ? 'declined' : 'approved', CN_STATE[x.cn.status || 'issued'])}` },
+            { l:'Case', html: x => `<button type="button" class="linkbtn cn-open">${esc(x.r.ref || '#' + x.r.id)}</button>` },
+            { l:'Customer / assured', html: x => `${esc(who(x.r).company)} ${chip('neutral', coverOfCase(x.r) === 'open_cover' ? 'Open cover' : 'One off')}<br><span class="xs muted">${esc(((x.cn.data || {}).client || x.r.insured_name || '').slice(0, 60))}</span>` },
+            { l:'Route', html: x => `<b>${esc(x.r.origin_country)} → ${esc(x.r.dest_country)}</b><br><span class="xs muted">${esc(((x.cn.data || {}).goods || x.r.goods_description || '').slice(0, 50))}</span>` },
+            { l:'Sum insured', cls:'r num', html: x => esc(FC.money2(x.r.sum_insured, x.r.currency)) },
+            { l:'Issued', cls:'xs', html: x => esc(FC.dateTime(x.cn.issued_at)) + '<br><span class="muted">' + esc(issuer(x.cn)) + '</span>' },
+            { l:'PDF', html: () => '<button type="button" class="btn btn-ghost btn-sm cn-pdf">PDF</button>' } ],
+          onRow: (tr, x) => { tr.querySelector('.cn-open').addEventListener('click', () => openCase(x.r.id)); tr.querySelector('.cn-pdf').addEventListener('click', () => cnPdf(x.cn, x.r)); },
+          menu: x => [['Download PDF', () => cnPdf(x.cn, x.r)], ['Print from template', () => printCaseDoc(x.r, 'cover_note', caseDocData(x.r, { no: x.cn.number, agreements: [(x.cn.data || {}).special, (x.cn.data || {}).note].filter(Boolean).join('\n') }))],
+            ['Open linked case', () => openCase(x.r.id)], ...certMenuItems(x.r), '-',
+            x.cn.status !== 'cancelled' ? ['Cancel / void…', () => cancelCoverNote(x.cn), 'danger'] : ['Reinstate as issued', async () => { const { error } = await sb.from('cover_notes').update({ status:'issued', status_note:null }).eq('id', x.cn.id); if(error) return toast(error.message, 'error'); await loadAll(); render(); }]],
+          bulk:[ ['Download PDFs', async rs => { for(const x of rs) await cnPdf(x.cn, x.r); }],
+            ['Export CSV', rs => csvSave('FREIGHTCON_cover_notes', ['Number','State','Case','Customer','Assured','From','To','Currency','Sum insured','Issued','Issued by'], rs.map(x => [x.cn.number, x.cn.status || 'issued', x.r.ref, who(x.r).company, (x.cn.data || {}).client || x.r.insured_name, x.r.origin_country, x.r.dest_country, x.r.currency, x.r.sum_insured, x.cn.issued_at, issuer(x.cn)]))] ] });
+      } });
+    kit.apply();
+  }
+  async function cancelCoverNote(cn){
+    const box = FC.el(`<div><div class="serious"><b>Serious change</b><div>Cover note <b>${esc(cn.number)}</b> is marked as cancelled / void. It stays in the list; its number is not given out again.</div></div><div class="field" style="margin-top:10px"><label for="cnWhy">Reason</label><input id="cnWhy" maxlength="300"></div><div class="err-msg" id="cnErr"></div></div>`);
+    const ok = await FC.dialog({ title:'Cancel cover note ' + cn.number + '?', body: box, actions:[{ label:'Keep', kind:'ghost', value:null }, { label:'Cancel / void cover note', kind:'danger', onClick: async () => {
+      const why = box.querySelector('#cnWhy').value.trim(); if(why.length < 3){ box.querySelector('#cnErr').textContent = 'Please give a reason.'; return; }
+      const { error } = await sb.from('cover_notes').update({ status:'cancelled', status_note: why }).eq('id', cn.id); if(error){ box.querySelector('#cnErr').textContent = error.message; return; } return true; } }] });
+    if(ok){ toast('Cover note ' + cn.number + ' cancelled.'); await loadAll(); render(); }
+  }
+  A.renderCoverNotesAdminTab = renderCoverNotesAdminTab;
 
   // =================================================================== CLAIMS
   const CLAIM_STATE = [['reported','New'],['in_review','Under review'],['surveyor_appointed','Surveyor appointed'],['documents_requested','Awaiting documents'],['with_insurer','With insurer'],['settled','Settled'],['closed_x','Declined / closed']];
@@ -2194,7 +2245,7 @@
       <label class="switch"><input type="checkbox" id="cuFdf" ${c && c.can_issue_certificates ? 'checked' : ''}><span><b>Can issue certificates</b><span>Staff and the client's users can issue certificates for accepted quotations.</span></span></label>
       <div class="field"><label for="cuCertMode">Certificate generation</label><select id="cuCertMode"><option value="platform_pdf" ${!c || c.certificate_mode !== 'fdf_export' ? 'selected' : ''}>Platform certification document (PDF from the template)</option><option value="fdf_export" ${c && c.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file (Adobe master form)</option></select>
         <span class="hint">The certificate and cover note templates are set up under Templates &amp; Matrices.${c ? ' <button type="button" class="linkbtn" id="cuTplLink">Open the templates of this client</button>' : ''}</span></div>
-      <label class="switch"><input type="checkbox" id="cuDirect" ${c && c.direct_certificate_enabled ? 'checked' : ''}><span><b>Direct certificate issuance</b><span>A certificate can be issued without indication or quotation; the case is created retroactively.</span></span></label>
+      <p class="xs muted" style="margin:-4px 0 10px">With "Can issue certificates" on, staff and the client can also issue a certificate directly; the case is then created retroactively.</p>
       <div class="grid3" id="cuCertF"><div class="field"><label for="cuCH">Holder on the certificate</label><input id="cuCH" maxlength="300" value="${esc(c ? c.cert_holder || '' : '')}" placeholder="as the policyholder"></div>
         <div class="field"><label for="cuCP">Open policy no.</label><input id="cuCP" maxlength="60" value="${esc(c ? c.cert_open_policy || '' : '')}" placeholder="as in Settings"></div>
         <div class="field"><label for="cuCC">Survey / claims agent</label><input id="cuCC" maxlength="120" value="${esc(c ? c.cert_claims_contact || '' : '')}" placeholder="www.vht-network.de"></div></div>
@@ -2213,7 +2264,7 @@
       if(c && prof && !(await FC.confirm('Overwrite the configuration of ' + c.name + '?', 'Schedules, cargo types, zones, factors, map, war areas and default clauses are replaced by ' + body.querySelector('#cuProf').selectedOptions[0].textContent.replace(/^Copy of /, '') + '.', 'Overwrite', 'danger'))) return;
       const disc = FC.parseNum(v('#cuDisc') || '0'); if(!(disc >= 0 && disc < 100)) return err('The discount must be between 0 and 99.99 %.');
       const row = { name: v('#cuName'), group_id: Number(v('#cuGroup')) || null, cover_type: v('#cuCover'), show_premium: v('#cuShow') === '' ? null : v('#cuShow') === 'true', currencies: readCurs(body, 'cuCurs'), email_domains: doms, active: body.querySelector('#cuActive').checked, notes: v('#cuNotes') || null, sort: Number(v('#cuSort')) || 100,
-        company_type: v('#cuType'), discount_pct: disc, discount_notes: v('#cuDiscN') || null, can_issue_certificates: body.querySelector('#cuFdf').checked, certificate_mode: v('#cuCertMode'), direct_certificate_enabled: body.querySelector('#cuDirect').checked,
+        company_type: v('#cuType'), discount_pct: disc, discount_notes: v('#cuDiscN') || null, can_issue_certificates: body.querySelector('#cuFdf').checked, certificate_mode: v('#cuCertMode'), 
         cert_holder: v('#cuCH') || null, cert_open_policy: v('#cuCP') || null, cert_claims_contact: v('#cuCC') || null,
         country: v('#cuCountry').toUpperCase() || null, quote_display_mode: v('#cuMode') || null, ipt_mode: v('#cuIpt') || null };
       if(row.country && !/^[A-Z]{2}$/.test(row.country)) return err('Country as a two-letter ISO code, e.g. DE.');
@@ -3896,7 +3947,7 @@
       else acts.appendChild(btn('Open in Requests', 'primary', () => openCase(saved.id)));
       // direct certificate: case created now (retroactively, stage bound), certificate data file straight away
       const dcu = nq.mode === 'client' ? custOf(L.args.p_customer) : null;
-      if(!saved && dcu && dcu.direct_certificate_enabled && dcu.fdf_certificate_enabled) acts.appendChild(btn('Issue certificate directly', 'ok', async b => {
+      if(!saved && canClientIssueCertificate(dcu)) acts.appendChild(btn('Issue certificate directly', 'ok', async b => {
         const al = (x.alerts || []).filter(a => a.level === 'red' || a.level === 'orange');
         if(x.status !== 'quoted' || al.length || L.data.one_off){
           const why = [x.status !== 'quoted' ? 'no automatic rate (' + (FC.STATUS[x.status] || x.status) + ')' : '', L.data.one_off ? 'out of cover' : ''].concat(al.map(a => a.text)).filter(Boolean);
