@@ -139,3 +139,13 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 ## Update 2026-11-13 u (Version 2026-11-13c)
 
 `update_2026-11-13u.sql` ausführen (nach t) und die Website hochladen. Die .fdf enthält jetzt genau die Felder des Bertling-Masterformulars (1, 5, Curr … LC Info, Pol No, Submit, wwwvhtnetworkde), kompakt wie der funktionierende Acrobat-Export, mit /ID des Masterformulars und /Type/Catalog, ohne /F. Feld (5) = 5 für See / Straße / Bahn, 6 für Luft. Die Policennummer kommt aus der Police des Falls.
+
+## Update 2026-11-16 v (Version 2026-11-16a)
+
+`update_2026-11-16v.sql` ausführen (nach u) und die Website hochladen. Das ist die vom Kollegen gewünschte Migration „20261116_freightcon_update.sql“.
+
+* Branding „FREIGHTCON by MARINCON“ (Titel, Kopfzeile, Footer); Dokumente mit MARINCON-Logo.
+* Cover-Typen nur noch One off / Open cover; aus „Policies“ werden „Subcategories“ (gleiche Datensätze, als `client_subcategories` lesbar; Policennummern, Policenjahre und Verknüpfungen bleiben).
+* Zertifikate pro Kunde: „Can issue certificates“ und „Certificate generation“ (Platform-PDF aus Vorlage oder .fdf), Unterkategorie kann übersteuern.
+* Neuer Tab „Templates & Matrices“: Zertifikats- und Deckungsnoten-Vorlage pro General / Kunde / Unterkategorie, Editor, Tokens, Matrix-Tabellen, Live-Vorschau, Drucken / PDF.
+* Rates: neue Kunden starten leer; Ebene „Client group“ (Reihenfolge Unterkategorie → Kunde → Kundengruppe); Unterreiter „Zones“ (anlegen, bearbeiten, entfernen); „Clear setup configuration“; „Import Excel (.xlsx / .csv) & guideline“ mit Muster-Datei.
