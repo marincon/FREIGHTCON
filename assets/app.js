@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-16a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-16b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -853,7 +853,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16a');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16b');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -863,16 +863,28 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16a').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16b').catch(() => {}); }
 
   // ---------- my quotations ----------
-  let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [];
+  let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
   const setQTab = t => { qTab = t; $$('[data-qtab]').forEach(x => x.setAttribute('aria-selected', String(x.dataset.qtab === t))); renderQuotes(); };
   $$('[data-qtab]').forEach(b => b.addEventListener('click', () => setQTab(b.dataset.qtab)));
   $('#claimBtn').addEventListener('click', () => claimWizard(null));
+  // an issued certificate in the client's format: platform document (print / PDF) or the .fdf
+  async function downloadMyCert(c){
+    const x = Object.assign({}, c.data || {}, { no: c.number });
+    if(FEAT.certificate_mode !== 'fdf_export'){
+      const { data: tpl } = await sb.rpc('my_document_template', { p_doc: 'certificate' });
+      if(tpl){ await FCPDF.printDoc(FCPDF.docHtml(tpl, x, { clientName: profile.company, title: 'Certificate ' + c.number })); return; }
+    }
+    FC.saveBlob(FCPDF.fdf('', FCPDF.certFields(x)), 'Certificate_' + String(c.number).replace(/[^\w-]+/g, '_') + '.fdf', 'application/vnd.fdf');
+    FC.toast('.fdf downloaded. ' + FC.FDF_HINT, 'info', 10000);
+  }
   async function loadQuotes(){
     $('#qList').innerHTML = '<div class="empty">Loading…</div>';
-    const [a, w, inv, cl] = await Promise.all([sb.rpc('my_quotations'), sb.rpc('my_pending_requests'), sb.from('invoices').select('*').order('created_at', { ascending:false }), sb.rpc('my_claims')]);
+    const [a, w, inv, cl, ce] = await Promise.all([sb.rpc('my_quotations'), sb.rpc('my_pending_requests'), sb.from('invoices').select('*').order('created_at', { ascending:false }), sb.rpc('my_claims'),
+      FEAT.fdf_certificate === true ? sb.from('certificates').select('id,indication_id,number,data,status,created_at').order('created_at') : Promise.resolve({ data: [] })]);
+    myCerts = ((ce && ce.data) || []).filter(c => c.status !== 'cancelled');
     if(a.error || w.error){ $('#qList').innerHTML = '<div class="empty">Could not load your shipments. Please reload the page.</div>'; return; }
     quotes = a.data || []; waiting = w.data || []; invoices = inv.data || []; claims = cl.error ? [] : (cl.data || []);
     paintHub(); renderQuotes();
@@ -1271,7 +1283,10 @@
     const open = q.status === 'open';
     const actions = [{ label:'Quotation PDF', kind:'ghost', onClick: async () => { await pdfQuote(q); } }];
     if(q.cover_note) actions.push({ label:'Cover note PDF', kind:'primary', onClick: async () => { await pdfCover(q); } });
-    if(q.status === 'accepted' && FEAT.fdf_certificate === true) actions.push({ label: FEAT.certificate_mode === 'fdf_export' ? 'Generate .fdf' : 'Issue certificate', kind:'ghost', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
+    // certificates: any client with can_issue_certificates; download the one already issued
+    const myC = myCerts.filter(c => c.indication_id === q.indication_id).pop();
+    if(myC) actions.push({ label:'Download certificate', kind:'ok', onClick: async () => { await downloadMyCert(myC); } });
+    if(q.status === 'accepted' && FEAT.fdf_certificate === true) actions.push({ label: myC ? 'Issue new certificate' : FEAT.certificate_mode === 'fdf_export' ? 'Generate certificate (.fdf)' : 'Issue certificate', kind: myC ? 'ghost' : 'primary', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
     if(open){
       actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, false, box, close) });
       actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, true, box, close) });

@@ -1318,3 +1318,51 @@ th.cb input,td.cb input{width:auto;min-width:0;margin:0}
 .dt-prev{position:sticky;top:12px;padding:12px;margin:0}
 .dt-prev iframe{width:100%;height:78vh;border:1px solid var(--line);border-radius:8px;background:#fff}
 @media (max-width:1100px){ .dt-grid{grid-template-columns:1fr} .dt-prev{position:static} .dt-prev iframe{height:60vh} }
+
+/* ---------- 2026-11-16b: left sidebar, multi-filter toolbar ---------- */
+.admin-shell{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start}
+.admin-sidebar{position:sticky;top:72px;display:flex;flex-direction:column;gap:14px;padding:12px 10px;border:1px solid var(--line);border-radius:14px;background:var(--paper);max-height:calc(100vh - 90px);overflow:auto}
+.as-group{display:flex;flex-direction:column;gap:2px}
+.as-h{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--steel);padding:0 10px 4px}
+.admin-sidebar [data-atab]{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;border:0;background:none;color:var(--ink);font:inherit;font-size:14px;padding:8px 10px;border-radius:8px;cursor:pointer}
+.admin-sidebar [data-atab]:hover{background:var(--fog)}
+.admin-sidebar [data-atab][aria-selected="true"]{background:var(--harbour);color:#fff;font-weight:600}
+.admin-sidebar [data-atab][aria-selected="true"] .badge{background:#fff;color:var(--harbour)}
+.admin-sidebar [data-atab]:focus-visible{outline:2px solid var(--harbour);outline-offset:2px}
+.admin-sidebar .badge{margin-left:auto}
+.admin-navsel{display:none}
+.admin-content{min-width:0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media (max-width:900px){
+  .admin-shell{grid-template-columns:1fr;gap:12px}
+  .admin-sidebar{display:none}
+  .admin-navsel{display:block}
+  .admin-navsel select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;background:var(--paper);color:var(--ink)}
+}
+.fkit{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--paper);margin:0 0 12px}
+.fk-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.fk-q{flex:1 1 280px;min-width:200px}
+.fk-lbl{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--steel);font-weight:600}
+.fk-lbl select,.fk-basis,.fk-custom input{border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;background:var(--paper);color:var(--ink);font-weight:400}
+.fk-custom{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.fk-custom[hidden]{display:none}
+.fk-pills{display:flex;flex-wrap:wrap;gap:6px}
+.fk-pill{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;padding:4px 11px;font-size:13px;cursor:pointer}
+.fk-pill[aria-pressed="true"]{background:var(--harbour);border-color:var(--harbour);color:#fff}
+.fk-pill .n{opacity:.7;font-variant-numeric:tabular-nums}
+.fk-exc{position:relative;font-size:13px}
+.fk-exc summary{cursor:pointer;list-style:none;border:1px dashed var(--line);border-radius:999px;padding:4px 11px;color:var(--steel)}
+.fk-exc summary::-webkit-details-marker{display:none}
+.fk-exc[open] summary{border-style:solid;color:var(--ink)}
+.fk-excl{position:absolute;z-index:20;top:calc(100% + 6px);left:0;background:var(--paper);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:8px 12px;display:flex;flex-direction:column;gap:6px;min-width:190px}
+.fk-excl label{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.fk-chips{display:flex;flex-wrap:wrap;gap:6px}
+.fk-chips:empty{display:none}
+.fk-chip{border:0;background:var(--fog);color:var(--ink);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer}
+.fk-chip:hover{background:var(--line)}
+.fk-count{font-size:12.5px;color:var(--steel);font-variant-numeric:tabular-nums}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable::after{content:' ↕';opacity:.35;font-size:11px}
+th.sortable[aria-sort="ascending"]::after{content:' ↑';opacity:.9}
+th.sortable[aria-sort="descending"]::after{content:' ↓';opacity:.9}
+.admin-content .stats{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}

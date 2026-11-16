@@ -4,22 +4,25 @@
   const { $, $$, sb, esc, money2, busy, toast } = FC;
   const A = window.FCAdmin = {};
   let root = null, tab = 'requests', loaded = false;
-  const S = { customers:[], custClauses:[], scopeSettings:[], zoneMaps:[], cellCache:{}, certs:[], clauses:[], polClauses:[], warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[], categories:[], templates:[], textFmt:[], docTemplates:[], ipt:null, polYears:[], matrices:[], sendHist:[] };
+  const S = { customers:[], custClauses:[], scopeSettings:[], zoneMaps:[], cellCache:{}, certs:[], clauses:[], polClauses:[], warAreas:[], warEx:[], rows:[], profiles:{}, commodities:[], regions:[], countries:[], settings:{}, insurers:[], quotes:{}, coverNotes:{}, rateTables:[], rateCells:[], qint:{}, claims:[], claimEvents:{}, claimFiles:{}, claimInt:{}, groups:[], policies:[], offices:[], audit:[], categories:[], templates:[], textFmt:[], docTemplates:[], certRights:{}, ipt:null, polYears:[], matrices:[], sendHist:[] };
   const cName = iso => (S.countries.find(c => c.iso2 === iso) || {}).name || iso || '';
   const me = () => FC.profile || {};
   const myInitials = () => FC.initials(me().full_name || me().email);
   const setting = (k, d) => (S.settings[k] !== undefined ? S.settings[k] : d);
 
-  const TABS = [['newq','New quotation'],['requests','Requests'],['quotations','Quotations'],['certificates','Certificates'],['templates','Templates & Matrices'],['claims','Claims'],['overview','Overview'],['ledger','Ledger'],['customers','Customers'],['rates','Rates'],['clauses','Clauses'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
+  const TABS = [['newq','New quotation'],['requests','All cases'],['quotations','Quotations'],['certificates','Certificates'],['templates','Templates & Matrices'],['claims','Claims'],['overview','Overview'],['ledger','Ledger'],['customers','Customers'],['rates','Rates'],['clauses','Clauses'],['insurers','Insurers'],['feedback','Feedback'],['settings','Settings']];
 
   A.open = async (host) => {
     root = host;
     if(!loaded){
       root.innerHTML = `<div class="view-head"><div><h1>Internal</h1><p>Requests, quotations, cover and customers.</p></div>
           <div class="toolbar" style="margin:0"><button class="btn btn-ghost btn-sm" id="admRefresh" type="button"><span class="spin"></span>Refresh</button><button class="btn btn-primary btn-sm" id="admExternal" type="button">External view</button></div></div>
-        <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" data-atab="${k}" aria-selected="${k === tab}">${l}<span class="badge" data-abadge="${k}" hidden></span></button>`).join('')}</div>
-        <div id="admBody"></div>`;
-      $$('[data-atab]', root).forEach(b => b.addEventListener('click', () => { tab = b.dataset.atab; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x === b))); render(); }));
+        <div class="admin-shell"><aside class="admin-sidebar" role="tablist" aria-label="Internal navigation" aria-orientation="vertical">
+          ${NAV_GROUPS.map(([g, keys]) => `<div class="as-group" data-group><div class="as-h">${esc(g)}</div>${keys.map(k => `<button role="tab" data-atab="${k}" aria-selected="${k === tab}"><span class="as-l">${esc(TAB_LABEL[k])}</span><span class="badge" data-abadge="${k}" hidden></span></button>`).join('')}</div>`).join('')}</aside>
+          <label class="admin-navsel"><span class="sr-only">Internal view</span><select id="admNavSel">${NAV_GROUPS.map(([g, keys]) => `<optgroup label="${esc(g)}">${keys.map(k => `<option value="${k}">${esc(TAB_LABEL[k])}</option>`).join('')}</optgroup>`).join('')}</select></label>
+          <div id="admBody" class="admin-content"></div></div>`;
+      $$('[data-atab]', root).forEach(b => b.addEventListener('click', () => { tab = b.dataset.atab; syncNav(); render(); }));
+      $('#admNavSel', root).addEventListener('change', e => { tab = e.target.value; syncNav(); render(); });
       $('#admExternal', root).addEventListener('click', () => FC.go(FC.lastExternal || 'new'));
       $('#admRefresh', root).addEventListener('click', async e => { const b = e.currentTarget; busy(b, true); try{ await loadAll(); }finally{ busy(b, false); } render(); toast('Updated.'); });
       loaded = true;
@@ -27,11 +30,18 @@
       // Chinese wall between staff roles: only the tabs of the own roles
       const allowed = TABS.map(t => t[0]).filter(canTab);
       $$('[data-atab]', root).forEach(b => { b.hidden = !allowed.includes(b.dataset.atab); });
+      $$('#admNavSel option', root).forEach(o => { o.hidden = o.disabled = !allowed.includes(o.value); });
+      $$('[data-group]', root).forEach(g => { g.hidden = !g.querySelector('[data-atab]:not([hidden])'); });
       if(!allowed.includes(tab)) tab = allowed[0] || 'overview';
-      $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === tab)));
+      syncNav();
     }
     render();
   };
+  // the sidebar: groups and labels; one place keeps sidebar, dropdown and the tab in step
+  const TAB_LABEL = Object.fromEntries(TABS);
+  const NAV_GROUPS = [['Operations', ['newq','requests','quotations','certificates','claims']], ['Finance & analytics', ['overview','ledger']],
+    ['Configuration', ['customers','templates','rates','clauses','insurers']], ['System', ['feedback','settings']]];
+  const syncNav = () => { if(!root) return; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === tab))); const sel = $('#admNavSel', root); if(sel) sel.value = tab; };
   // staff roles: admin (everything), placing (requests, quotations, clients, policies), claims (claims)
   const TAB_ROLES = { newq:['placing'], requests:['placing'], quotations:['placing'], certificates:['placing'], templates:['placing'], claims:['claims'], overview:['placing','claims'], ledger:['placing'], customers:['placing'], rates:['placing'], clauses:['placing'], insurers:['admin'], feedback:['admin'], settings:['admin'] };
   const roles = () => S.myRoles || [];
@@ -41,7 +51,7 @@
   A.hasRole = hasRole;
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl, crt, cus, ccl, sst, zmp, myr, ugr, dep, prm, cats, tpls, tfm, ipt, pyr, mtx, qsh, dtp] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl, crt, cus, ccl, sst, zmp, myr, ugr, dep, prm, cats, tpls, tfm, ipt, pyr, mtx, qsh, dtp, ccr] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -76,8 +86,10 @@
       sb.from('clause_categories').select('*').order('sort'), sb.from('text_templates').select('*').order('id'), sb.from('text_formatting').select('*'), sb.from('german_ipt_settings').select('*'),
       sb.from('policy_years').select('*').order('starts_on'), sb.from('certificate_numbering_matrices').select('*').order('id'),
       sb.from('quotation_send_history').select('id,quotation_id,indication_id,version,sent_at,sent_by,sent_by_name,recipient_email,delivery_method,is_resend,note').order('sent_at'),
-      sb.from('document_templates').select('*').order('id')
+      sb.from('document_templates').select('*').order('id'),
+      sb.from('case_certificate_rights').select('*')
     ]);
+    S.certRights = {}; ((ccr && ccr.data) || []).forEach(x => { S.certRights[x.indication_id] = x; });
     S.docTemplates = (dtp.data || []);
     S.categories = cats.data || []; setCats(S.categories); S.templates = tpls.data || []; S.textFmt = tfm.data || []; S.ipt = (ipt.data || [])[0] || null;
     S.polYears = pyr.data || []; S.matrices = mtx.data || []; S.sendHist = qsh.data || [];
@@ -284,91 +296,355 @@
   A.bucket = bucket;
   const wonQuote = r => liveQuotes(r).filter(q => q.status === 'accepted').pop() || liveQuotes(r).pop();
   const brokerageOf = r => { const q = wonQuote(r), x = q && S.qint[q.id]; return x ? { amount: Number(x.brokerage_amount) || 0, pct: Number(x.brokerage_pct) || 0, insurer: x.insurer_name, currency: x.currency || r.currency } : null; };
+  // =================================================================== MULTI-FILTER & SORT TOOLBAR (All cases, Certificates, Claims)
+  const KIT = {};   // filter state per view, kept while switching tabs
+  const PERIODS = [['all','All time'],['today','Today'],['7d','Last 7 days'],['30d','Last 30 days'],['this_month','This month'],['last_month','Last month'],['this_quarter','This quarter'],['this_year','This year'],['custom','Custom date range']];
+  const periodRange = (p, from, to) => {
+    const d0 = new Date(); d0.setHours(0, 0, 0, 0); const y = d0.getFullYear(), m = d0.getMonth();
+    const day = n => { const d = new Date(d0); d.setDate(d.getDate() - n); return d; };
+    switch(p){
+      case 'today': return [d0, null];
+      case '7d': return [day(6), null];
+      case '30d': return [day(29), null];
+      case 'this_month': return [new Date(y, m, 1), null];
+      case 'last_month': return [new Date(y, m - 1, 1), new Date(y, m, 1)];
+      case 'this_quarter': return [new Date(y, Math.floor(m / 3) * 3, 1), null];
+      case 'this_year': return [new Date(y, 0, 1), null];
+      case 'custom': { const a = from ? new Date(from + 'T00:00:00') : null, b = to ? new Date(to + 'T00:00:00') : null; if(b) b.setDate(b.getDate() + 1); return [a, b]; }
+      default: return [null, null];
+    }
+  };
+  const kitDefaults = o => Object.assign({ q:'', inc:[], exc:[], handler:'', period:'all', basis: (o.dates || [[]])[0][0] || '', from:'', to:'', client:'', cover:'', alerts:'', extra:{}, sort: (o.sorts || [[]])[0][0] || '', dir:1 }, o.defaults || {});
+  // o: { id, noun, rows, states:[[k,label]], stateOf, handlers:[name], handlerOf, meName, clients:[[id,name]], clientOf, coverOf, dates:[[k,label,getter]],
+  //      extras:[{ k, label, opts:[[v,label]], of }], alertsOf, searchOf, sorts:[[k,label,cmp]], paint(rows, kit) }
+  function filterKit(host, o){
+    const F = KIT[o.id] = KIT[o.id] || kitDefaults(o);
+    const box = FC.el(`<div class="fkit" role="search" aria-label="Filter ${esc(o.noun)}">
+      <div class="fk-row"><input class="input fk-q" type="search" placeholder="${esc(o.placeholder || 'Search')}" value="${esc(F.q)}" aria-label="Search">
+        <label class="fk-lbl">Sort <select class="fk-sort" aria-label="Sort">${(o.sorts || []).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+        <span style="flex:1"></span><span class="fk-count" aria-live="polite"></span><button type="button" class="btn btn-ghost btn-sm fk-reset">Reset all</button></div>
+      ${o.states ? `<div class="fk-row fk-states"><span class="fk-lbl">States</span><div class="fk-pills" role="group" aria-label="Include states">${o.states.map(([k, l]) => `<button type="button" class="fk-pill" data-inc="${k}" aria-pressed="false">${esc(l)} <span class="n"></span></button>`).join('')}</div>
+        <details class="fk-exc"><summary>Exclude states<span class="fk-excn"></span></summary><div class="fk-excl">${o.states.map(([k, l]) => `<label><input type="checkbox" data-exc="${k}"> ${esc(l)}</label>`).join('')}</div></details></div>` : ''}
+      <div class="fk-row fk-sel">
+        ${o.handlerOf ? `<label class="fk-lbl">${esc(o.handlerLabel || 'Handler')} <select class="fk-handler"><option value="">All</option><option value="__me">Assigned to me</option><option value="__none">Unassigned</option>${(o.handlers || []).map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label>` : ''}
+        ${o.dates ? `<label class="fk-lbl">Period <select class="fk-period">${PERIODS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+          ${o.dates.length > 1 ? `<select class="fk-basis" aria-label="Date">${o.dates.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>` : ''}
+          <span class="fk-custom"><input type="date" class="fk-from" aria-label="From"><span>to</span><input type="date" class="fk-to" aria-label="To"></span>` : ''}
+        ${o.clientOf ? `<label class="fk-lbl">${esc(o.clientLabel || 'Client')} <select class="fk-client"><option value="">All</option>${(o.clients || []).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select></label>` : ''}
+        ${o.coverOf ? `<label class="fk-lbl">Cover type <select class="fk-cover"><option value="">All</option><option value="one_off">One off</option><option value="open_cover">Open cover</option></select></label>` : ''}
+        ${(o.extras || []).map(x => `<label class="fk-lbl">${esc(x.label)} <select class="fk-extra" data-x="${x.k}"><option value="">All</option>${x.opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select></label>`).join('')}
+        ${o.alertsOf ? `<label class="fk-lbl">Alerts <select class="fk-alerts"><option value="">All</option><option value="has">Has red / amber alerts</option><option value="clean">Clean</option></select></label>` : ''}</div>
+      <div class="fk-chips" aria-label="Active filters"></div></div>`);
+    host.appendChild(box);
+    const $k = s => box.querySelector(s);
+    const sync = () => {
+      $k('.fk-q').value = F.q; if($k('.fk-sort')) $k('.fk-sort').value = F.sort;
+      box.querySelectorAll('[data-inc]').forEach(b => b.setAttribute('aria-pressed', String(F.inc.includes(b.dataset.inc))));
+      box.querySelectorAll('[data-exc]').forEach(c => { c.checked = F.exc.includes(c.dataset.exc); });
+      if($k('.fk-excn')) $k('.fk-excn').textContent = F.exc.length ? ' (' + F.exc.length + ')' : '';
+      if($k('.fk-handler')) $k('.fk-handler').value = F.handler;
+      if($k('.fk-period')){ $k('.fk-period').value = F.period; $k('.fk-custom').hidden = F.period !== 'custom'; $k('.fk-from').value = F.from; $k('.fk-to').value = F.to; }
+      if($k('.fk-basis')) $k('.fk-basis').value = F.basis;
+      if($k('.fk-client')) $k('.fk-client').value = F.client;
+      if($k('.fk-cover')) $k('.fk-cover').value = F.cover;
+      if($k('.fk-alerts')) $k('.fk-alerts').value = F.alerts;
+      box.querySelectorAll('.fk-extra').forEach(s => { s.value = F.extra[s.dataset.x] || ''; });
+    };
+    const lbl = (list, v) => ((list || []).find(x => String(x[0]) === String(v)) || [v, v])[1];
+    const apply = () => {
+      const all = o.rows(), s = F.q.trim().toLowerCase(), [a, b] = F.period === 'all' ? [null, null] : periodRange(F.period, F.from, F.to);
+      const dget = o.dates ? (o.dates.find(x => x[0] === F.basis) || o.dates[0])[2] : null, me = o.meName ? o.meName() : [];
+      let rows = all.filter(r => {
+        if(o.states){ const st = o.stateOf(r); if(F.inc.length && !F.inc.includes(st)) return false; if(F.exc.includes(st)) return false; }
+        if(F.handler && o.handlerOf){ const h = (o.handlerOf(r) || '').trim(); if(F.handler === '__none' ? !!h : F.handler === '__me' ? !me.includes(h) : h !== F.handler) return false; }
+        if(dget && (a || b)){ const v = dget(r); if(!v) return false; const t = new Date(v); if(a && t < a) return false; if(b && t >= b) return false; }
+        if(F.client && o.clientOf && String(o.clientOf(r)) !== F.client) return false;
+        if(F.cover && o.coverOf && o.coverOf(r) !== F.cover) return false;
+        if(F.alerts && o.alertsOf && (F.alerts === 'has') !== !!o.alertsOf(r)) return false;
+        for(const x of (o.extras || [])) if(F.extra[x.k] && !String(x.of(r)).split('|').includes(F.extra[x.k])) return false;
+        return !s || String(o.searchOf(r) || '').toLowerCase().includes(s);
+      });
+      const so = (o.sorts || []).find(x => x[0] === F.sort);
+      if(so) rows = rows.slice().sort((p, q) => so[2](p, q) * F.dir);
+      // counts per state (of the rows matching everything but the state filters)
+      if(o.states) box.querySelectorAll('[data-inc]').forEach(btn => { btn.querySelector('.n').textContent = all.filter(r => o.stateOf(r) === btn.dataset.inc).length; });
+      $k('.fk-count').textContent = 'Showing ' + rows.length + ' of ' + all.length + ' ' + o.noun;
+      // chips
+      const chips = [];
+      if(F.q) chips.push(['q', 'Search: ' + F.q]);
+      F.inc.forEach(k => chips.push(['inc:' + k, 'State: ' + lbl(o.states, k)]));
+      F.exc.forEach(k => chips.push(['exc:' + k, 'Exclude: ' + lbl(o.states, k)]));
+      if(F.handler) chips.push(['handler', (o.handlerLabel || 'Handler') + ': ' + (F.handler === '__me' ? 'me' : F.handler === '__none' ? 'unassigned' : F.handler)]);
+      if(F.period !== 'all') chips.push(['period', lbl(PERIODS, F.period) + (F.period === 'custom' ? ' ' + [F.from, F.to].filter(Boolean).join(' - ') : '') + (o.dates && o.dates.length > 1 ? ' (' + lbl(o.dates, F.basis).toLowerCase() + ')' : '')]);
+      if(F.client) chips.push(['client', (o.clientLabel || 'Client') + ': ' + lbl(o.clients, F.client)]);
+      if(F.cover) chips.push(['cover', F.cover === 'one_off' ? 'One off' : 'Open cover']);
+      if(F.alerts) chips.push(['alerts', F.alerts === 'has' ? 'Has alerts' : 'Clean']);
+      (o.extras || []).forEach(x => { if(F.extra[x.k]) chips.push(['x:' + x.k, x.label + ': ' + lbl(x.opts, F.extra[x.k])]); });
+      $k('.fk-chips').innerHTML = chips.map(([k, l]) => `<button type="button" class="fk-chip" data-chip="${esc(k)}" aria-label="Remove filter ${esc(l)}">${esc(l)} <span aria-hidden="true">×</span></button>`).join('');
+      $k('.fk-reset').disabled = !chips.length;
+      o.paint(rows, kit);
+    };
+    const kit = {
+      F, apply,
+      toggleState: k => { F.inc = F.inc.includes(k) ? F.inc.filter(x => x !== k) : F.inc.concat(k); F.exc = F.exc.filter(x => x !== k); sync(); apply(); },
+      only: k => { F.inc = [k]; F.exc = F.exc.filter(x => x !== k); sync(); apply(); },
+      set: patch => { Object.assign(F, patch); sync(); apply(); },
+      // clickable column headers: <th data-sort="key">
+      headers: el => { el.querySelectorAll('th[data-sort]').forEach(th => { th.classList.add('sortable'); th.tabIndex = 0; th.setAttribute('aria-sort', F.sort === th.dataset.sort ? (F.dir > 0 ? 'ascending' : 'descending') : 'none');
+        const go = () => { if(F.sort === th.dataset.sort) F.dir = -F.dir; else { F.sort = th.dataset.sort; F.dir = 1; } sync(); apply(); };
+        th.addEventListener('click', go); th.addEventListener('keydown', e => { if(e.key === 'Enter') go(); }); }); }
+    };
+    let qt = null;
+    $k('.fk-q').addEventListener('input', e => { clearTimeout(qt); qt = setTimeout(() => { F.q = e.target.value; apply(); }, 120); });
+    if($k('.fk-sort')) $k('.fk-sort').addEventListener('change', e => { F.sort = e.target.value; F.dir = 1; apply(); });
+    box.addEventListener('click', e => {
+      const p = e.target.closest('[data-inc]'); if(p) return kit.toggleState(p.dataset.inc);
+      const c = e.target.closest('[data-chip]');
+      if(c){ const k = c.dataset.chip;
+        if(k === 'q') F.q = ''; else if(k.startsWith('inc:')) F.inc = F.inc.filter(x => x !== k.slice(4)); else if(k.startsWith('exc:')) F.exc = F.exc.filter(x => x !== k.slice(4));
+        else if(k === 'period'){ F.period = 'all'; F.from = F.to = ''; } else if(k.startsWith('x:')) delete F.extra[k.slice(2)]; else F[k] = '';
+        sync(); apply(); }
+    });
+    box.addEventListener('change', e => {
+      const t = e.target;
+      if(t.dataset.exc){ F.exc = t.checked ? F.exc.concat(t.dataset.exc) : F.exc.filter(x => x !== t.dataset.exc); if(t.checked) F.inc = F.inc.filter(x => x !== t.dataset.exc); }
+      else if(t.classList.contains('fk-handler')) F.handler = t.value;
+      else if(t.classList.contains('fk-period')){ F.period = t.value; }
+      else if(t.classList.contains('fk-basis')) F.basis = t.value;
+      else if(t.classList.contains('fk-from')) F.from = t.value;
+      else if(t.classList.contains('fk-to')) F.to = t.value;
+      else if(t.classList.contains('fk-client')) F.client = t.value;
+      else if(t.classList.contains('fk-cover')) F.cover = t.value;
+      else if(t.classList.contains('fk-alerts')) F.alerts = t.value;
+      else if(t.classList.contains('fk-extra')){ if(t.value) F.extra[t.dataset.x] = t.value; else delete F.extra[t.dataset.x]; }
+      else return;
+      sync(); apply();
+    });
+    $k('.fk-reset').addEventListener('click', () => { const keep = { sort: F.sort, dir: F.dir }; Object.keys(F).forEach(k => delete F[k]); Object.assign(F, kitDefaults(o), keep); sync(); apply(); });
+    // the exclude list closes on a click elsewhere
+    const exc = $k('.fk-exc'); if(exc){ const off = e => { if(!document.body.contains(box)) return document.removeEventListener('click', off); if(exc.open && !exc.contains(e.target)) exc.open = false; }; document.addEventListener('click', off); }
+    sync();
+    return kit;
+  }
+  A.filterKit = filterKit;
+
+  // ---------------- certificates: one rule for every client ----------------
+  // can_issue_certificates of the subcategory (if set), else of the client; direct certificates always
+  const canClientIssueCertificate = x => {
+    if(!x) return false;
+    if(x.indication_id !== undefined || x.goods_description !== undefined){
+      const v = S.certRights[x.id]; if(v) return !!v.can_issue_certificates;
+      return certOn(x);
+    }
+    return !!x.can_issue_certificates;   // a client (company) record
+  };
+  A.canClientIssueCertificate = canClientIssueCertificate;
+  const certModeOf = r => (S.certRights[r.id] || {}).certificate_mode || certMode(r);
+  const certLabel = r => certModeOf(r) === 'fdf_export' ? 'Generate Certificate (.fdf)' : 'Issue Certificate (PDF)';
+  // the same handler everywhere: case drawer, ⋮ menus, certificates list
+  const issueCertificate = r => certificateDialog(r).then(async ok => { if(ok){ await loadAll(); render(); } return ok; });
+  // download an issued certificate in the client's format
+  const certDownload = c => { const r = S.rows.find(x => x.id === c.indication_id); if(r && certModeOf(r) === 'platform_pdf') return printCaseDoc(r, 'certificate', Object.assign({}, c.data || {}, { no: c.number })); return fdfDownload(c); };
+  // the certificate entries of a ⋮ menu
+  const certMenuItems = r => { if(!canClientIssueCertificate(r)) return [];
+    const cs = S.certs.filter(c => c.indication_id === r.id && c.status !== 'cancelled'), last = cs[cs.length - 1];
+    return last ? [['Download certificate (.fdf / PDF)', () => certDownload(last)], ['Issue new certificate', () => issueCertificate(r)]] : [[certModeOf(r) === 'fdf_export' ? 'Download certificate (.fdf)' : 'Issue certificate', () => issueCertificate(r)]]; };
+
+  // =================================================================== ALL CASES
+  const caseHandlers = () => Array.from(new Set(S.rows.map(r => (r.owner || '').trim()).filter(Boolean))).sort();
+  const caseClients = () => Array.from(new Map(S.rows.filter(r => r.customer_id).map(r => [String(r.customer_id), (custOf(r.customer_id) || {}).name || who(r).company])).entries()).sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const coverOfCase = r => (!r.is_standalone_one_off && r.policy_id) || ((custOf(r.customer_id) || {}).cover_type === 'open_cover' && !r.is_standalone_one_off) ? 'open_cover' : 'one_off';
+  const isCase = r => !!(r.quote_requested_at || (S.quotes[r.id] || []).length || S.certs.some(c => c.indication_id === r.id) || (S.coverNotes[r.id] || []).length || r.is_direct_certificate);
+  const byStr = f => (a, b) => String(f(a) || '').localeCompare(String(f(b) || ''));
+  const byNum = f => (a, b) => (Number(f(a)) || 0) - (Number(f(b)) || 0);
+  const byDate = f => (a, b) => new Date(f(a) || 0) - new Date(f(b) || 0);
+  const STAGE_ORD = { request:1, working_on_it:2, quotation:3, certificate:4, closed:5 };
   function renderRequests(body){
-    const open = openRequests(), acc = acceptedNoCover(), real = S.rows.filter(r => !r.is_test);
-    const n = k => real.filter(r => bucket(r) === k).length;
+    const real = S.rows.filter(r => !r.is_test), open = openRequests(), acc = acceptedNoCover();
     const brk = {}; real.filter(r => bucket(r) === 'won').forEach(r => { const b = brokerageOf(r); if(b) brk[b.currency] = (brk[b.currency] || 0) + b.amount; });
-    const brkTxt = Object.keys(brk).length ? Object.entries(brk).map(([c, v]) => money2(v, c)).join(' · ') : '-';
-    const scopeBtn = (k, label, cnt, cls) => `<button type="button" class="stat stat-btn${cls ? ' ' + cls : ''}" data-scope="${k}" aria-pressed="${rqFilter.scope === k}"><b>${cnt}</b><span>${label}</span></button>`;
-    body.appendChild(FC.el(`<div class="stats">
-      ${scopeBtn('open', 'To do: quote or issue cover', open.length + acc.length, open.length + acc.length ? 'alert' : '')}
-      ${scopeBtn('b_open', 'Open cases', n('open'))}
-      ${scopeBtn('b_won', 'Won cases', n('won'), 'won')}
-      ${scopeBtn('b_lost', 'Lost cases', n('lost'))}
-      <div class="stat"><b class="num" style="font-size:20px">${esc(brkTxt)}</b><span>Brokerage on won cases (internal)</span></div></div>`));
-    body.querySelectorAll('.stat-btn b').forEach(b => FC.countUp(b, Number(b.textContent), null, 500));
-    const tb = FC.el(`<div class="toolbar">
-      <input class="input" type="search" id="rqQ" placeholder="Search reference, customer, goods, country" value="${esc(rqFilter.q)}" aria-label="Search">
-      <select class="input" id="rqScope" aria-label="Show">
-        <option value="open">To do</option><option value="b_open">Open cases</option><option value="b_won">Won cases</option><option value="b_lost">Lost cases</option><option value="requests">All requests</option><option value="all">All indications</option></select>
+    const kit0 = KIT.cases;
+    // KPI cards = quick toggles of the state filter
+    const kpi = FC.el(`<div class="stats">
+      <button type="button" class="stat stat-btn${open.length + acc.length ? ' alert' : ''}" data-todo aria-pressed="false"><b>${open.length + acc.length}</b><span>To do: quote or issue cover</span></button>
+      ${Object.entries(FC.STAGE).map(([k, l]) => `<button type="button" class="stat stat-btn${k === 'certificate' ? ' won' : ''}" data-kpi="${k}" aria-pressed="${!!(kit0 && kit0.inc.includes(k))}"><b>${real.filter(r => isCase(r) && stg(r) === k).length}</b><span>${esc(l)}</span></button>`).join('')}
+      <div class="stat"><b class="num" style="font-size:18px">${esc(Object.keys(brk).length ? Object.entries(brk).map(([c, v]) => money2(v, c)).join(' · ') : '-')}</b><span>Brokerage on won cases (internal)</span></div></div>`);
+    body.appendChild(kpi);
+    const tb = FC.el(`<div class="toolbar" style="margin:0 0 8px"><label class="fk-lbl"><input type="checkbox" id="rqCalc" ${rqFilter.calc ? 'checked' : ''}> Include plain calculations (no request)</label><label class="fk-lbl"><input type="checkbox" id="rqTest" ${rqFilter.test ? 'checked' : ''}> Include test cases</label>
       <span style="flex:1"></span><button class="btn btn-ghost btn-sm" id="rqCsv" type="button">Export CSV</button><button class="btn btn-primary btn-sm" id="rqNew" type="button">+ New quotation</button></div>`);
     body.appendChild(tb);
-    const stTabs = FC.el(`<div class="stage-tabs" role="tablist" aria-label="Stage">${[['', 'All stages']].concat(Object.entries(FC.STAGE)).map(([k, l]) => `<button type="button" role="tab" data-stg="${k}" aria-selected="${rqFilter.stage === k}">${esc(l)} <span class="n">${k ? S.rows.filter(r => r.quote_requested_at && stg(r) === k).length : ''}</span></button>`).join('')}</div>`);
-    body.appendChild(stTabs);
-    stTabs.addEventListener('click', e => { const b = e.target.closest('[data-stg]'); if(!b) return; rqFilter.stage = b.dataset.stg; if(rqFilter.stage && rqFilter.scope === 'open') rqFilter.scope = 'requests'; $('#rqScope', tb).value = rqFilter.scope; stTabs.querySelectorAll('[data-stg]').forEach(x => x.setAttribute('aria-selected', String(x === b))); paint(); });
-    const bulk = FC.el(`<div class="bulkbar" hidden><b id="rqN"></b><span class="bk-acts"><button class="btn btn-ghost btn-sm" type="button" id="rqStageQ"><span class="spin"></span>Move to working on it</button><button class="btn btn-ghost btn-sm" type="button" id="rqClose"><span class="spin"></span>Close…</button><button class="btn btn-ghost btn-sm" type="button" id="rqMine"><span class="spin"></span>Assign to me</button><button class="btn btn-ghost btn-sm" type="button" id="rqCsvSel">Export selected</button><button class="btn btn-danger btn-sm" id="rqDel" type="button"><span class="spin"></span>Delete</button></span><button type="button" class="linkbtn" id="rqClr">Clear selection</button></div>`);
-    body.appendChild(bulk);
-    $('#rqNew', tb).addEventListener('click', () => { tab = 'newq'; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === 'newq'))); render(); });
-    $('#rqScope', tb).value = rqFilter.scope;
-    const wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(wrap);
-    const delBtn = $('#rqDel', bulk);
+    let todo = false;
+    const host = FC.el('<div></div>'); body.appendChild(host);
+    const bulk = FC.el(`<div class="bulkbar" hidden><b id="rqN"></b><span class="bk-acts"><button class="btn btn-ghost btn-sm" type="button" id="rqStageQ"><span class="spin"></span>Move to working on it</button><button class="btn btn-ghost btn-sm" type="button" id="rqClose"><span class="spin"></span>Close…</button><button class="btn btn-ghost btn-sm" type="button" id="rqMine"><span class="spin"></span>Assign to me</button><button class="btn btn-ghost btn-sm" type="button" id="rqCsvSel">Export CSV</button><button class="btn btn-danger btn-sm" type="button" id="rqDel"><span class="spin"></span>Delete…</button></span><button type="button" class="linkbtn" id="rqClr">Clear selection</button></div>`);
+    const wrap = FC.el('<div class="tbl-wrap"></div>');
+    let shown = [];
+    const kit = filterKit(host, { id:'cases', noun:'cases', placeholder:'Search reference, customer, assured, goods, origin / destination, vessel',
+      rows: () => S.rows.filter(r => (rqFilter.test || !r.is_test) && (rqFilter.calc || isCase(r)) && (!todo || open.includes(r) || acc.includes(r))),
+      states: Object.entries(FC.STAGE), stateOf: stg,
+      handlers: caseHandlers(), handlerOf: r => r.owner, meName: () => [myInitials(), me().full_name].filter(Boolean), handlerLabel: 'Handler',
+      dates: [['received','Received / created', r => r.quote_requested_at || r.created_at], ['departure','Departure / ETA', r => r.departure_date || r.eta_date || r.arrival_date]],
+      clients: caseClients(), clientOf: r => r.customer_id || '', coverOf: coverOfCase,
+      alertsOf: r => (r.alerts || []).some(a => ['red','amber','danger','warn','warning'].includes(a.level || a.severity || 'amber')),
+      searchOf: r => { const w = who(r); return [r.ref, w.company, w.name, r.insured_name, r.goods_description, r.origin_country, r.dest_country, cName(r.origin_country), cName(r.dest_country), r.origin_place, r.dest_place, r.vessel, r.customer_ref].join(' '); },
+      sorts: [['newest','Newest first', byDate(r => r.quote_requested_at || r.created_at)], ['oldest','Oldest first', byDate(r => r.quote_requested_at || r.created_at)], ['updated','Last updated', byDate(r => r.updated_at)],
+        ['departure','Departure / ETA', byDate(r => r.departure_date || r.eta_date)], ['sum_desc','Sum insured (high-low)', byNum(r => r.sum_insured)], ['sum_asc','Sum insured (low-high)', byNum(r => r.sum_insured)],
+        ['ref','Reference A-Z', byStr(r => r.ref)], ['customer','Customer A-Z', byStr(r => who(r).company)], ['stage','Stage', byNum(r => STAGE_ORD[stg(r)])]],
+      paint: (rows, k) => paintRows(rows, k) });
+    // the sort functions read naturally: newest / high-low / updated are descending
+    const DESC = new Set(['newest', 'updated', 'sum_desc']);
+    const origApply = kit.apply;
+    body.appendChild(bulk); body.appendChild(wrap);
     const paintSel = () => { bulk.hidden = !selected.size; $('#rqN', bulk).textContent = selected.size + ' selected'; };
-    $('#rqClr', bulk).addEventListener('click', () => { selected.clear(); paint(); });
+    function paintRows(rows0, k){
+      const rows = DESC.has(k.F.sort) && k.F.dir === 1 ? rows0.slice().reverse() : rows0;
+      shown = rows;
+      const ids = new Set(rows.map(r => r.id)); Array.from(selected).forEach(id => { if(!ids.has(id)) selected.delete(id); }); paintSel();
+      kpi.querySelectorAll('[data-kpi]').forEach(b => b.setAttribute('aria-pressed', String(k.F.inc.includes(b.dataset.kpi))));
+      kpi.querySelector('[data-todo]').setAttribute('aria-pressed', String(todo));
+      if(!rows.length){ wrap.innerHTML = '<div class="empty"><h3>No matches</h3><p>Change or reset the filters.</p></div>'; return; }
+      wrap.innerHTML = `<table class="tbl cases-tbl"><thead><tr><th style="width:28px"><input type="checkbox" id="rqAll" aria-label="Select all" style="width:auto;min-width:0"></th><th data-sort="ref">Reference</th><th data-sort="newest">Received</th><th data-sort="customer">Customer</th><th>Route</th><th>Goods</th><th class="r" data-sort="sum_desc">Sum insured</th><th>Indication</th><th data-sort="stage">Stage</th><th>Handler</th><th aria-label="Actions"></th></tr></thead><tbody></tbody></table>${rows.length > 500 ? '<p class="xs muted">The first 500 are shown; narrow the filters to see the rest.</p>' : ''}`;
+      k.headers(wrap);
+      const tbody = wrap.querySelector('tbody');
+      rows.slice(0, 500).forEach(r => {
+        const w = who(r);
+        const tr = FC.el(`<tr>
+          <td data-nosel><input type="checkbox" class="rqSel" aria-label="Select" ${selected.has(r.id) ? 'checked' : ''} style="width:auto;min-width:0"></td>
+          <td><button type="button" class="linkbtn rq-open"><b>${esc(r.ref || '#' + r.id)}</b></button>${r.is_out_of_cover ? ' ' + chip('declined', 'Out of cover') : ''}${r.is_standalone_one_off ? ' ' + chip('neutral', 'Standalone one-off') : ''}${r.is_direct_certificate ? ' ' + chip('accepted', 'Direct certificate') : ''}${(r.alerts || []).length ? ' ' + chip('pending', (r.alerts || []).length + ' alert' + ((r.alerts || []).length > 1 ? 's' : '')) : ''}${r.is_test ? ' ' + chip('neutral', 'Test') : ''}</td>
+          <td class="xs">${esc(FC.ago(r.quote_requested_at || r.created_at))}${r.quote_requested_at ? '' : '<br><span class="muted">calculation</span>'}</td>
+          <td>${esc(w.company)} ${chip('neutral', coverOfCase(r) === 'open_cover' ? 'Open cover' : 'One off')}<br><span class="xs muted">${esc(r.insured_name ? 'for ' + r.insured_name : w.name)}</span></td>
+          <td><b>${esc(r.origin_country)} → ${esc(r.dest_country)}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[r.conveyance] || {}).short || '')}${r.departure_date ? ' · ' + esc(FC.date(r.departure_date)) : ''}</span></td>
+          <td>${esc((r.goods_description || '').slice(0, 60))}</td>
+          <td class="r num">${esc(money2(r.sum_insured, r.currency))}</td>
+          <td>${chip(r.status, FC.STATUS[r.status])}${r.premium != null ? '<br><span class="xs num">' + esc(money2(r.premium, r.currency)) + '</span>' : ''}</td>
+          <td>${stageChip(r)}</td><td>${esc(r.owner || '')}</td><td class="km"></td></tr>`);
+        tr.querySelector('td.km').appendChild(kebab(() => requestMenu(r)));
+        tr.querySelector('.rq-open').addEventListener('click', e => { e.stopPropagation(); openCase(r.id); });
+        const cb = tr.querySelector('.rqSel');
+        cb.addEventListener('change', () => { cb.checked ? selected.add(r.id) : selected.delete(r.id); paintSel(); });
+        tbody.appendChild(tr);
+      });
+      const all = $('#rqAll', wrap); const vis = rows.slice(0, 500);
+      all.checked = vis.length && vis.every(r => selected.has(r.id));
+      all.addEventListener('change', () => { vis.forEach(r => all.checked ? selected.add(r.id) : selected.delete(r.id)); paintRows(rows0, k); });
+    }
+    kpi.querySelectorAll('[data-kpi]').forEach(b => b.addEventListener('click', () => kit.toggleState(b.dataset.kpi)));
+    kpi.querySelector('[data-todo]').addEventListener('click', () => { todo = !todo; origApply(); });
+    $('#rqCalc', tb).addEventListener('change', e => { rqFilter.calc = e.target.checked; origApply(); });
+    $('#rqTest', tb).addEventListener('change', e => { rqFilter.test = e.target.checked; origApply(); });
+    $('#rqNew', tb).addEventListener('click', () => { tab = 'newq'; syncNav(); render(); });
+    $('#rqCsv', tb).addEventListener('click', () => exportCsv(shown));
+    $('#rqClr', bulk).addEventListener('click', () => { selected.clear(); origApply(); });
     $('#rqCsvSel', bulk).addEventListener('click', () => exportCsv(S.rows.filter(r => selected.has(r.id))));
     const bulkUpd = async (b, patch, msg) => { busy(b, true); const { error } = await sb.from('indications').update(patch).in('id', Array.from(selected)); busy(b, false); if(error) return toast(error.message, 'error'); toast(msg); await loadAll(); render(); };
     $('#rqStageQ', bulk).addEventListener('click', e => bulkUpd(e.currentTarget, { stage:'working_on_it' }, 'Moved to working on it.'));
     $('#rqClose', bulk).addEventListener('click', () => closeCases(Array.from(selected)).then(ok => ok && selected.clear()));
     $('#rqMine', bulk).addEventListener('click', e => bulkUpd(e.currentTarget, { owner: myInitials() }, 'Assigned to you.'));
-    const paint = () => {
-      const rows = filteredRequests();
-      const ids = new Set(rows.map(r => r.id)); Array.from(selected).forEach(id => { if(!ids.has(id)) selected.delete(id); }); paintSel();
-      body.querySelectorAll('[data-scope]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.scope === rqFilter.scope)));
-      if(!rows.length){ wrap.innerHTML = `<div class="empty"><h3>${rqFilter.scope === 'open' ? 'Nothing to do' : 'No matches'}</h3><p>${rqFilter.scope === 'open' ? 'New requests and accepted quotations appear here.' : 'Change the search or filters.'}</p></div>`; return; }
-      const showBrk = rqFilter.scope === 'b_won';
-      wrap.innerHTML = `<table class="tbl"><thead><tr><th style="width:28px"><input type="checkbox" id="rqAll" aria-label="Select all" style="width:auto;min-width:0"></th><th>Reference</th><th>Received</th><th>Customer</th><th>Route</th><th>Goods</th><th class="r">Sum insured</th><th>${showBrk ? 'Premium / brokerage' : 'Indication'}</th><th>Stage</th><th>Owner</th><th class="km"></th></tr></thead><tbody></tbody></table>`;
-      const tbody = wrap.querySelector('tbody');
-      rows.slice(0, 400).forEach(r => {
-        const w = who(r), bk = bucket(r);
-        const wq = wonQuote(r), b = brokerageOf(r);
-        const third = showBrk ? `${wq ? '<span class="num">' + esc(money2(wq.data.total, wq.data.currency)) + '</span>' : '-'}${b ? '<br><span class="xs num muted">' + esc(money2(b.amount, b.currency)) + ' (' + esc(b.pct) + ' %)' + (b.insurer ? ', ' + esc(b.insurer) : '') + '</span>' : ''}`
-          : `${chip(r.status, FC.STATUS[r.status])}${r.premium != null ? '<br><span class="xs num">' + esc(money2(r.premium, r.currency)) + '</span>' : ''}`;
-        const tr = FC.el(`<tr>
-          <td data-nosel><input type="checkbox" class="rqSel" aria-label="Select" ${selected.has(r.id) ? 'checked' : ''} style="width:auto;min-width:0"></td>
-          <td><button type="button" class="linkbtn rq-open"><b>${esc(r.ref || '#' + r.id)}</b></button>${r.is_out_of_cover ? ' ' + chip('declined', 'Out of cover') : ''}${r.is_standalone_one_off ? ' ' + chip('neutral', 'Standalone one-off') : ''}${r.is_direct_certificate ? ' ' + chip('accepted', 'Direct certificate') : ''}${(r.alerts || []).length ? ' <span class="al-dots">' + alertDots(r) + '</span>' : ''}${r.is_test ? ' ' + chip('neutral', 'Test') : ''}${bk === 'won' ? ' ' + chip('accepted', 'Won') : bk === 'lost' ? ' ' + chip('declined', 'Lost') : ''}</td>
-          <td class="xs">${esc(FC.ago(r.quote_requested_at || r.created_at))}${r.quote_requested_at ? '' : '<br><span class="muted">no request</span>'}</td>
-          <td>${esc(w.company)}${r.policy_id ? ' ' + chip('neutral', 'Open cover') : ''}${r.intake ? ' ' + chip('pending', 'Intake') : ''}<br><span class="xs muted">${esc(r.insured_name ? 'for ' + r.insured_name : w.name)}</span></td>
-          <td><b>${esc(r.origin_country)} → ${esc(r.dest_country)}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[r.conveyance] || {}).short)}</span></td>
-          <td>${esc(r.goods_description.slice(0, 60))}</td>
-          <td class="r num">${esc(money2(r.sum_insured, r.currency))}</td>
-          <td>${third}</td>
-          <td>${stageChip(r)}</td><td>${esc(r.owner || '')}</td><td class="km"></td></tr>`);
-        tr.querySelector('td.km').appendChild(kebab(() => requestMenu(r)));
-        tr.querySelector('.rq-open').addEventListener('click', e => { e.stopPropagation(); openCase(r.id); });
-        const cb = tr.querySelector('.rqSel');
-        cb.addEventListener('click', e => e.stopPropagation());
-        cb.addEventListener('change', () => { cb.checked ? selected.add(r.id) : selected.delete(r.id); paintSel(); });
-        tr.querySelector('[data-nosel]').addEventListener('click', e => { if(e.target === e.currentTarget){ e.stopPropagation(); cb.click(); } });
-        tbody.appendChild(tr);
-      });
-      const all = $('#rqAll', wrap);
-      all.checked = rows.slice(0, 400).every(r => selected.has(r.id));
-      all.addEventListener('change', () => { rows.slice(0, 400).forEach(r => all.checked ? selected.add(r.id) : selected.delete(r.id)); paint(); });
-    };
-    body.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => { rqFilter.scope = b.dataset.scope; $('#rqScope', tb).value = rqFilter.scope; paint(); }));
-    $('#rqQ', tb).addEventListener('input', e => { rqFilter.q = e.target.value; paint(); });
-    $('#rqScope', tb).addEventListener('change', e => { rqFilter.scope = e.target.value; paint(); });
-    $('#rqCsv', tb).addEventListener('click', () => exportCsv(filteredRequests()));
+    const delBtn = $('#rqDel', bulk);
     delBtn.addEventListener('click', async () => {
       const ids = Array.from(selected); if(!ids.length) return;
-      busy(delBtn, false);
       if(!(await FC.confirm('Delete ' + ids.length + ' case' + (ids.length > 1 ? 's' : '') + '?', 'Indications, quotations, cover notes, notes and invoice files are deleted for good. The clients no longer see them either.', 'Delete for good', 'danger'))) return;
-      busy(delBtn, true);
-      const ok = await deleteCases(ids);
-      busy(delBtn, false);
+      busy(delBtn, true); const ok = await deleteCases(ids); busy(delBtn, false);
       if(ok){ selected.clear(); await loadAll(); render(); toast(ids.length + ' deleted.'); }
     });
-    paint();
+    origApply();
   }
+
+  // =================================================================== CERTIFICATES
+  const CERT_STATE = { issued:'Issued', draft:'Draft / pending', cancelled:'Cancelled / void', amended:'Amended' };
+  const ctSel = new Set();
+  const certIssuer = c => (c.data || {}).issued_by_client ? 'Client' : ((S.profiles[c.created_by] || {}).full_name || (S.profiles[c.created_by] || {}).email || '');
+  function renderCertificates(body){
+    const all = () => S.certs.map(c => ({ c, r: S.rows.find(x => x.id === c.indication_id) })).filter(x => x.r);
+    body.appendChild(FC.el(`<div class="notice info fdf-help" style="margin:0 0 12px"><b>Certificates</b>Every certificate in every state. ${esc(FC.FDF_HINT)}</div>`));
+    const host = FC.el('<div></div>'), list = FC.el('<div></div>'); body.appendChild(host); body.appendChild(list);
+    const clients = Array.from(new Map(all().map(x => { const lv = caseLevel(x.r); return lv.polId ? ['p' + lv.polId, 'Subcategory ' + polLabel(polOf(lv.polId))] : ['c' + (lv.custId || 0), (custOf(lv.custId) || {}).name || who(x.r).company]; })).entries());
+    const num = x => Number(String(x.c.number).replace(/[^\d.]/g, '')) || 0;
+    const kit = filterKit(host, { id:'certs', noun:'certificates', placeholder:'Search number, reference, client, holder, goods', rows: all,
+      states: Object.entries(CERT_STATE), stateOf: x => x.c.status || 'issued',
+      handlers: Array.from(new Set(all().map(x => certIssuer(x.c)).filter(Boolean))).sort(), handlerOf: x => certIssuer(x.c), meName: () => [me().full_name || me().email], handlerLabel:'Issued by',
+      dates: [['issued','Issue date', x => x.c.created_at]],
+      clients, clientOf: x => { const lv = caseLevel(x.r); return lv.polId ? 'p' + lv.polId : 'c' + (lv.custId || 0); }, clientLabel:'Client / subcategory',
+      extras: [{ k:'mode', label:'Format', opts:[['platform_pdf','Platform PDF'],['fdf_export','FDF export']], of: x => certModeOf(x.r) }],
+      searchOf: x => [x.c.number, x.r.ref, who(x.r).company, (x.c.data || {}).holder, (x.c.data || {}).goods].join(' '),
+      sorts: [['newest','Issue date newest', (a, b) => new Date(b.c.created_at) - new Date(a.c.created_at)], ['oldest','Issue date oldest', (a, b) => new Date(a.c.created_at) - new Date(b.c.created_at)],
+        ['number','Certificate No.', (a, b) => num(a) - num(b) || String(a.c.number).localeCompare(String(b.c.number))], ['sum','Sum insured (high-low)', (a, b) => FC.parseNum((b.c.data || {}).sum) - FC.parseNum((a.c.data || {}).sum)],
+        ['customer','Customer A-Z', byStr(x => who(x.r).company)]],
+      paint: rows => {
+        list.innerHTML = '';
+        selList({ host: list, rows, id: x => x.c.id, sel: ctSel, empty:'No certificates match. Change or reset the filters.',
+          cols:[ { l:'Certificate', html: x => `<b>${esc(x.c.number)}</b> ${chip(x.c.status === 'cancelled' ? 'declined' : x.c.status === 'amended' ? 'pending' : 'approved', CERT_STATE[x.c.status || 'issued'])} ${chip('neutral', CERT_MODE[x.c.numbering_mode] || 'number')}` },
+            { l:'Case', html: x => `<button type="button" class="linkbtn ct-open">${esc(x.r.ref || '#' + x.r.id)}</button>${x.r.is_direct_certificate ? ' ' + chip('accepted', 'direct') : ''}` },
+            { l:'Client / holder', html: x => `${esc(who(x.r).company)}<br><span class="xs muted">${esc(((x.c.data || {}).holder || '').slice(0, 60))}</span>` },
+            { l:'Format', cls:'xs', html: x => certModeOf(x.r) === 'fdf_export' ? 'FDF export' : 'Platform PDF' },
+            { l:'Sum insured', cls:'r num', html: x => esc(((x.c.data || {}).curr || '') + ' ' + ((x.c.data || {}).sum || '')) },
+            { l:'Issued', cls:'xs', html: x => esc(FC.dateTime(x.c.created_at)) + '<br><span class="muted">' + esc(certIssuer(x.c)) + '</span>' },
+            { l:'Download', html: () => '<button type="button" class="btn btn-ok btn-sm ct-fdf">.fdf</button> <button type="button" class="btn btn-ghost btn-sm ct-pdf">PDF</button>' } ],
+          onRow: (tr, x) => { tr.querySelector('.ct-open').addEventListener('click', () => openCase(x.r.id)); tr.querySelector('.ct-fdf').addEventListener('click', () => fdfDownload(x.c));
+            tr.querySelector('.ct-pdf').addEventListener('click', () => printCaseDoc(x.r, 'certificate', Object.assign({}, x.c.data || {}, { no: x.c.number }))); },
+          menu: x => [['Download .fdf', () => fdfDownload(x.c)], ['Download PDF', () => printCaseDoc(x.r, 'certificate', Object.assign({}, x.c.data || {}, { no: x.c.number }))], ['Open linked case', () => openCase(x.r.id)], '-',
+            ['Amend certificate', () => certificateDialog(x.r, x.c).then(async ok => { if(ok){ await sb.from('certificates').update({ status:'amended' }).eq('id', x.c.id); await loadAll(); render(); } })],
+            x.c.status !== 'cancelled' ? ['Cancel / void…', () => cancelCert(x.c), 'danger'] : ['Reinstate as issued', async () => { await sb.from('certificates').update({ status:'issued', status_note:null }).eq('id', x.c.id); await loadAll(); render(); }],
+            canClientIssueCertificate(x.r) ? ['Issue new certificate for this case', () => issueCertificate(x.r)] : null],
+          bulk:[ ['Download .fdf files', async rs => { for(const x of rs){ fdfDownload(x.c); await new Promise(res => setTimeout(res, 250)); } }],
+            ['Export CSV', rs => csvSave('FREIGHTCON_certificates', ['Number','State','Mode','Case','Client','Holder','Currency','Sum insured','Policy year','Issued','Issued by'], rs.map(x => [x.c.number, x.c.status || 'issued', x.c.numbering_mode, x.r.ref, who(x.r).company, (x.c.data || {}).holder, (x.c.data || {}).curr, (x.c.data || {}).sum, (S.polYears.find(z => z.id === x.c.policy_year_id) || {}).label || '', x.c.created_at, certIssuer(x.c)]))] ] });
+      } });
+    kit.apply();
+  }
+  async function cancelCert(c){
+    const box = FC.el(`<div><div class="serious"><b>Serious change</b><div>Certificate <b>${esc(c.number)}</b> is marked as cancelled / void. It stays in the list (state "Cancelled / void"); its number is not given out again.</div></div><div class="field" style="margin-top:10px"><label for="ccWhy">Reason</label><input id="ccWhy" maxlength="300"></div><div class="err-msg" id="ccErr"></div></div>`);
+    const ok = await FC.dialog({ title:'Cancel certificate ' + c.number + '?', body: box, actions:[{ label:'Keep', kind:'ghost', value:null }, { label:'Cancel / void certificate', kind:'danger', onClick: async () => {
+      const why = box.querySelector('#ccWhy').value.trim(); if(why.length < 3){ box.querySelector('#ccErr').textContent = 'Please give a reason.'; return; }
+      const { error } = await sb.from('certificates').update({ status:'cancelled', status_note: why }).eq('id', c.id); if(error){ box.querySelector('#ccErr').textContent = error.message; return; } return true; } }] });
+    if(ok){ toast('Certificate ' + c.number + ' cancelled.'); await loadAll(); render(); }
+  }
+
+  // =================================================================== CLAIMS
+  const CLAIM_STATE = [['reported','New'],['in_review','Under review'],['surveyor_appointed','Surveyor appointed'],['documents_requested','Awaiting documents'],['with_insurer','With insurer'],['settled','Settled'],['closed_x','Declined / closed']];
+  const claimState = c => ['rejected', 'closed'].includes(c.status) ? 'closed_x' : c.status;
+  const LOSS_F = [['shortage','Shortage'],['damage','Damage'],['theft','Theft'],['general_average','General Average'],['other','Other']];
+  const lossGroup = c => ({ wet:'damage', temperature:'damage', total_loss:'damage' }[c.loss_type] || c.loss_type);
+  function renderClaimsAdmin(body){
+    const all = S.claims, act = all.filter(claimNeedsAction), openC = all.filter(c => !['settled','rejected','closed'].includes(c.status));
+    const reserve = {}; openC.forEach(c => { const r = S.claimInt[c.id]; if(r && r.reserve != null) reserve[c.currency] = (reserve[c.currency] || 0) + Number(r.reserve); });
+    const kpi = FC.el(`<div class="stats"><button type="button" class="stat stat-btn${act.length ? ' alert' : ''}" data-cact aria-pressed="false"><b>${act.length}</b><span>Need action (new or client wrote)</span></button>
+      ${CLAIM_STATE.map(([k, l]) => `<button type="button" class="stat stat-btn" data-ckpi="${k}" aria-pressed="false"><b>${all.filter(c => claimState(c) === k).length}</b><span>${esc(l)}</span></button>`).join('')}
+      <div class="stat"><b class="num" style="font-size:18px">${esc(Object.keys(reserve).length ? Object.entries(reserve).map(([c, v]) => money2(v, c)).join(' · ') : '-')}</b><span>Reserves on open claims (internal)</span></div></div>`);
+    body.appendChild(kpi);
+    let onlyAct = false;
+    const host = FC.el('<div></div>'), wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(host); body.appendChild(wrap);
+    const custName = c => (S.profiles[c.user_id] || {}).company || '';
+    const pol = c => { const i = S.rows.find(x => x.id === c.indication_id); return i && i.policy_id ? 'p' + i.policy_id : 'c' + ((i && i.customer_id) || 0); };
+    const clients = Array.from(new Map(all.map(c => { const i = S.rows.find(x => x.id === c.indication_id) || {}; return [pol(c), i.policy_id ? 'Subcategory ' + polLabel(polOf(i.policy_id)) : (custOf(i.customer_id) || {}).name || custName(c) || 'Without client']; })).entries());
+    const kit = filterKit(host, { id:'claims', noun:'claims', placeholder:'Search claim, customer, goods, place, insurer claim no.', rows: () => all.filter(c => !onlyAct || act.includes(c)),
+      states: CLAIM_STATE, stateOf: claimState,
+      handlers: Array.from(new Set(Object.values(S.claimInt).map(x => (x.handler || '').trim()).filter(Boolean))).sort(), handlerOf: c => (S.claimInt[c.id] || {}).handler, meName: () => [myInitials(), me().full_name].filter(Boolean), handlerLabel:'Claims handler',
+      dates: [['reported','Reported date', c => c.created_at], ['loss','Loss date', c => c.incident_date || c.discovered_date]],
+      clients, clientOf: pol, clientLabel:'Client / policy',
+      extras: [{ k:'loss', label:'Loss type', opts: LOSS_F, of: lossGroup }],
+      searchOf: c => { const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}; return [c.ref, c.cover_note_no, c.insurer_claim_no, p.company, p.full_name, p.email, i.goods_description, i.ref, c.place].join(' '); },
+      sorts: [['newest','Reported newest', (a, b) => new Date(b.created_at) - new Date(a.created_at)], ['oldest','Reported oldest', (a, b) => new Date(a.created_at) - new Date(b.created_at)],
+        ['reserve','Estimated reserve (high-low)', (a, b) => (Number((S.claimInt[b.id] || {}).reserve ?? b.estimated_amount) || 0) - (Number((S.claimInt[a.id] || {}).reserve ?? a.estimated_amount) || 0)],
+        ['status','Status', (a, b) => CLAIM_STATE.findIndex(x => x[0] === claimState(a)) - CLAIM_STATE.findIndex(x => x[0] === claimState(b))], ['customer','Customer A-Z', byStr(custName)]],
+      paint: (rows, k) => {
+        kpi.querySelectorAll('[data-ckpi]').forEach(b => b.setAttribute('aria-pressed', String(k.F.inc.includes(b.dataset.ckpi)))); kpi.querySelector('[data-cact]').setAttribute('aria-pressed', String(onlyAct));
+        if(!rows.length){ wrap.innerHTML = '<div class="empty"><h3>No claims match</h3><p>Change or reset the filters.</p></div>'; return; }
+        wrap.innerHTML = '<table class="tbl"><thead><tr><th>Claim</th><th>Reported</th><th>Customer</th><th>What happened</th><th>Shipment</th><th class="r">Estimated / reserve</th><th>Status</th><th>Handler</th></tr></thead><tbody></tbody></table>';
+        rows.forEach(c => {
+          const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}, ci = S.claimInt[c.id] || {};
+          const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(c.ref)}</b>${claimNeedsAction(c) ? ' ' + chip('pending', c.status === 'reported' ? 'New' : 'Client wrote') : ''}</td>
+            <td class="xs">${esc(FC.ago(c.created_at))}${c.incident_date ? '<br><span class="muted">loss ' + esc(FC.date(c.incident_date)) + '</span>' : ''}</td><td>${esc(p.company || '')}<br><span class="xs muted">${esc(p.full_name || p.email || '')}</span></td>
+            <td>${esc((FC.LOSS && FC.LOSS[c.loss_type] || {}).label || (LOSS_F.find(x => x[0] === c.loss_type) || [0, c.loss_type])[1])}<br><span class="xs muted">${esc(c.place || '')}</span></td>
+            <td>${esc(i.ref || '')}<br><span class="xs muted">${esc((i.goods_description || '').slice(0, 40))}</span></td>
+            <td class="r num">${c.estimated_amount != null ? esc(money2(c.estimated_amount, c.currency)) : '-'}${ci.reserve != null ? '<br><span class="xs muted">reserve ' + esc(money2(ci.reserve, c.currency)) + '</span>' : ''}</td>
+            <td>${chip(c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending', CLS()[c.status] || c.status)}</td><td>${esc(ci.handler || '')}</td></tr>`);
+          tr.addEventListener('click', () => openClaimAdmin(c.id)); tr.addEventListener('keydown', e => { if(e.key === 'Enter') openClaimAdmin(c.id); });
+          wrap.querySelector('tbody').appendChild(tr);
+        });
+      } });
+    kpi.querySelectorAll('[data-ckpi]').forEach(b => b.addEventListener('click', () => kit.toggleState(b.dataset.ckpi)));
+    kpi.querySelector('[data-cact]').addEventListener('click', () => { onlyAct = !onlyAct; kit.apply(); });
+    kit.apply();
+  }
+
   // ⋮ menu of a request
   function requestMenu(r){
     const live = liveQuotes(r), last = live[live.length - 1];
@@ -378,7 +654,7 @@
       last && last.status === 'open' ? [last.send_status === 'saved' ? 'Send to client' : 'Resend to client', () => sendDialog(last, r)] : null,
       stg(r) === 'request' ? ['Move to working on it', () => moveStage([r.id], 'working_on_it', { owner: r.owner || myInitials() })] : null,
       stg(r) !== 'closed' ? ['Close case…', () => closeCases([r.id])] : ['Reopen (working on it)', () => moveStage([r.id], 'working_on_it')],
-      S.certs.some(c => c.indication_id === r.id) ? ['Download certificate .fdf', () => fdfDownload(S.certs.filter(c => c.indication_id === r.id).pop())] : null,
+      ...certMenuItems(r),
       ['Text to insurer', () => insurerText(r)],
       ['Copy text for customer', async () => { const ok = await FC.copyRich(FC.emailHtml(indicationHtml(r)), FC.htmlText(indicationHtml(r))); toast(ok ? 'Copied.' : 'Copy failed.', ok ? undefined : 'error'); }],
       ['Indication PDF', async () => { try{ FC.saveBlob(await FCPDF.indication(indRow(r)), FCPDF.fileName('MARINCON_Indication', r.ref || r.id)); }catch(e){ console.error(e); toast('PDF failed.', 'error'); } }],
@@ -506,8 +782,10 @@
       { const lq = (S.quotes[r.id] || []).filter(q => q.status !== 'superseded').pop(), cs0 = S.certs.filter(c => c.indication_id === r.id);
         if(!lq) top.appendChild(btn('Create quotation', 'primary', () => quotationEditor(r).then(ok => ok && refresh())));
         else if(lq.status === 'open') top.appendChild(btn(lq.send_status === 'saved' ? 'Send quotation to client' : 'Resend quotation', lq.send_status === 'saved' ? 'primary' : 'ghost', () => sendDialog(lq, r).then(ok => ok && refresh())));
-        if(cs0.length) top.appendChild(btn('Download certificate .fdf', 'ok', () => fdfDownload(cs0[cs0.length - 1])));
-        else if(certOn(r) && lq && lq.status === 'accepted') top.appendChild(btn('Issue certificate', 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
+        // certificates: for every client with can_issue_certificates, at any stage
+        const cs1 = cs0.filter(c => c.status !== 'cancelled');
+        if(cs1.length) top.appendChild(btn('Download certificate (.fdf / PDF)', 'ok', () => certDownload(cs1[cs1.length - 1])));
+        if(canClientIssueCertificate(r)) top.appendChild(btn(cs1.length ? 'Issue new certificate' : certLabel(r), cs1.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
         if(stg(r) !== 'closed') top.appendChild(btn('Close case…', 'ghost', () => closeCases([r.id]).then(ok => ok && refresh())));
         const pc = polCoverNote(r); if(pc) top.insertAdjacentHTML('beforeend', pc); }
       $('#csSaveHost', body).appendChild(btn('Save handling', 'primary', async b => {
@@ -579,6 +857,7 @@
         $('#csCertActs', body).appendChild(btn(cs.length ? 'New certificate' : 'Create certificate', cs.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
       }
       $('#csCoverActs', body).appendChild(btn('Issue cover note', accepted ? 'primary' : 'ghost', () => coverNoteEditor(r, accepted || qs.filter(q => q.status !== 'superseded').pop()).then(ok => ok && refresh())));
+      if(canClientIssueCertificate(r)) $('#csCoverActs', body).appendChild(btn(certLabel(r), accepted ? 'primary' : 'ghost', () => certificateDialog(r).then(ok => ok && refresh())));
       // invoices
       const { data: invs } = await sb.from('invoices').select('*').eq('indication_id', r.id).order('created_at');
       const ih = $('#csInv', body);
@@ -1149,7 +1428,7 @@
   async function certificateDialog(r, existing, opt){
     opt = opt || {};
     const qs = (S.quotes[r.id] || []).filter(q => q.status !== 'superseded'), q = qs.filter(x => x.status === 'accepted').pop() || qs.slice(-1)[0];
-    if(!q && !existing && !opt.direct && !r.is_direct_certificate){ toast('Create a quotation first - the certificate takes its terms from it.', 'error'); return false; }
+    if(!q && !existing && !opt.direct && !r.is_direct_certificate && !(await FC.confirm('No quotation yet', 'The certificate is pre-filled from the case data only (no agreed terms on record). Issue it anyway?', 'Issue anyway'))) return false;
     const d = (q && q.data) || {}, og = orgOfCase(r), cf = setting('certificate_form', {}) || {}, det = r.details || {}, cu = og.customer || custOf(r.customer_id) || {};
     const air = /^air/.test(r.conveyance);
     // number: from the policy year's numbering matrix (or the running number), manual where allowed; expired policies are blocked
@@ -1491,7 +1770,7 @@
   }
   const liveUsers = () => Object.values(S.profiles).filter(p => !p.deleted_at);
   const userStatus = p => p.rejected ? chip('rejected', 'Rejected') : p.is_active === false ? chip('declined', 'Disabled') : p.approved ? chip('approved', p.is_admin ? 'Staff' : 'Active') : chip('pending', 'Waiting');
-  const goScope = (t, sc) => { tab = t; if(t === 'rates') rScope = sc; else clScope = sc; $$('[data-atab]', root).forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === t))); render(); };
+  const goScope = (t, sc) => { tab = t; if(t === 'rates') rScope = sc; else clScope = sc; syncNav(); render(); };
 
   // ---------- waiting registrations and referrals (top of the tree) ----------
   async function renderPending(body){
@@ -3640,7 +3919,7 @@
             else FC.saveBlob(await FCPDF.indication(row), FCPDF.fileName('MARINCON_Indication', row.ref || 'one-off')); }
           catch(e){ console.error(e); toast('PDF failed.', 'error'); } busy(b, false); }));
       }
-      if(saved) acts.appendChild(btn('Create quotation', 'ghost', () => { const r = S.rows.find(z => z.id === saved.id); if(r) quotationEditor(r).then(async ok => { if(ok){ await loadAll(); tab = 'quotations'; $$('[data-atab]', root).forEach(z => z.setAttribute('aria-selected', String(z.dataset.atab === 'quotations'))); render(); } }); }));
+      if(saved) acts.appendChild(btn('Create quotation', 'ghost', () => { const r = S.rows.find(z => z.id === saved.id); if(r) quotationEditor(r).then(async ok => { if(ok){ await loadAll(); tab = 'quotations'; syncNav(); render(); } }); }));
     };
     if(nq.last) paintOut();
   }
@@ -3704,8 +3983,7 @@
         ['Edit quotation' + (x.q.status === 'open' && x.q.send_status === 'saved' ? '' : ' (new version)'), () => edit(x)],
         ['Copy / duplicate as new version', () => quotationEditor(x.r, x.q.data, x.q.id).then(after)], ['Copy / duplicate as new reference', () => copyNewRef(x)],
         ['View sending history', () => historyDialog(x.r, x.q)], '-',
-        certOf(x) ? ['Download certificate .fdf', () => fdfDownload(certOf(x))] : null,
-        certOn(x.r) && ['accepted', 'open'].includes(x.q.status) ? ['Proceed to certificate', () => certificateDialog(x.r).then(after)] : null,
+        ...certMenuItems(x.r),
         ['Download quotation PDF', () => pdf(x)], ['Copy text for customer', () => copyQuoteText(x.q, x.r)], ['Text to insurer', () => insurerText(x.r)], ['Open case', () => openCase(x.r.id)],
         x.q.status === 'open' ? '-' : null, x.q.status === 'open' ? ['Withdraw', async () => { if(!(await FC.confirm('Withdraw this quotation?', 'The client can no longer accept it.', 'Withdraw', 'danger'))) return; const { error } = await sb.rpc('admin_withdraw_quotation', { p_quotation_id: x.q.id }); if(error) return toast(error.message, 'error'); await loadAll(); render(); }, 'danger'] : null ],
       bulk:[ ['Send selected', async rs => { const todo = rs.filter(x => x.q.status === 'open' && x.q.send_status === 'saved'); if(!todo.length) return toast('None of the selected quotations is saved and unsent.');
@@ -3714,26 +3992,6 @@
         ['Download PDFs', async rs => { for(const x of rs) await pdf(x); }],
         ['Export CSV', rs => csvSave('FREIGHTCON_quotations', ['Reference','Version','Customer','Assured','From','To','Goods','Currency','Total','Status','Sending','Sent','Valid until'], rs.map(x => [x.r.ref, x.q.version, who(x.r).company, (x.q.data || {}).client, x.r.origin_country, x.r.dest_country, (x.q.data || {}).goods, (x.q.data || {}).currency, (x.q.data || {}).total, stOf(x.q), x.q.send_status, x.q.sent_at || '', x.q.valid_until]))],
         ['Withdraw', async rs => { const open = rs.filter(x => x.q.status === 'open'); if(!open.length) return toast('None of the selected quotations is open.'); if(!(await FC.confirm('Withdraw ' + open.length + ' quotation(s)?', 'The clients can no longer accept them.', 'Withdraw', 'danger'))) return; for(const x of open) await sb.rpc('admin_withdraw_quotation', { p_quotation_id: x.q.id }); qtSel.clear(); await loadAll(); render(); }, 'danger'] ] });
-  }
-
-  // =================================================================== CERTIFICATES
-  const ctSel = new Set();
-  function renderCertificates(body){
-    const rows = S.certs.map(c => ({ c, r: S.rows.find(x => x.id === c.indication_id) })).filter(x => x.r).sort((a, b) => new Date(b.c.created_at) - new Date(a.c.created_at));
-    body.appendChild(FC.el(`<div class="notice info fdf-help" style="margin:0 0 12px"><b>Certificates and .fdf files</b>${esc(FC.FDF_HINT)} Every row has its own .fdf button; numbers come from the numbering matrix of the policy year.</div>`));
-    selList({ host: body, rows, id: x => x.c.id, sel: ctSel, search: x => [x.c.number, x.r.ref, who(x.r).company, (x.c.data || {}).holder, (x.c.data || {}).goods].join(' '), placeholder:'Search number, reference, client, holder',
-      empty:'No certificates yet. Issue one from an accepted quotation or with a direct certificate.',
-      cols:[ { l:'Certificate', html: x => `<b>${esc(x.c.number)}</b> ${chip('neutral', CERT_MODE[x.c.numbering_mode] || 'number')}${(x.c.data || {}).issued_by_client ? ' ' + chip('pending', 'by client') : ''}` },
-        { l:'Case', html: x => `<button type="button" class="linkbtn ct-open">${esc(x.r.ref || '#' + x.r.id)}</button>${x.r.is_direct_certificate ? ' ' + chip('accepted', 'direct') : ''}` },
-        { l:'Client / holder', html: x => `${esc(who(x.r).company)}<br><span class="xs muted">${esc(((x.c.data || {}).holder || '').slice(0, 60))}</span>` },
-        { l:'Policy year', cls:'xs', html: x => { const y = S.polYears.find(z => z.id === x.c.policy_year_id), po = y && polOf(y.policy_id); return y ? esc((po ? (po.policy_no || po.name) + ' · ' : '') + y.label) : '<span class="muted">-</span>'; } },
-        { l:'Sum insured', cls:'r num', html: x => esc(((x.c.data || {}).curr || '') + ' ' + ((x.c.data || {}).sum || '')) },
-        { l:'Issued', cls:'xs', html: x => esc(FC.dateTime(x.c.created_at)) },
-        { l:'.fdf', html: () => '<button type="button" class="btn btn-ok btn-sm ct-fdf">Download .fdf</button>' } ],
-      onRow: (tr, x) => { tr.querySelector('.ct-open').addEventListener('click', () => openCase(x.r.id)); tr.querySelector('.ct-fdf').addEventListener('click', () => fdfDownload(x.c)); },
-      menu: x => [['Download .fdf', () => fdfDownload(x.c)], ['Open / edit certificate', () => certificateDialog(x.r, x.c).then(async ok => { if(ok){ await loadAll(); render(); } })], ['Open case', () => openCase(x.r.id)]],
-      bulk:[ ['Download .fdf files', async rs => { for(const x of rs){ fdfDownload(x.c); await new Promise(res => setTimeout(res, 250)); } }],
-        ['Export CSV', rs => csvSave('FREIGHTCON_certificates', ['Number','Mode','Case','Client','Holder','Currency','Sum insured','Policy year','Issued'], rs.map(x => [x.c.number, x.c.numbering_mode, x.r.ref, who(x.r).company, (x.c.data || {}).holder, (x.c.data || {}).curr, (x.c.data || {}).sum, (S.polYears.find(z => z.id === x.c.policy_year_id) || {}).label || '', x.c.created_at]))] ] });
   }
 
   // =================================================================== TEMPLATES & MATRICES (certificate / cover note documents)
@@ -3881,39 +4139,6 @@
   // a claim needs action when it is new, or when the client wrote last
   const claimNeedsAction = c => c.status === 'reported' || (() => { const ev = (S.claimEvents[c.id] || []).filter(e => e.author_role !== 'system'); const l = ev[ev.length - 1]; return l && l.author_role === 'client'; })();
   let clFilter = { q:'', scope:'open' };
-  function renderClaimsAdmin(body){
-    const all = S.claims, open = all.filter(c => !['settled','rejected','closed'].includes(c.status)), act = all.filter(claimNeedsAction);
-    const reserve = {}; open.forEach(c => { const r = S.claimInt[c.id]; if(r && r.reserve != null) reserve[c.currency] = (reserve[c.currency] || 0) + Number(r.reserve); });
-    const scopeBtn = (k, label, cnt, cls) => `<button type="button" class="stat stat-btn${cls ? ' ' + cls : ''}" data-cscope="${k}" aria-pressed="${clFilter.scope === k}"><b>${cnt}</b><span>${label}</span></button>`;
-    body.appendChild(FC.el(`<div class="stats">${scopeBtn('action', 'Need action (new or client wrote)', act.length, act.length ? 'alert' : '')}${scopeBtn('open', 'Open claims', open.length)}
-      ${scopeBtn('settled', 'Settled', all.filter(c => c.status === 'settled').length, 'won')}${scopeBtn('all', 'All claims', all.length)}
-      <div class="stat"><b class="num" style="font-size:20px">${esc(Object.keys(reserve).length ? Object.entries(reserve).map(([c, v]) => money2(v, c)).join(' · ') : '-')}</b><span>Reserves on open claims (internal)</span></div></div>`));
-    body.querySelectorAll('.stat-btn b').forEach(b => FC.countUp(b, Number(b.textContent), null, 500));
-    const tb = FC.el(`<div class="toolbar"><input class="input" type="search" id="clQ" placeholder="Search claim, customer, goods" value="${esc(clFilter.q)}" aria-label="Search"></div>`); body.appendChild(tb);
-    const wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(wrap);
-    const paint = () => {
-      body.querySelectorAll('[data-cscope]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cscope === clFilter.scope)));
-      const s = clFilter.q.trim().toLowerCase();
-      const rows = all.filter(c => clFilter.scope === 'all' || (clFilter.scope === 'open' && open.includes(c)) || (clFilter.scope === 'action' && act.includes(c)) || (clFilter.scope === 'settled' && c.status === 'settled'))
-        .filter(c => { if(!s) return true; const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}; return [c.ref, c.cover_note_no, c.insurer_claim_no, p.company, p.full_name, p.email, i.goods_description, i.ref].join(' ').toLowerCase().includes(s); });
-      if(!rows.length){ wrap.innerHTML = '<div class="empty"><h3>No claims here</h3><p>Reported claims appear here.</p></div>'; return; }
-      wrap.innerHTML = '<table class="tbl"><thead><tr><th>Claim</th><th>Reported</th><th>Customer</th><th>What happened</th><th>Shipment</th><th class="r">Estimated</th><th>Status</th><th>Handler</th></tr></thead><tbody></tbody></table>';
-      rows.forEach(c => {
-        const i = S.rows.find(x => x.id === c.indication_id) || {}, p = S.profiles[c.user_id] || {}, ci = S.claimInt[c.id] || {};
-        const tr = FC.el(`<tr class="click" tabindex="0"><td><b>${esc(c.ref)}</b>${claimNeedsAction(c) ? ' ' + chip('pending', c.status === 'reported' ? 'New' : 'Client wrote') : ''}</td>
-          <td class="xs">${esc(FC.ago(c.created_at))}</td><td>${esc(p.company || '')}<br><span class="xs muted">${esc(p.full_name || p.email || '')}</span></td>
-          <td>${esc((FC.LOSS && FC.LOSS[c.loss_type] || {}).label || c.loss_type)}<br><span class="xs muted">${esc(c.place || '')}</span></td>
-          <td>${esc(i.ref || '')}<br><span class="xs muted">${esc((i.goods_description || '').slice(0, 40))}</span></td>
-          <td class="r num">${c.estimated_amount != null ? esc(money2(c.estimated_amount, c.currency)) : '-'}</td>
-          <td>${chip(c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending', CLS()[c.status] || c.status)}</td><td>${esc(ci.handler || '')}</td></tr>`);
-        tr.addEventListener('click', () => openClaimAdmin(c.id)); tr.addEventListener('keydown', e => { if(e.key === 'Enter') openClaimAdmin(c.id); });
-        wrap.querySelector('tbody').appendChild(tr);
-      });
-    };
-    body.querySelectorAll('[data-cscope]').forEach(b => b.addEventListener('click', () => { clFilter.scope = b.dataset.cscope; paint(); }));
-    $('#clQ', tb).addEventListener('input', e => { clFilter.q = e.target.value; paint(); });
-    paint();
-  }
   async function openClaimAdmin(id){
     const c = S.claims.find(x => x.id === id); if(!c) return;
     const back = FC.el('<div class="drawer-back"></div>');
