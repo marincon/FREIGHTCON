@@ -165,3 +165,17 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Zertifikate hängen nur noch an einem Schalter: „Can issue certificates“ des Kunden (Unterkategorie kann übersteuern). Der Kunde eines Falls wird über Fall → Unterkategorie → Office → Firma des Nutzers gefunden, auch wenn am Fall kein Kunde hinterlegt ist. Der separate Schalter „Direct certificate issuance“ entfällt; die alten Flags folgen automatisch.
 * New quotation: „Issue certificate directly“ für jeden freigeschalteten Kunden; der Fall wird nachträglich angelegt. Im Tab Certificates gibt es dafür „+ New certificate“.
 * Neuer Tab „Cover notes“ (neben Certificates): alle Deckungsnoten mit Suche, Filtern (Status, Aussteller, Zeitraum, Kunde / Unterkategorie, Cover-Typ), Sortierung, Link zum Fall, Kunde, Ausstellungszeit und ⋮-Menü (PDF, Druck aus Vorlage, Fall öffnen, Stornieren / Wiederherstellen), CSV-Export. Das Badge zeigt die Deckungsnoten der letzten 7 Tage.
+
+## Update 2026-11-17 y (Version 2026-11-17a)
+
+`update_2026-11-17y.sql` ausführen (nach x) und die Website hochladen.
+
+* Templates & Matrices ist jetzt der eine Ort für alle Vorlagen: Quotation templates (inkl. E-Mail-Text, Text an Versicherer, Zertifikats-Zusatzvereinbarungen), Certificate, Cover note, Policy deductibles, Numbering matrices. Ebenen: General / Client group / Client / Subcategory. Im Tab Clauses gibt es keine Textvorlagen mehr.
+* Die Quotation template ist nur noch die Eltern-Struktur mit Platzhaltern `{{opening_block}}`, `{{policy_no}}`, `{{general_conditions}}`, `{{special_conditions}}`, `{{deductibles}}`, `{{rate_and_min_premium}}`, `{{subjectivities}}`, `{{disclaimer_block}}`. Die Klauseln kommen aus den Clauses-Listen und den Häkchen im Angebotsfenster.
+* Angebotsfenster (New quotation, All cases, Edit quotation): Auswahl der Quotation template oben (verbundene Vorlage nach Subcategory, Client, Client group, General), "Reset to template structure". Die Vorlage wird am Angebot und am Fall gespeichert.
+* Rate only: Ist für Subcategory, Client oder Client group "nur Rate" eingestellt, ist der Warenwert intern optional; Rate-Only-Angebote ohne Versicherungssumme sind möglich.
+* Office und Subcategory sperren sich gegenseitig (neue Zuordnung "Offices covered" an der Subcategory bzw. "Also covered by" am Office), mit "All / Clear".
+* Neue Einstellung "External invoice value" (Mandatory / Optional) an Client group, Client, Subcategory und User; spezifischste Ebene gewinnt, Standard Mandatory.
+* Kundenportal: Karte "Account & Cover Assignment" mit gesperrter Police und Office, Button "Unlock (Ask on behalf of)" (nur eigene Firma, plus Standalone-Anfrage), Kennzeichnung "on behalf of" am Fall. Feld heißt "Invoice value (or about)".
+* Policy limits werden extern und intern angezeigt (Conveyance / On deck-Barge / Parcel post, mit FX-Tabelle unter Settings). Bei Überschreitung Warnung, Kennzeichen am Fall und Angebot, Chip in All cases und Button "Text to insurer (special request)".
+* Policy deductibles (Main / Condition-specific, optional pro Office) je Subcategory; jede Klausel kann Deductibles verknüpfen. Im Angebot: "Insert deductible" zeigt Main + Deductibles der angehakten Klauseln; Häkchen setzen oder entfernen gleicht den Deductible-Block automatisch an.
