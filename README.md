@@ -179,3 +179,16 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Kundenportal: Karte "Account & Cover Assignment" mit gesperrter Police und Office, Button "Unlock (Ask on behalf of)" (nur eigene Firma, plus Standalone-Anfrage), Kennzeichnung "on behalf of" am Fall. Feld heißt "Invoice value (or about)".
 * Policy limits werden extern und intern angezeigt (Conveyance / On deck-Barge / Parcel post, mit FX-Tabelle unter Settings). Bei Überschreitung Warnung, Kennzeichen am Fall und Angebot, Chip in All cases und Button "Text to insurer (special request)".
 * Policy deductibles (Main / Condition-specific, optional pro Office) je Subcategory; jede Klausel kann Deductibles verknüpfen. Im Angebot: "Insert deductible" zeigt Main + Deductibles der angehakten Klauseln; Häkchen setzen oder entfernen gleicht den Deductible-Block automatisch an.
+
+## Update 2026-11-17 z (Version 2026-11-17b)
+
+1. `update_2026-11-17z.sql` im SQL Editor ausführen (nach y).
+2. Zwei neue Edge Functions deployen (wie bei `notify`):
+   `supabase functions deploy parse-cover-note` und `supabase functions deploy send-claim-notification`.
+3. Secrets setzen: `ANTHROPIC_API_KEY` (Claude API, für den Cover-Note-Parser), optional `CLAUDE_MODEL` (Standard `claude-sonnet-5-5`). Für die Claim-E-Mails nutzt `send-claim-notification` dieselben SMTP-Secrets wie `notify` (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, APP_URL).
+4. Website hochladen (neu: `assets/export.js` und der Ordner `assets/vendor/`).
+
+* Clauses: Der Button "Deductible" öffnet jetzt einen eigenen Editor (Prozent, Festbetrag, Währung, Minimum, Maximum oder "As per policy default" plus verknüpfte Policy-Deductibles) und löst nie mehr das Entfernen aus. Deductible und Remove stehen rechts.
+* Customers: "+ Import from Cover Note" und "Draft Policies (N)". PDF oder DOCX hochladen, die KI liest es aus, danach Prüfansicht mit Dokument links und vier Tabs rechts (mit High / Review / Not Found). "Approve & Create Policy" legt Client, Subcategory, Policy Year, Security, Klauseln, Deductibles, Ausschlüsse und das Dokument in einer Transaktion an.
+* Claims: "+ Create Claim" mit Verknüpfung zu Client, Office, Policy, User und Shipment/Zertifikat, Handler, Deductible-Vorschlag, Dokumenten und Benachrichtigungen (Glocke + E-Mail an Client, Handler, Lead Insurer). KPI-Leiste mit Loss Ratio, Arbeitsbereich mit vier Tabs (Overview & Financials, Documents mit Checkliste, Surveyor & GA, Timeline), Loss Run / Bordereau. "Open claim from shipment" in All cases und Certificates.
+* Export: Jede Liste hat [Export .xlsx] [Export .pdf] mit den aktuell gefilterten Daten, Filterzeile, Zeitstempel, MARINCON-Kopf und Seitenzahlen. Interne Spalten (Brokerage, Reserven, Security) nur für Staff.
