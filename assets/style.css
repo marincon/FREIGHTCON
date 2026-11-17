@@ -1366,3 +1366,39 @@ th.sortable::after{content:' ↕';opacity:.35;font-size:11px}
 th.sortable[aria-sort="ascending"]::after{content:' ↑';opacity:.9}
 th.sortable[aria-sort="descending"]::after{content:' ↓';opacity:.9}
 .admin-content .stats{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+
+/* ---- 2026-11-17: policy limits, deductibles, policy / office assignment ---- */
+.pol-limits{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:var(--r-sm);background:var(--paper);padding:8px 12px;margin:8px 0;font-size:var(--fs-sm)}
+.pol-limits .pl-row{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:4px}
+.pol-limits .pl-row span{color:var(--steel)}
+.pol-limits .pl-row span b{color:var(--ink)}
+.pol-limits .pl-row span.on{color:var(--ink)}
+.pol-limits .pl-row span.on b{text-decoration:underline;text-decoration-color:var(--amber);text-underline-offset:3px}
+.limit-warn{background:var(--danger-wash);border:1px solid var(--danger);border-left-width:4px;border-radius:var(--r-sm);padding:10px 12px;margin:8px 0;color:var(--ink);font-size:var(--fs-sm)}
+.limit-warn b{display:block;color:var(--danger);text-transform:uppercase;letter-spacing:.03em;font-size:var(--fs-xs);margin-bottom:2px}
+.cs-limit{border-bottom:0!important}
+.chip.ded-chip{background:var(--amber-wash);color:var(--teal-ink);white-space:normal}
+.ded-pick,.ded-pop{display:flex;flex-direction:column;gap:6px}
+.ded-pop h4{margin:10px 0 2px;font-size:var(--fs-sm)}
+.ded-pop details{margin-top:8px}
+.ded-pop summary{cursor:pointer;font-size:var(--fs-sm);color:var(--steel)}
+.ded-opt{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--line-soft);border-radius:var(--r-sm)}
+.ded-opt input{width:18px;height:18px;min-width:18px;margin:2px 0 0}
+.ded-offs{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 16px}
+.ded-offs label,.ded-cls label{display:flex;gap:6px;align-items:flex-start}
+.ded-offs input,.ded-cls input{width:auto;min-width:0;margin-top:2px}
+.ded-cls{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px 18px;max-height:260px;overflow:auto;padding:8px;border:1px solid var(--line-soft);border-radius:var(--r-sm)}
+.ded-cls > div{display:flex;flex-direction:column;gap:3px}
+.ded-tbl tr.standby td{opacity:.6}
+.ded-acts{white-space:nowrap;text-align:right}
+.nm-card{margin:0 0 12px}
+.qe-tplbar select{min-width:0}
+.cl-ded{margin-right:8px}
+/* client portal: account & cover assignment */
+.assign-card{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0 0 14px;background:var(--fog)}
+.assign-card .ac-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.assign-card .ac-top b{font-size:var(--fs-sm)}
+.assign-card .ac-top .btn{margin-left:auto}
+.assign-card select:disabled{opacity:.65;cursor:not-allowed}
+.assign-card .ac-badge{display:inline-block;background:var(--amber-wash);color:var(--teal-ink);border-radius:999px;padding:2px 10px;font-size:var(--fs-xs);font-weight:700}
+@media (max-width:640px){ .assign-card .ac-top .btn{margin-left:0} }

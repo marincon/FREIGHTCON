@@ -51,7 +51,7 @@
   A.hasRole = hasRole;
 
   async function loadAll(){
-    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl, crt, cus, ccl, sst, zmp, myr, ugr, dep, prm, cats, tpls, tfm, ipt, pyr, mtx, qsh, dtp, ccr] = await Promise.all([
+    const [ind, prof, com, reg, cty, set, ins, q, cn, rt, rc, qi, cl, ce, cf, cin, grp, pol, ofc, iin, aud, wa, wx, cla, pcl, crt, cus, ccl, sst, zmp, myr, ugr, dep, prm, cats, tpls, tfm, ipt, pyr, mtx, qsh, dtp, ccr, pof, pded, dlk] = await Promise.all([
       sb.from('indications').select('*').order('created_at', { ascending:false }).limit(1500),
       sb.from('profiles').select('*').order('created_at', { ascending:false }),
       sb.from('commodities').select('*').order('sort'),
@@ -59,7 +59,7 @@
       sb.from('countries').select('*').order('name'),
       sb.from('settings').select('*').order('key'),
       sb.from('insurers').select('*').order('name'),
-      sb.from('quotations').select('id,indication_id,version,status,valid_until,created_at,created_by,responded_at,response_note,data,send_status,sent_at,send_count,display_mode').order('version'),
+      sb.from('quotations').select('id,indication_id,version,status,valid_until,created_at,created_by,responded_at,response_note,data,send_status,sent_at,send_count,display_mode,quotation_template_id,limit_exceeded,limit_exceeded_details').order('version'),
       sb.from('cover_notes').select('*').order('issued_at'),
       sb.from('rate_tables').select('*').order('sort'),
       Promise.resolve({ data:[] }),
@@ -87,10 +87,12 @@
       sb.from('policy_years').select('*').order('starts_on'), sb.from('certificate_numbering_matrices').select('*').order('id'),
       sb.from('quotation_send_history').select('id,quotation_id,indication_id,version,sent_at,sent_by,sent_by_name,recipient_email,delivery_method,is_resend,note').order('sent_at'),
       sb.from('document_templates').select('*').order('id'),
-      sb.from('case_certificate_rights').select('*')
+      sb.from('case_certificate_rights').select('*'),
+      sb.from('policy_offices').select('policy_id,office_id'), sb.from('policy_deductibles').select('*').order('sort_order').order('id'), sb.from('clause_deductible_links').select('*')
     ]);
     S.certRights = {}; ((ccr && ccr.data) || []).forEach(x => { S.certRights[x.indication_id] = x; });
     S.docTemplates = (dtp.data || []);
+    S.polOffices = pof.data || []; S.polDeds = pded.data || []; S.dedLinks = dlk.data || [];
     S.categories = cats.data || []; setCats(S.categories); S.templates = tpls.data || []; S.textFmt = tfm.data || []; S.ipt = (ipt.data || [])[0] || null;
     S.polYears = pyr.data || []; S.matrices = mtx.data || []; S.sendHist = qsh.data || [];
     S.myRoles = (myr.data || []).length ? myr.data : ['admin','placing','claims']; S.userGroups = ugr.data || []; S.departments = dep.data || []; S.perms = prm.data || [];
@@ -177,6 +179,8 @@
     return nz(o && o.currencies) || nz(po && po.currencies) || nz(cu && cu.currencies) || nz(g && g.currencies) || nz(setting('currencies', null)) || ['EUR', 'USD']; };
   const COVER_T = { one_off:'One off', open_cover:'Open cover' };
   const polLabel = po => po ? po.name + (po.policy_no ? ' · ' + po.policy_no : '') : '';
+  const IVM_T = { inherit:'As the level above', mandatory:'Mandatory', optional:'Optional' };
+  const ivmSel = (id, v, inherit, noInherit) => `<select id="${id}">${(noInherit ? ['mandatory','optional'] : ['inherit','mandatory','optional']).map(k => `<option value="${k}" ${(v || (noInherit ? 'mandatory' : 'inherit')) === k ? 'selected' : ''}>${esc(k === 'inherit' ? inherit : IVM_T[k])}</option>`).join('')}</select>`;
   const curBoxes = (id, list) => `<div class="cur-boxes" id="${id}">${CURS.map(c => `<label><input type="checkbox" value="${c}" ${(list || []).includes(c) ? 'checked' : ''}> ${c}</label>`).join('')}</div><span class="hint">None ticked = as the level above.</span>`;
   const readCurs = (box, id) => Array.from(box.querySelectorAll('#' + id + ' input:checked')).map(i => i.value);
 
@@ -485,7 +489,7 @@
       handlers: caseHandlers(), handlerOf: r => r.owner, meName: () => [myInitials(), me().full_name].filter(Boolean), handlerLabel: 'Handler',
       dates: [['received','Received / created', r => r.quote_requested_at || r.created_at], ['departure','Departure / ETA', r => r.departure_date || r.eta_date || r.arrival_date]],
       clients: caseClients(), clientOf: r => r.customer_id || '', coverOf: coverOfCase,
-      alertsOf: r => (r.alerts || []).some(a => ['red','amber','danger','warn','warning'].includes(a.level || a.severity || 'amber')),
+      alertsOf: r => r.limit_exceeded || (r.alerts || []).some(a => ['red','amber','danger','warn','warning'].includes(a.level || a.severity || 'amber')),
       searchOf: r => { const w = who(r); return [r.ref, w.company, w.name, r.insured_name, r.goods_description, r.origin_country, r.dest_country, cName(r.origin_country), cName(r.dest_country), r.origin_place, r.dest_place, r.vessel, r.customer_ref].join(' '); },
       sorts: [['newest','Newest first', byDate(r => r.quote_requested_at || r.created_at)], ['oldest','Oldest first', byDate(r => r.quote_requested_at || r.created_at)], ['updated','Last updated', byDate(r => r.updated_at)],
         ['departure','Departure / ETA', byDate(r => r.departure_date || r.eta_date)], ['sum_desc','Sum insured (high-low)', byNum(r => r.sum_insured)], ['sum_asc','Sum insured (low-high)', byNum(r => r.sum_insured)],
@@ -510,7 +514,7 @@
         const w = who(r);
         const tr = FC.el(`<tr>
           <td data-nosel><input type="checkbox" class="rqSel" aria-label="Select" ${selected.has(r.id) ? 'checked' : ''} style="width:auto;min-width:0"></td>
-          <td><button type="button" class="linkbtn rq-open"><b>${esc(r.ref || '#' + r.id)}</b></button>${r.is_out_of_cover ? ' ' + chip('declined', 'Out of cover') : ''}${r.is_standalone_one_off ? ' ' + chip('neutral', 'Standalone one-off') : ''}${r.is_direct_certificate ? ' ' + chip('accepted', 'Direct certificate') : ''}${(r.alerts || []).length ? ' ' + chip('pending', (r.alerts || []).length + ' alert' + ((r.alerts || []).length > 1 ? 's' : '')) : ''}${r.is_test ? ' ' + chip('neutral', 'Test') : ''}</td>
+          <td><button type="button" class="linkbtn rq-open"><b>${esc(r.ref || '#' + r.id)}</b></button>${r.is_out_of_cover ? ' ' + chip('declined', 'Out of cover') : ''}${r.is_standalone_one_off ? ' ' + chip('neutral', 'Standalone one-off') : ''}${r.is_direct_certificate ? ' ' + chip('accepted', 'Direct certificate') : ''}${r.limit_exceeded ? ' ' + chip('declined', 'Policy limit exceeded') : ''}${r.is_on_behalf_of ? ' ' + chip('neutral', 'On behalf of') : ''}${(r.alerts || []).length ? ' ' + chip('pending', (r.alerts || []).length + ' alert' + ((r.alerts || []).length > 1 ? 's' : '')) : ''}${r.is_test ? ' ' + chip('neutral', 'Test') : ''}</td>
           <td class="xs">${esc(FC.ago(r.quote_requested_at || r.created_at))}${r.quote_requested_at ? '' : '<br><span class="muted">calculation</span>'}</td>
           <td>${esc(w.company)} ${chip('neutral', coverOfCase(r) === 'open_cover' ? 'Open cover' : 'One off')}<br><span class="xs muted">${esc(r.insured_name ? 'for ' + r.insured_name : w.name)}</span></td>
           <td><b>${esc(r.origin_country)} → ${esc(r.dest_country)}</b><br><span class="xs muted">${esc((FC.CONVEYANCE[r.conveyance] || {}).short || '')}${r.departure_date ? ' · ' + esc(FC.date(r.departure_date)) : ''}</span></td>
@@ -774,8 +778,16 @@
     const paintCase = async () => {
       const qs = S.quotes[r.id] || [], cns = S.coverNotes[r.id] || [];
       const conv = FC.CONVEYANCE[r.conveyance] || {};
+      const lpo = r.is_standalone_one_off ? null : polOf(r.policy_id || r.declared_policy_id) || (ofcOf(r.office_id) ? polOf(ofcOf(r.office_id).policy_id) : null);
+      const lchk = lpo ? limitCheck(lpo, Number(r.sum_insured), r.currency, r.on_deck, (r.details || {}).post_courier) : null;
+      if(lchk && r.limit_exceeded) lchk.exceeded = true;
+      const qtpl = r.quotation_template_id ? S.templates.find(t => t.id === r.quotation_template_id) : null;
       body.innerHTML = `
+        ${lchk && lchk.exceeded ? `<section class="cs-limit">${limitWarnHtml(lchk, r.currency)}<div class="toolbar" style="margin:8px 0 0"><button type="button" class="btn btn-primary btn-sm" id="csLimRef">Text to insurer (special request)</button></div></section>` : ''}
         <section><h3>Shipment</h3><dl class="kv">
+          ${lpo ? `<dt>Policy limits</dt><dd>${limitsHtml(lpo, lchk)}</dd>` : ''}
+          ${r.is_on_behalf_of ? `<dt>On behalf of</dt><dd>${chip('neutral', 'Acting on behalf of selected office/policy')} ${esc([(ofcOf(r.requested_office_id) || {}).name, r.requested_policy_id ? polLabel(polOf(r.requested_policy_id)) : r.is_standalone_one_off ? 'No policy / standalone one-off request' : ''].filter(Boolean).join(' · '))}</dd>` : ''}
+          ${qtpl ? `<dt>Quotation template</dt><dd>${esc(qtpl.name)} <span class="xs muted">${esc(qtpl.scope_type === 'one_off_general' ? 'general' : qtpl.scope_type === 'client_group' ? 'client group' : qtpl.scope_type === 'customer' ? 'client' : 'subcategory')}</span></dd>` : ''}
           <dt>Indication</dt><dd>${chip(r.status, FC.STATUS[r.status])} ${r.premium != null ? esc(money2(r.premium, r.currency)) + ' at ' + esc(FC.pct(r.rate_pct)) + (Number(r.discount_pct) ? ', discount ' + esc(Number(r.discount_pct)) + ' %' : '') + (r.min_applied ? ', minimum' : '') : ''}</dd>
           ${r.calc_detail ? `<dt>Tariff</dt><dd>${esc(explain(r.calc_detail))}${r.on_deck ? ', on deck' : ''}${r.interest_only ? ', interest only' : ''}${r.ext_hssc ? ', HSSC' : ''}${r.ext_liw ? ', LiW/DiW' : ''}</dd>` : ''}
           ${(r.reasons || []).length ? `<dt>Reasons</dt><dd>${esc(r.reasons.join('; '))}</dd>` : ''}
@@ -794,7 +806,7 @@
           <dt>Conveyance</dt><dd>${esc(conv.label || r.conveyance)}${r.departure_date ? ', departs ' + esc(FC.date(r.departure_date)) : ''}</dd>
           ${/^sea_/.test(r.conveyance) ? `<dt>Vessel</dt><dd>${esc(r.vessel || 'Not stated - ask the client')} <span class="xs muted">check age, class (IACS), flag, sanctions</span></dd>` : ''}
           ${r.incoterm ? `<dt>Incoterm</dt><dd>${esc(r.incoterm)} (${esc((FC.INCOTERMS[r.incoterm] || {}).name || '')}), ${esc(FC.partyLabel(r.insured_party, r.party_role_other))}${FC.noRisk(r.incoterm, r.insured_party) ? ' <span class="chip pending">client carries no transit risk</span>' : ''}</dd>` : ''}
-          <dt>Values</dt><dd>Invoice ${esc(money2(r.invoice_value, r.currency))}${Number(r.freight_value) > 0 ? ' + freight ' + esc(money2(r.freight_value, r.currency)) : ''} + ${esc(Number(r.uplift_pct))} % = ${esc(money2(r.sum_insured, r.currency))}${r.rate_pct != null && Number(r.rate_pct) < 100 ? `<br><span class="xs muted">CIF gross-up: ${esc(money2(Number(r.invoice_value) + Number(r.freight_value || 0), r.currency))} / (1 - ${esc(FC.pct(r.rate_pct))}) = ${esc(money2((Number(r.invoice_value) + Number(r.freight_value || 0)) / (1 - Number(r.rate_pct) / 100), r.currency))} · × 110 % = ${esc(money2((Number(r.invoice_value) + Number(r.freight_value || 0)) / (1 - Number(r.rate_pct) / 100) * 1.1, r.currency))}</span>` : ''}</dd>
+          <dt>Values</dt><dd>${r.invoice_value == null ? 'Invoice value not stated (rate only / "or about")' : 'Invoice ' + esc(money2(r.invoice_value, r.currency))}${Number(r.freight_value) > 0 ? ' + freight ' + esc(money2(r.freight_value, r.currency)) : ''} + ${esc(Number(r.uplift_pct))} % = ${esc(money2(r.sum_insured, r.currency))}${r.rate_pct != null && Number(r.rate_pct) < 100 ? `<br><span class="xs muted">CIF gross-up: ${esc(money2(Number(r.invoice_value) + Number(r.freight_value || 0), r.currency))} / (1 - ${esc(FC.pct(r.rate_pct))}) = ${esc(money2((Number(r.invoice_value) + Number(r.freight_value || 0)) / (1 - Number(r.rate_pct) / 100), r.currency))} · × 110 % = ${esc(money2((Number(r.invoice_value) + Number(r.freight_value || 0)) / (1 - Number(r.rate_pct) / 100) * 1.1, r.currency))}</span>` : ''}</dd>
           ${(r.transit_countries || []).length ? `<dt>Via</dt><dd>${esc(r.transit_countries.map(cName).join(', '))}</dd>` : ''}
           ${/^sea_/.test(r.conveyance) ? `<dt>Routing</dt><dd>${esc({ auto:'Suez / Red Sea not stated', yes:'Via Suez / Red Sea', no:'Not via Suez (e.g. the Cape)' }[r.red_sea || 'auto'])}</dd>` : ''}
           ${r.insured_country ? `<dt>Assured domicile</dt><dd>${esc(cName(r.insured_country))}${r.insured_country === 'AE' ? ' · FTZ: ' + (r.ftz == null ? 'not known' : r.ftz ? 'yes' : 'no, mainland') : ''}</dd>` : ''}
@@ -826,6 +838,7 @@
           <div class="field" style="margin-top:8px"><label for="csNote">Add a note</label><textarea id="csNote" maxlength="2000" rows="2"></textarea></div><div id="csNoteHost" style="margin-top:8px"></div></section>
         <section><h3>Timeline</h3><ul class="timeline" id="csTl"></ul></section>
         <section><div class="toolbar" id="csMore"></div></section>`;
+      if($('#csLimRef', body)) $('#csLimRef', body).addEventListener('click', () => insurerText(r));
       // handling
       $('#csStage', body).addEventListener('change', e => { $('#csReasonF', body).hidden = e.target.value !== 'closed'; });
       // the case action bar: the next step one click away
@@ -974,10 +987,12 @@
   const sameId = (a, b) => (a == null && b == null) || (a != null && b != null && Number(a) === Number(b));
   const tplRow = (kind, t, id) => S.templates.find(x => x.kind === kind && x.scope_type === t && sameId(x.scope_id, id));
   // policy -> client -> configuration (general)
-  const tplFor = (kind, custId, polId) => { const f = (t, id) => { const x = tplRow(kind, t, id); return x && x.active ? x : null; }; return (polId && f('policy', polId)) || (custId && f('customer', custId)) || f('one_off_general', null) || null; };
+  const grpOfLevel = (custId, polId) => (custOf(custId || (polOf(polId) || {}).customer_id) || {}).group_id || null;
+  const tplFor = (kind, custId, polId, grpId) => { const f = (t, id) => { const x = tplRow(kind, t, id); return x && x.active ? x : null; }; const g = grpId || grpOfLevel(custId, polId);
+    return (polId && f('policy', polId)) || (custId && f('customer', custId)) || (g && f('client_group', g)) || f('one_off_general', null) || null; };
   const fmtRow = (t, id) => S.textFmt.find(x => x.scope_type === t && sameId(x.scope_id, id));
   const fmtOut = x => ({ font_family: x.font_family, font_size_pt: Number(x.font_size_pt), line_height: Number(x.line_height), paragraph_spacing_pt: Number(x.paragraph_spacing_pt), text_color: x.text_color });
-  const fmtFor = (custId, polId) => { const x = (polId && fmtRow('policy', polId)) || (custId && fmtRow('customer', custId)) || fmtRow('one_off_general', null); return x ? fmtOut(x) : Object.assign({}, FC.FMT); };
+  const fmtFor = (custId, polId, grpId) => { const g = grpId || grpOfLevel(custId, polId); const x = (polId && fmtRow('policy', polId)) || (custId && fmtRow('customer', custId)) || (g && fmtRow('client_group', g)) || fmtRow('one_off_general', null); return x ? fmtOut(x) : Object.assign({}, FC.FMT); };
   const caseLevel = r => { const og = orgOfCase(r); return { custId: (og.customer || {}).id || r.customer_id || null, polId: !r.is_standalone_one_off && og.policy ? og.policy.id : null }; };
   A.tplFor = tplFor; A.fmtFor = fmtFor;
   // values for the {{merge_tags}} of a case (d = quotation data where there is one)
@@ -992,6 +1007,7 @@
       voyage_from: [d.originPlace || r.origin_place, cName(d.originCountry || r.origin_country)].filter(Boolean).join(', '),
       voyage_to: [d.destPlace || r.dest_place, cName(d.destCountry || r.dest_country)].filter(Boolean).join(', '),
       conveyance: (FC.CONVEYANCE[d.conveyance || r.conveyance] || {}).label || '', departure_date: (d.departureDate || r.departure_date) ? FC.date(d.departureDate || r.departure_date) : '',
+      policy_no: d.policyNo || (og.policy && og.policy.policy_no) || '',
       sum_insured: m2(d.sumInsured || ln.sum || r.sum_insured), currency: cur || '',
       rate_pct: isFinite(Number(ln.rate)) && ln.rate !== '' && ln.rate != null ? FC.pct(ln.rate) : r.rate_pct != null ? FC.pct(r.rate_pct) : '',
       premium_amount: m2(d.net != null ? d.net : r.premium), ipt_amount: m2(d.tax != null ? d.tax : r.ipt_amount),
@@ -1143,8 +1159,15 @@
     const taxDefault = Number(iptS.default_rate);
     const taxOn = prev ? Number(d.taxPct) > 0 : ipt0.applied;
     // what the client sees: quotation -> case -> policy -> client -> configuration
-    const dmCase = r.quote_display_mode || (!r.is_standalone_one_off && og.policy && og.policy.quote_display_mode) || (og.customer || custOf(r.customer_id) || {}).quote_display_mode || setting('quote_display_mode', 'both') || 'both';
+    const eCust = og.customer || custOf(r.customer_id) || null, eGrp = eCust ? grpOf(eCust.group_id) : null;
+    const dmCase = r.quote_display_mode || (!r.is_standalone_one_off && og.policy && og.policy.quote_display_mode) || (eCust || {}).quote_display_mode || (eGrp || {}).quote_display_mode || setting('quote_display_mode', 'both') || 'both';
     const dm0 = d.displayMode || dmCase;
+    // office <-> subcategory of the case (each blocks what does not apply to the other)
+    const ePO = { office: og.office ? og.office.id : (r.office_id || null), policy: !r.is_standalone_one_off && og.policy ? og.policy.id : null };
+    const ePO0 = Object.assign({}, ePO);
+    const eOffs = () => eCust ? S.offices.filter(o => o.customer_id === eCust.id && (o.active || o.id === ePO0.office)) : [];
+    const ePols = () => eCust ? S.policies.filter(po => po.customer_id === eCust.id && (po.active || po.id === ePO0.policy)) : [];
+    const ePOsel = !!(eCust && (eOffs().length || ePols().length));
     const lineRow = (l, i) => `<tr data-i="${i}"><td><input class="ln-label" value="${esc(l.label)}" maxlength="120"></td><td><input class="ln-sum" inputmode="decimal" value="${l.sum != null ? esc(l.sum) : ''}"></td><td><input class="ln-rate" inputmode="decimal" value="${l.rate != null ? esc(l.rate) : ''}"></td><td class="r num ln-prem">-</td><td><button type="button" class="linkbtn ln-del" aria-label="Remove line">Remove</button></td></tr>`;
     const body = FC.el(`<div>
       <div class="grid2">
@@ -1164,11 +1187,12 @@
       <div class="qe-case"><h4>Rating basis <span class="xs muted" style="font-weight:400">- change route, transit, cargo, conveyance, currency or value, then update the figures</span></h4>
         <div class="grid3">
           <div class="field"><label for="qeCom">Cargo type</label><select id="qeCom">${S.commodities.filter(c => c.active || c.id === r.commodity_id).map(c => `<option value="${esc(c.id)}" ${c.id === (d.commodityId || r.commodity_id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-          <div class="field"><label for="qeInv">Invoice value</label><input id="qeInv" inputmode="decimal" value="${esc(d.invoiceValue != null ? d.invoiceValue : r.invoice_value)}"></div>
+          <div class="field"><label for="qeInv">Invoice value <span class="chip neutral" id="qeInvOpt" ${dm0 === 'rate_only' ? '' : 'hidden'}>Optional (Rate-only profile/policy)</span></label><input id="qeInv" inputmode="decimal" value="${esc(d.invoiceValue != null ? d.invoiceValue : r.invoice_value != null ? r.invoice_value : '')}"></div>
           <div class="field"><label for="qeVia">Transit countries <span class="muted">(ISO, comma separated)</span></label><input id="qeVia" maxlength="40" value="${esc((d.transit || r.transit_countries || []).join(', '))}"></div>
           <div class="field"><label for="qeCov">Cover</label><select id="qeCov">${['icc_a','icc_b','icc_c'].map(k => `<option value="${k}" ${k === (d.cover || r.cover) ? 'selected' : ''}>${esc(FC.COVER[k].clause)}</option>`).join('')}</select></div>
           <div class="field"><label for="qeDep">Departure date / ETA of loading</label><input id="qeDep" type="date" value="${esc(d.departureDate || r.departure_date || '')}"></div>
           <div class="field"><label>&nbsp;</label><label class="small" style="display:flex;gap:6px;align-items:center;padding-top:8px"><input type="checkbox" id="qeWarOn" ${(d.warStrikes != null ? d.warStrikes : r.war_strikes) ? 'checked' : ''} style="width:auto;min-width:0"> War &amp; strikes</label></div>
+          ${ePOsel ? `<div class="field"><label for="qeOff">Office</label><select id="qeOff"></select></div><div class="field"><label for="qePol">Subcategory</label><select id="qePol"></select><button type="button" class="linkbtn xs" id="qePOClr" style="align-self:flex-start;margin-top:4px">All / Clear</button></div>` : ''}
         </div>
         <label class="small" style="display:flex;gap:6px;align-items:center;margin:2px 0 6px"><input type="checkbox" id="qeSA" ${r.is_standalone_one_off ? 'checked' : ''} style="width:auto;min-width:0"> Standalone one-off (unrelated to the client's policy / profile - general one-off pool)</label>
         <div class="toolbar" style="margin:4px 0 0"><button type="button" class="btn btn-ghost btn-sm" id="qeUpd"><span class="spin"></span>Update quotation</button><span class="xs muted" id="qeUpdMsg">Re-reads the rate tables, war extras and alerts of ${esc(og.policy ? 'policy ' + polLabel(og.policy) : 'the general one-off pool')}.</span></div>
@@ -1202,6 +1226,7 @@
         <div class="field" style="flex-direction:row;align-items:center;gap:8px;margin:0"><label for="qeTax" style="white-space:nowrap">Rate %</label><input id="qeTax" inputmode="decimal" value="${esc(Number(d.taxPct) > 0 ? d.taxPct : taxDefault)}" style="width:80px" ${taxOn ? '' : 'disabled'}></div></div>
       <div class="ipt-badge" id="qeIptWhy" role="status"></div>
       <table class="qtable" id="qeSum"></table>
+      <div id="qeLim"></div>
       <div class="qe-internal"><h4>Internal, never shown to the client</h4>
         <div class="grid3"><div class="field"><label for="qeBrk">Brokerage % with this insurer</label><input id="qeBrk" inputmode="decimal" value="${esc(preBrk)}"></div>
         <div class="field"><label>Brokerage</label><div class="num" id="qeBrkAmt" style="padding-top:10px">-</div></div>
@@ -1215,8 +1240,9 @@
         <div class="field"><label>Handled by</label><input id="qeHandler" maxlength="100" value="${esc(me().full_name || '')}"></div>
       </div>
       <h3 style="margin:22px 0 6px">Quotation wording</h3>
+      <div class="toolbar qe-tplbar" style="margin:0 0 8px"><label class="xs" for="qeTpl">Quotation template</label><select class="input" id="qeTpl" style="max-width:380px"></select><button type="button" class="btn btn-ghost btn-sm" id="qeTplReset">Reset to template structure</button><span class="xs muted" id="qeTplHint"></span></div>
       <p class="xs muted" style="margin:0 0 10px">Tick clauses from the library (defaults of ${og.policy ? esc(og.policy.name) : 'one-off quotations'}); every text stays editable in the document. The pricing block follows the figures above.</p>
-      <div class="toolbar" style="margin:0 0 8px"><label class="xs" for="qeFill">Fast-fill from</label><select class="input" id="qeFill" style="max-width:320px"><option value="case">This case (${esc(og.policy ? 'policy ' + polLabel(og.policy) : 'one-off')})</option>${og.policy && og.customer ? `<option value="customer">Customer defaults · ${esc(og.customer.name)}</option>` : ''}<option value="general">General · one-off defaults</option></select><button type="button" class="btn btn-ghost btn-sm" id="qeFillGo">Fast-fill</button><span style="flex:1"></span><button type="button" class="btn btn-ghost btn-sm" id="qeLib">Open clauses library</button></div>
+      <div class="toolbar" style="margin:0 0 8px"><label class="xs" for="qeFill">Fast-fill from</label><select class="input" id="qeFill" style="max-width:320px"><option value="case">This case (${esc(og.policy ? 'policy ' + polLabel(og.policy) : 'one-off')})</option>${og.policy && og.customer ? `<option value="customer">Customer defaults · ${esc(og.customer.name)}</option>` : ''}<option value="general">General · one-off defaults</option></select><button type="button" class="btn btn-ghost btn-sm" id="qeFillGo">Fast-fill</button><span style="flex:1"></span><button type="button" class="btn btn-ghost btn-sm" id="qeDedIns">Insert deductible</button><button type="button" class="btn btn-ghost btn-sm" id="qeLib">Open clauses library</button></div>
       <div class="qe-wording"><div class="qe-picks" id="qePicks"></div>
         <div class="qe-docwrap">${rtBarHtml({ copy:true, fields:true })}
           <div class="qe-doc" id="qeDoc" contenteditable="true" spellcheck="true"></div></div></div>
@@ -1238,8 +1264,9 @@
     const sectionFor = cat => {
       let sec = docEl.querySelector(`section[data-cat="${cat}"]`);
       if(!sec){
-        sec = document.createElement('section'); sec.dataset.cat = cat; sec.innerHTML = DOC_HEAD[cat] ? `<p><b><u>${esc(DOC_HEAD[cat])}</u></b></p>` : '';
-        const order = CL_CAT.map(x => x[0]), after = building ? null : Array.from(docEl.querySelectorAll('section[data-cat]')).find(x => order.indexOf(x.dataset.cat) > order.indexOf(cat));
+        sec = document.createElement('section'); sec.dataset.cat = cat; sec.innerHTML = cat === 'deductibles' ? '<p><b><u>Deductibles:</u></b></p>' : DOC_HEAD[cat] ? `<p><b><u>${esc(DOC_HEAD[cat])}</u></b></p>` : '';
+        const order = CL_CAT.map(x => x[0]), pr = docEl.querySelector('section[data-cat="pricing"]');
+        const after = building ? null : cat === 'deductibles' ? (pr ? pr.nextSibling : null) : Array.from(docEl.querySelectorAll('section[data-cat]')).find(x => order.indexOf(x.dataset.cat) > order.indexOf(cat));
         docEl.insertBefore(sec, after || null);
       }
       return sec;
@@ -1249,48 +1276,108 @@
     const addClause = c => { if(docEl.querySelector(`[data-cid="${c.id}"]`)) return; const p = document.createElement('p'); p.dataset.cid = c.id; p.innerHTML = clauseHtml(c); sectionFor(c.category).appendChild(p); };
     const dropClause = id => { const p = docEl.querySelector(`[data-cid="${id}"]`); if(!p) return; const sec = p.closest('section'); p.remove(); if(sec && sec.dataset.cat !== 'pricing' && !Array.from(sec.children).some(x => x.dataset.cid || (x.textContent.trim() && x.textContent.trim() !== (DOC_HEAD[sec.dataset.cat] || '')))) sec.remove(); };
     picks.innerHTML = CL_CAT.filter(([cat]) => lib.some(c => c.category === cat)).map(([cat, label]) => `<div class="qe-pick" data-pcat="${cat}"><b>${esc(label)}</b>${lib.filter(c => c.category === cat).map(c => `<label><input type="checkbox" data-cid="${c.id}"> ${esc(c.title)}${suggest.has(c.title) ? ' <span class="chip pending">suggested</span>' : ''}</label>`).join('')}</div>`).join('');
+    // which clauses go in: the defaults of the Clauses tab (first build) or the ticks of this window (rebuild)
+    let useTicks = false;
+    const isOn = c => useTicks ? !!(picks.querySelector(`[data-cid="${c.id}"]`) || {}).checked : clauseOn(c, polId, custId);
+    const ownConditions = () => { if(!r.conditions || useTicks) return; const p = document.createElement('p'); p.textContent = r.conditions; const sec = sectionFor('special'); sec.insertBefore(p, sec.children[1] || null); };
+    const defaults = () => {
+      lib.filter(c => c.category !== 'pricing' && (isOn(c) || (!useTicks && suggest.has(c.title) && !(c.category === 'special' && r.conditions)))).forEach(addClause);
+      ownConditions();
+    };
+    // the quotation templates: policy -> client -> client group -> general; [[clauses]] alone = the default document
+    const qTpls = S.templates.filter(t => t.kind === 'quotation' && (t.active || t.id === Number(d.templateId)));
+    const tplConnected = tplFor('quotation', custId, polId, polId || custId ? null : grpOfLevel((og.customer || {}).id, null));
+    let tplNow = (d.templateId && qTpls.find(t => t.id === Number(d.templateId))) || (prev ? null : tplConnected) || null;
+    const SPECIAL_CATS = () => CL_CAT.map(x => x[0]).filter(k => !['header','general','pricing','disclaimer','subjectivity'].includes(k));
+    const PH_CATS = { opening_block:['header'], general_conditions:['general'], subjectivities:['subjectivity'], disclaimer_block:['disclaimer'] };
+    const buildDoc = tpl => {
+      docEl.innerHTML = '';
+      const tb = tpl ? String(tpl.body || '') : '';
+      if(!tb || tb.replace(/<[^>]+>|\s|&nbsp;/g, '') === '[[clauses]]') return defaults();
+      building = true;
+      const tmp = document.createElement('div'); tmp.innerHTML = FC.cleanHtml(FC.merge(tb.replace(QPH_RE, '[[$1]]'), mctx()));
+      const onCats = cats => cats.forEach(cat => lib.filter(c => c.category === cat && isOn(c)).forEach(addClause));
+      let textSec = null;
+      Array.from(tmp.childNodes).forEach(n => {
+        const t = (n.textContent || '').trim(), m = /^\[\[([a-z_]+)(?::([\w-]+))?\]\]$/.exec(t);
+        if(m){ textSec = null;
+          if(m[1] === 'clauses') defaults();
+          else if(m[1] === 'category'){ if(m[2] === 'pricing') sectionFor('pricing'); else onCats([m[2]]); }
+          else if(m[1] === 'clause'){ const c = S.clauses.find(x => x.id === Number(m[2])); if(c){ if(!lib.includes(c)) lib.push(c); if(c.category === 'pricing') sectionFor('pricing'); else if(!useTicks || isOn(c)) addClause(c); } }
+          else if(m[1] === 'pricing' || m[1] === 'rate_and_min_premium') sectionFor('pricing');
+          else if(m[1] === 'deductibles') sectionFor('deductibles');
+          else if(m[1] === 'special_conditions'){ onCats(SPECIAL_CATS()); ownConditions(); }
+          else if(PH_CATS[m[1]]) onCats(PH_CATS[m[1]]);
+          return; }
+        if(n.nodeType === 3 && !t) return;
+        if(!textSec){ textSec = document.createElement('section'); textSec.dataset.cat = 'text'; docEl.appendChild(textSec); }
+        if(n.nodeType === 3){ const p = document.createElement('p'); p.textContent = n.textContent; textSec.appendChild(p); } else textSec.appendChild(n);
+      });
+      building = false;
+    };
     if(d.doc){
       docEl.innerHTML = FC.cleanHtml(d.doc);
       // the clean-up drops the markers; re-attach them by text so the tick boxes match
       lib.forEach(c => { const t = fillIn(c.body).replace(/\s+/g, ' ').trim().slice(0, 80); const p = Array.from(docEl.querySelectorAll('p')).find(x => !x.dataset.cid && x.textContent.replace(/\s+/g, ' ').includes(t)); if(p) p.dataset.cid = c.id; });
-    }else{
-      const defaults = () => {
-        lib.filter(c => c.category !== 'pricing' && (clauseOn(c, polId, custId) || (suggest.has(c.title) && !(c.category === 'special' && r.conditions)))).forEach(addClause);
-        if(r.conditions){ const p = document.createElement('p'); p.textContent = r.conditions; const sec = sectionFor('special'); sec.insertBefore(p, sec.children[1] || null); }
-      };
-      // the quotation template of the level (policy -> client -> general); [[clauses]] alone = the default document
-      const tpl = tplFor('quotation', custId, polId), tb = tpl ? String(tpl.body || '') : '';
-      if(!tb || tb.replace(/<[^>]+>|\s|&nbsp;/g, '') === '[[clauses]]') defaults();
-      else{
-        building = true;
-        const tmp = document.createElement('div'); tmp.innerHTML = FC.cleanHtml(FC.merge(tb, mctx()));
-        let textSec = null;
-        Array.from(tmp.childNodes).forEach(n => {
-          const t = (n.textContent || '').trim(), m = /^\[\[([a-z_]+)(?::([\w-]+))?\]\]$/.exec(t);
-          if(m){ textSec = null;
-            if(m[1] === 'clauses') defaults();
-            else if(m[1] === 'category'){ if(m[2] === 'pricing') sectionFor('pricing'); else lib.filter(c => c.category === m[2] && clauseOn(c, polId, custId)).forEach(addClause); }
-            else if(m[1] === 'clause'){ const c = S.clauses.find(x => x.id === Number(m[2])); if(c){ if(!lib.includes(c)) lib.push(c); if(c.category === 'pricing') sectionFor('pricing'); else addClause(c); } }
-            else if(m[1] === 'pricing') sectionFor('pricing');
-            return; }
-          if(n.nodeType === 3 && !t) return;
-          if(!textSec){ textSec = document.createElement('section'); textSec.dataset.cat = 'text'; docEl.appendChild(textSec); }
-          if(n.nodeType === 3){ const p = document.createElement('p'); p.textContent = n.textContent; textSec.appendChild(p); } else textSec.appendChild(n);
-        });
-        building = false;
-      }
-    }
+      // the generated blocks are recognised again by their headings
+      Array.from(docEl.querySelectorAll('p')).filter(p => /^Deductibles:$/.test(p.textContent.trim())).forEach(p => { const sec = document.createElement('section'); sec.dataset.cat = 'deductibles'; p.parentNode.insertBefore(sec, p); sec.appendChild(p); let n = sec.nextSibling; while(n && n.tagName === 'P' && !n.dataset.cid && !/^(Premium Rate|Premium|Minimum Premium):/.test(n.textContent.trim()) && !/:$/.test(n.textContent.trim())){ const x = n.nextSibling; sec.appendChild(n); n = x; } });
+    }else buildDoc(tplNow);
     // the default typography of the level, applied on screen, in the PDF and when copying
     const fmt = d.fmt || fmtFor(custId, polId);
     docEl.style.cssText = FC.fmtCss(fmt); docEl.style.setProperty('--para', Number(fmt.paragraph_spacing_pt) + 'pt');
-    lib.forEach(c => { const cb = picks.querySelector(`[data-cid="${c.id}"]`); if(cb) cb.checked = c.category === 'pricing' ? (d.doc ? docEl.textContent.includes(fillIn(c.body).trim()) : clauseOn(c, polId, custId)) : !!docEl.querySelector(`[data-cid="${c.id}"]`); });
-    picks.addEventListener('change', e => { const cb = e.target.closest('[data-cid]'); if(!cb) return; const c = lib.find(x => String(x.id) === cb.dataset.cid); if(c.category === 'pricing'){ recalc(); return; } cb.checked ? addClause(c) : dropClause(c.id); });
+    const syncTicks = first => lib.forEach(c => { const cb = picks.querySelector(`[data-cid="${c.id}"]`); if(cb) cb.checked = c.category === 'pricing' ? (first && d.doc ? docEl.textContent.includes(fillIn(c.body).trim()) : first ? clauseOn(c, polId, custId) : cb.checked) : !!docEl.querySelector(`[data-cid="${c.id}"]`); });
+    syncTicks(true);
+    // ---------- deductibles: the main ones of the policy + those of the ticked clauses ----------
+    const dPol = () => $b('#qeSA').checked ? null : (ePOsel ? ePO.policy : polId);
+    const dOff = () => ePOsel ? ePO.office : (og.office ? og.office.id : null);
+    const tickedIds = () => Array.from(picks.querySelectorAll('[data-cid]:checked')).map(x => Number(x.dataset.cid));
+    const tickedDeds = () => { const pid = dPol(); if(!pid) return []; const out = []; tickedIds().forEach(id => dedsOfClause(id, [pid]).forEach(x => { if(dedForOffice(x, dOff()) && !out.includes(x)) out.push(x); })); return out; };
+    let dedSel = new Set(Array.isArray(d.deductibleIds) ? d.deductibleIds.map(Number) : []);
+    const dedList = () => { const pid = dPol(); return pid ? dedsOf(pid).filter(x => dedSel.has(x.id)).sort((a, b) => (a.deductible_type === 'main' ? 0 : 1) - (b.deductible_type === 'main' ? 0 : 1) || a.sort_order - b.sort_order) : []; };
+    const paintDeds = () => { const sec = docEl.querySelector('section[data-cat="deductibles"]'); if(!sec) return; sec.setAttribute('contenteditable', 'false');
+      const list = dedList(); sec.innerHTML = '<p><b><u>Deductibles:</u></b></p>' + (list.length ? list.map(x => `<p data-did="${x.id}">${esc(x.deductible_text)}</p>`).join('') : `<p>${esc($b('#qeDed').value.trim() || '-')}</p>`); };
+    const refreshDeds = () => { if(dPol() && dedsOf(dPol()).length) $b('#qeDed').value = dedList().map(x => x.deductible_text).join('; '); paintDeds(); recalc(); };
+    const applyDedDefaults = () => { dedSel = new Set(mainDeds(dPol(), dOff()).concat(tickedDeds()).map(x => x.id)); refreshDeds(); };
+    picks.addEventListener('change', e => { const cb = e.target.closest('[data-cid]'); if(!cb) return; const c = lib.find(x => String(x.id) === cb.dataset.cid); if(c.category === 'pricing'){ recalc(); return; } cb.checked ? addClause(c) : dropClause(c.id);
+      // a clause with a linked deductible brings it along (and takes it away again)
+      const pid = dPol(), linked = pid ? dedsOfClause(c.id, [pid]).filter(x => dedForOffice(x, dOff())) : [];
+      if(!linked.length) return;
+      if(cb.checked){ linked.forEach(x => dedSel.add(x.id)); toast('Deductible added with ' + c.title + ': ' + linked.map(x => x.deductible_text).join('; ')); }
+      else { const keep = new Set(mainDeds(pid, dOff()).concat(tickedDeds()).map(x => x.id)); const gone = linked.filter(x => !keep.has(x.id)); gone.forEach(x => dedSel.delete(x.id)); if(gone.length) toast('Deductible removed with ' + c.title + '.'); }
+      refreshDeds(); });
+    // "Insert deductible": main deductibles + those of the SELECTED clauses (unselected ones folded away)
+    $b('#qeDedIns').addEventListener('click', async () => {
+      const pid = dPol(); if(!pid) return toast('No subcategory (policy) on this quotation - type the deductible into the Deductible field.', 'error');
+      let res = null; try{ const { data, error } = await sb.rpc('get_applicable_quote_deductibles', { p_policy: pid, p_office: dOff(), p_clause_ids: tickedIds() }); if(!error) res = data; }catch(e){}
+      const main = res ? res.main || [] : mainDeds(pid, dOff()), mainIds = main.map(x => x.id);
+      const sel = (res ? res.selected || [] : tickedDeds()).filter(x => !mainIds.includes(x.id)), selIds = sel.map(x => x.id);
+      const uns = (res ? res.unselected || [] : dedsOf(pid).filter(x => x.active && x.deductible_type === 'condition' && !selIds.includes(x.id) && S.dedLinks.some(l => l.deductible_id === x.id))).filter(x => !mainIds.includes(x.id) && !selIds.includes(x.id));
+      const cl = x => { const ids = (x.clause_ids || S.dedLinks.filter(l => l.deductible_id === x.id).map(l => l.clause_id)).map(Number); const ts = ids.map(id => (S.clauses.find(c => c.id === id) || {}).title).filter(Boolean); return ts.length ? '<br><span class="xs muted">Clause: ' + esc(ts.join(', ')) + '</span>' : ''; };
+      const opt = (x, on) => `<label class="ded-opt"><input type="checkbox" value="${x.id}" ${on ? 'checked' : ''}><span><b>${esc(x.label)}</b><br>${esc(x.deductible_text)}${cl(x)}</span></label>`;
+      const box = FC.el(`<div class="ded-pop"><h4>Main policy deductibles</h4>${main.length ? main.map(x => opt(x, true)).join('') : '<p class="xs muted">No main deductible on this subcategory.</p>'}
+        <h4>Deductibles of the selected clauses</h4>${sel.length ? sel.map(x => opt(x, true)).join('') : '<p class="xs muted">None of the ticked clauses carries a deductible.</p>'}
+        ${uns.length ? `<details><summary>Unselected clause deductibles (${uns.length})</summary>${uns.map(x => opt(x, false)).join('')}</details>` : ''}</div>`);
+      const ok = await FC.dialog({ title:'Policy Deductibles · ' + polLabel(polOf(pid)), wide:true, body: box, actions:[{ label:'Cancel', kind:'ghost', value:false }, { label:'Insert into the quotation', kind:'primary', value:true }] });
+      if(!ok) return;
+      dedSel = new Set(Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value)));
+      sectionFor('deductibles'); refreshDeds(); toast('Deductibles inserted.');
+    });
+    // ---------- quotation template of this quotation ----------
+    const lvlName = t => t.scope_type === 'one_off_general' ? 'General' : t.scope_type === 'client_group' ? 'Group ' + ((grpOf(t.scope_id) || {}).name || '') : t.scope_type === 'customer' ? ((custOf(t.scope_id) || {}).name || 'Client') : 'Subcategory ' + polLabel(polOf(t.scope_id));
+    const paintTplSel = () => { $b('#qeTpl').innerHTML = `<option value="">Default structure (all active clauses in category order)</option>` + qTpls.map(t => `<option value="${t.id}" ${tplNow && tplNow.id === t.id ? 'selected' : ''}>${esc(lvlName(t))} · ${esc(t.name)}${tplConnected && tplConnected.id === t.id ? ' (connected)' : ''}</option>`).join('');
+      $b('#qeTplHint').textContent = tplConnected ? 'Connected for this case: ' + lvlName(tplConnected) + ' · ' + tplConnected.name : 'No template set up - default structure.'; };
+    paintTplSel();
+    const rebuild = () => { useTicks = true; buildDoc(tplNow); useTicks = false; syncTicks(false); paintDeds(); recalc(); };
+    $b('#qeTpl').addEventListener('change', async e => { const t = qTpls.find(x => x.id === Number(e.target.value)) || null;
+      if(!(await FC.confirm('Switch the quotation template?', 'The wording is rebuilt from the structure of ' + (t ? lvlName(t) + ' · ' + t.name : 'the default structure') + ' with the clauses ticked now. Manual edits in the document are replaced.', 'Rebuild wording'))){ paintTplSel(); return; }
+      tplNow = t; rebuild(); toast('Wording rebuilt from the template.'); });
+    $b('#qeTplReset').addEventListener('click', async () => { if(!(await FC.confirm('Reset to the template structure?', 'The wording is rebuilt from the template with the clauses ticked now. Manual edits in the document are replaced.', 'Reset'))) return; rebuild(); });
     // fast-fill: the default clauses of the case, of the customer or of the general one-off pool
     $b('#qeFillGo').addEventListener('click', () => {
       const src = $b('#qeFill').value, fp = src === 'case' ? polId : null, fc = src === 'general' ? null : custId;
       lib.forEach(c => { const cb = picks.querySelector(`[data-cid="${c.id}"]`); if(!cb) return; const on = src === 'general' ? (c.scope_type === 'one_off_general' && !!c.oneoff_list && !!c.default_spot) : clauseOn(c, fp, fc);
         cb.checked = on; if(c.category !== 'pricing') on ? addClause(c) : dropClause(c.id); });
-      recalc(); toast('Clauses filled in from ' + $b('#qeFill').selectedOptions[0].textContent + '.');
+      applyDedDefaults(); toast('Clauses filled in from ' + $b('#qeFill').selectedOptions[0].textContent + '.');
     });
     // the master clauses library, live while quoting: insert any clause into this quotation (optionally into the defaults too)
     $b('#qeLib').addEventListener('click', () => {
@@ -1315,16 +1402,17 @@
     let rated = null;
     const viaList = () => $b('#qeVia').value.split(/[,;\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
     $b('#qeUpd').addEventListener('click', async e => {
-      const bb = e.currentTarget, inv = FC.parseNum($b('#qeInv').value);
-      if(!(inv > 0)) return toast('Enter the invoice value.', 'error');
+      const bb = e.currentTarget, inv = FC.parseNum($b('#qeInv').value), ro = $b('#qeMode').value === 'rate_only';
+      if(!(inv > 0) && !ro) return toast('Enter the invoice value.', 'error');
       const p = { commodity_id: $b('#qeCom').value, goods_description: $b('#qeGoods').value.trim() || r.goods_description, packaging: $b('#qePack').value.trim(), conveyance: $b('#qeConv').value,
         origin_country: $b('#qeOC').value.trim().toUpperCase(), origin_place: $b('#qeOP').value.trim(), dest_country: $b('#qeDC').value.trim().toUpperCase(), dest_place: $b('#qeDP').value.trim(),
-        transit_countries: viaList(), invoice_value: inv, freight_value: r.freight_value || 0, currency: $b('#qeCur').value, uplift_pct: r.uplift_pct, cover: $b('#qeCov').value, war_strikes: $b('#qeWarOn').checked,
+        transit_countries: viaList(), invoice_value: inv > 0 ? inv : null, rate_only: !(inv > 0), freight_value: r.freight_value || 0, currency: $b('#qeCur').value, uplift_pct: r.uplift_pct, cover: $b('#qeCov').value, war_strikes: $b('#qeWarOn').checked,
         on_deck: r.on_deck, interest_only: r.interest_only, ext_hssc: r.ext_hssc, ext_liw: r.ext_liw, incoterm: r.incoterm, insured_party: r.insured_party, vessel: $b('#qeVessel').value.trim(),
         departure_date: $b('#qeDep').value && $b('#qeDep').value >= FC.today() ? $b('#qeDep').value : null, red_sea: r.red_sea || 'auto', details: r.details || {}, insured_country: r.insured_country, ftz: r.ftz };
       busy(bb, true);
       const sa = $b('#qeSA').checked;
-      const { data, error } = await sb.rpc('admin_indicate', { p, p_customer: r.customer_id || null, p_office: r.office_id || null, p_policy: og.policy && !sa ? og.policy.id : null, p_one_off: !og.policy && !r.customer_id, p_standalone: sa, p_save: false });
+      const pPol = ePOsel ? ePO.policy : og.policy ? og.policy.id : null, pOff = ePOsel ? ePO.office : r.office_id || null;
+      const { data, error } = await sb.rpc('admin_indicate', { p, p_customer: r.customer_id || (eCust || {}).id || null, p_office: pOff, p_policy: pPol && !sa ? pPol : null, p_one_off: !pPol && !r.customer_id && !eCust, p_standalone: sa, p_save: false });
       busy(bb, false);
       if(error){ $b('#qeUpdMsg').textContent = 'Could not rate: ' + error.message; return; }
       const x = data.one_off || data.result, n = x.n || {};
@@ -1332,7 +1420,7 @@
       const first = body.querySelector('#qeLines tr');
       if(first){ first.querySelector('.ln-sum').value = n.sum_insured; first.querySelector('.ln-rate').value = x.status === 'quoted' ? x.rate : ''; }
       if(x.min != null) $b('#qeMin').value = x.min;
-      if(x.deductible) $b('#qeDed').value = x.deductible;
+      if(x.deductible && !(dPol() && dedsOf(dPol()).length)) $b('#qeDed').value = x.deductible;
       $b('#qeVoy').value = [p.origin_place, cName(p.origin_country)].filter(Boolean).join(', ') + ' to ' + [p.dest_place, cName(p.dest_country)].filter(Boolean).join(', ') + (p.transit_countries.length ? ' via ' + p.transit_countries.map(cName).join(', ') : '');
       if(p.departure_date) $b('#qePer').value = 'Transit commencing on or about ' + FC.date(p.departure_date);
       $b('#qeAlerts').innerHTML = alertList({ alerts: (data.result.out_of_cover ? [{ level:'red', text:'Out of cover - rated with the general one-off pool' }] : []).concat(x.alerts || []) }) +
@@ -1353,7 +1441,7 @@
         ${sP && !sR ? `<p><b>Premium:</b> ${esc(am(t ? t.net : NaN))} (sum insured ${esc(am(ln.sum))})</p>` : ''}
         <p><b>Minimum Premium:</b> ${esc(am(c.min))}${wx && wx.offerBuyback && sR ? `<br>Rate with War &amp; Strikes excluded for ${esc(wx.areas.join(', '))}: <b>${esc(FC.pct(wx.rateExcl))}</b><br>Rate with War &amp; Strikes re-included: <b>${esc(FC.pct(wx.rateIncl))}</b>` : ''}${wx && wx.offerBuyback && !sR ? `<br>Premium with War &amp; Strikes excluded for ${esc(wx.areas.join(', '))}: <b>${esc(am(wx.totalExcl))}</b><br>Premium with War &amp; Strikes re-included: <b>${esc(am(wx.totalIncl))}</b>` : ''}</p>
         ${wx ? `<p>War &amp; Strikes excluded for: ${esc(wx.areas.join(', '))}; remaining in force for the rest of the voyage.</p>` : ''}
-        <p><b>Deductible:</b> ${esc($b('#qeDed').value.trim() || '-')}</p>
+        ${docEl.querySelector('section[data-cat="deductibles"]') ? '' : `<p><b>Deductible:</b> ${esc($b('#qeDed').value.trim() || '-')}</p>`}
         ${c.tax && sP ? `<p><b>Net Premium:</b> ${esc(am(t ? t.net : NaN))}<br><b>German IPT (${esc(c.tax)}%):</b> ${esc(am(t ? t.tax : NaN))}<br><b>Gross Total incl. IPT:</b> ${esc(am(t ? t.total : NaN))}</p>` : c.tax ? `<p>German IPT (${esc(c.tax)}%) is added to the premium.</p>` : ''}
         ${notes.map(x => `<p data-cid="${x.id}">${esc(fillIn(x.body))}</p>`).join('')}`;
     };
@@ -1362,8 +1450,10 @@
     // formatting toolbar
     wireRt($b('.rt-bar'), docEl, { ctx: mctx, onCopy: async () => { recalc(); const ok = await FC.copyRich(FC.emailHtml(docHtml(), fmt), FC.htmlText(docHtml())); toast(ok ? 'Copied - paste it into your e-mail.' : 'Copy failed; select the text and copy it manually.', ok ? undefined : 'error'); } });
     const collect = () => {
+      const ro = $b('#qeMode').value === 'rate_only';
       const lines = Array.from(body.querySelectorAll('#qeLines tr')).map(tr => {
-        const sum = FC.parseNum(tr.querySelector('.ln-sum').value), rate = FC.parseNum(tr.querySelector('.ln-rate').value);
+        let sum = FC.parseNum(tr.querySelector('.ln-sum').value); const rate = FC.parseNum(tr.querySelector('.ln-rate').value);
+        if(ro && !isFinite(sum)) sum = 0;
         return { label: tr.querySelector('.ln-label').value.trim(), sum, rate, premium: isFinite(sum) && isFinite(rate) ? Math.round(sum * rate) / 100 : NaN, tr };
       });
       return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, reb: FC.parseNum($b('#qeReb').value) || 0, cur: $b('#qeCur').value, mode: $b('#qeMode').value };
@@ -1372,6 +1462,7 @@
       const c = collect();
       c.lines.forEach(l => { l.tr.querySelector('.ln-prem').textContent = isFinite(l.premium) ? money2(l.premium, c.cur) : '-'; });
       const ok = c.lines.length && c.lines.every(l => isFinite(l.premium));
+      if(!ok) paintLimits(c);
       if(!ok){ $b('#qeSum').innerHTML = '<tr><td class="muted">Enter sum insured and rate for each line.</td></tr>'; $b('#qeBrkAmt').textContent = $b('#qeNetIns').textContent = '-'; return; }
       const t = calcQuote(c.lines, c.disc, c.min, c.tax);
       const ba = Math.round(t.net * c.brk) / 100;
@@ -1384,10 +1475,16 @@
         ${c.tax ? `<tr><td>Net premium</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr><tr><td>German IPT (${esc(c.tax)}%)</td><td class="r">${esc(money2(t.tax, c.cur))}</td></tr>` : ''}
         <tr class="tot"><td>${c.tax ? 'Gross total incl. IPT' : 'Total premium payable'}</td><td class="r">${esc(money2(t.total, c.cur))}</td></tr>`;
       paintIpt();
+      paintLimits(c);
       const wx = warBlock(c);
       paintPricing(c, t, wx);
       if($b('#qeWarRates')) $b('#qeWarRates').innerHTML = wx && wx.offerBuyback ? `Rate with war &amp; strikes excluded: <b>${esc(FC.pct(wx.rateExcl))}</b> → ${esc(money2(wx.totalExcl, c.cur))} · Rate with war &amp; strikes re-included: <b>${esc(FC.pct(wx.rateIncl))}</b> → ${esc(money2(wx.totalIncl, c.cur))}` : wx ? 'The client sees the exclusion notice only.' : '';
     };
+    // policy limits of the subcategory; above the limit = special request / referral to insurers
+    const paintLimits = c => { const lpo = $b('#qeSA').checked ? null : polOf(ePOsel ? ePO.policy : polId);
+      const sums = c.lines.map(l => l.sum).filter(v => isFinite(v)), si = sums.length ? Math.max(...sums) : NaN;
+      const chk = lpo ? limitCheck(lpo, si, c.cur, !!r.on_deck, !!(r.details || {}).post_courier) : null;
+      $b('#qeLim').innerHTML = lpo ? limitsHtml(lpo, chk) + limitWarnHtml(chk, c.cur) : ''; };
     // war & strikes excluded areas: the cargo line carries the rate without war; the buy-back adds the net loading
     const warBlock = c => {
       if(!$b('#qeWarAreas')) return null;
@@ -1409,7 +1506,13 @@
       $b('#qeIptWhy').textContent = iptManual && on !== a.applied ? (on ? 'German IPT applied by hand' : 'German IPT switched off by hand') + ' (rules: ' + a.reason + ')' : on ? a.reason.replace(/^No German IPT: .*/, 'German IPT applied') : a.reason; };
     $b('#qeTaxOn').addEventListener('change', () => { iptManual = true; $b('#qeTax').disabled = !$b('#qeTaxOn').checked; recalc(); });
     ['#qeOC', '#qeDC'].forEach(id => $b(id).addEventListener('change', () => { if(iptManual) return; const a = iptAuto($b('#qeOC').value.trim().toUpperCase(), $b('#qeDC').value.trim().toUpperCase()); $b('#qeTaxOn').checked = a.applied; $b('#qeTax').disabled = !a.applied; recalc(); }));
-    $b('#qeMode').addEventListener('change', recalc);
+    $b('#qeMode').addEventListener('change', () => { $b('#qeInvOpt').hidden = $b('#qeMode').value !== 'rate_only'; recalc(); });
+    $b('#qeSA').addEventListener('change', () => { applyDedDefaults(); });
+    if(ePOsel){ const ctl = wirePolOffice($b('#qeOff'), $b('#qePol'), ePO, { offices: eOffs, policies: ePols, onChange: () => { applyDedDefaults(); } });
+      $b('#qePOClr').addEventListener('click', () => ctl.clear()); }
+    // first opening: the deductibles of the policy (main + ticked clauses)
+    if(!Array.isArray(d.deductibleIds) && dPol() && dedsOf(dPol()).length){ dedSel = new Set(mainDeds(dPol(), dOff()).concat(tickedDeds()).map(x => x.id)); $b('#qeDed').value = dedList().map(x => x.deductible_text).join('; '); }
+    paintDeds();
     $b('#qeInsSel').addEventListener('change', () => {
       const ins = S.insurers.find(i => String(i.id) === $b('#qeInsSel').value);
       $b('#qeIns').hidden = !!ins; if(!ins) $b('#qeIns').focus();
@@ -1421,7 +1524,8 @@
     const build = () => {
       const c = collect(), err = t => { $b('#qeErr').textContent = t; return null; };
       if(!$b('#qeClient').value.trim()) return err('Enter the assured.');
-      if(!c.lines.length || c.lines.some(l => !l.label || !(l.sum > 0) || !(l.rate >= 0))) return err('Every cover line needs a name, a sum insured above 0 and a rate.');
+      const ro = c.mode === 'rate_only';
+      if(!c.lines.length || c.lines.some(l => !l.label || !(l.sum > 0 || (ro && l.sum === 0)) || !(l.rate >= 0))) return err(ro ? 'Every cover line needs a name and a rate (the sum insured is optional for rate-only quotations).' : 'Every cover line needs a name, a sum insured above 0 and a rate.');
       if(c.disc < 0 || c.disc >= 100 || c.tax < 0 || c.tax > 40) return err('Check discount and tax.');
       if(!insurerPick().name) return err('Choose the insurer or type its name.');
       if(c.brk < 0 || c.brk > 50) return err('Brokerage must be between 0 and 50 %.');
@@ -1434,7 +1538,8 @@
         goods: $b('#qeGoods').value.trim(), packaging: $b('#qePack').value.trim(), conveyance: $b('#qeConv').value, vessel: $b('#qeVessel').value.trim(),
         originCountry: $b('#qeOC').value.trim().toUpperCase(), originPlace: $b('#qeOP').value.trim(), destCountry: $b('#qeDC').value.trim().toUpperCase(), destPlace: $b('#qeDP').value.trim(),
         voyage: $b('#qeVoy').value.trim(), period: $b('#qePer').value.trim(), conditions: $b('#qeCond').value.trim(), insurer: insurerPick().name,
-        deductible: $b('#qeDed').value.trim(), special: docTexts('special').join(' '), doc: docHtml(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
+        deductible: $b('#qeDed').value.trim(), deductibleIds: Array.from(dedSel), deductibles: dedList().map(x => x.deductible_text), templateId: tplNow ? tplNow.id : null,
+        special: docTexts('special').join(' '), doc: docHtml(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
         displayMode: c.mode, iptApplied: c.tax > 0, iptRate: c.tax || null, iptManual, iptReason: c.tax > 0 ? $b('#qeIptWhy').textContent : '', fmt,
         lines: c.lines.map(l => ({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium })),
         subtotal: t.subtotal, discountAmount: t.discountAmount, net: t.net, minApplied: t.minApplied, tax: t.tax, total: t.total, warExcl: warBlock(c),
@@ -1458,8 +1563,11 @@
           // the case follows an updated rating basis
           if(rated){ const n = rated.x.n || {}; const { error: ue } = await sb.from('indications').update({ commodity_id: rated.p.commodity_id, conveyance: rated.p.conveyance, origin_country: rated.p.origin_country, origin_place: rated.p.origin_place || null,
               dest_country: rated.p.dest_country, dest_place: rated.p.dest_place || null, transit_countries: rated.p.transit_countries, invoice_value: rated.p.invoice_value, currency: rated.p.currency, sum_insured: n.sum_insured,
-              cover: rated.p.cover, war_strikes: !!n.war_strikes, departure_date: rated.p.departure_date, is_standalone_one_off: !!rated.sa, policy_id: rated.sa ? null : r.policy_id, goods_description: rated.p.goods_description, packaging: rated.p.packaging || null, vessel: rated.p.vessel || null }).eq('id', r.id);
+              cover: rated.p.cover, war_strikes: !!n.war_strikes, departure_date: rated.p.departure_date, is_standalone_one_off: !!rated.sa, policy_id: rated.sa ? null : (ePOsel ? ePO.policy : r.policy_id), office_id: ePOsel ? ePO.office : r.office_id, goods_description: rated.p.goods_description, packaging: rated.p.packaging || null, vessel: rated.p.vessel || null }).eq('id', r.id);
             if(ue){ $b('#qeErr').textContent = 'Could not update the case: ' + ue.message; return; } }
+          else if(ePOsel && (ePO.office !== ePO0.office || ePO.policy !== ePO0.policy)){
+            const { error: pe } = await sb.from('indications').update({ office_id: ePO.office, policy_id: $b('#qeSA').checked ? null : ePO.policy }).eq('id', r.id);
+            if(pe){ $b('#qeErr').textContent = 'Could not update the office / subcategory of the case: ' + pe.message; return; } }
           const { error } = await sb.rpc('admin_save_quotation', { p_indication_id: r.id, p_data: b.data, p_valid_until: b.validUntil, p_internal: b.internal, p_send: send, p_method: method, p_quotation_id: opt.draft ? opt.draft.id : null });
           if(error){ $b('#qeErr').textContent = (send ? 'Could not send: ' : 'Could not save: ') + error.message; return; }
           toast(send ? (method === 'manual' ? 'Quotation saved and released - send it yourself (manual dispatch).' : 'Quotation sent to the client.') : 'Quotation saved. It is not visible to the client until you send it.'); return true;
@@ -1678,6 +1786,9 @@
     const build = disclose => {
       const L = [];
       const sec = (h, rows) => { const rr = rows.filter(z => z && z[1] !== '' && z[1] != null); if(rr.length) L.push({ h, rows: rr }); };
+      if(r.limit_exceeded && r.limit_exceeded_details){ const ld = r.limit_exceeded_details, f2 = n => Number(n).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+        sec('Special request - policy limit exceeded', [['Policy', ld.policy_no || ''], ['Applicable limit', ld.policy_currency + ' ' + f2(ld.limit) + ' (' + ({ conveyance:'any one conveyance / storage', on_deck_barge:'on deck / barge', parcel_post:'parcel post / mail' }[ld.limit_type] || '') + ')'],
+          ['Sum insured', (ld.currency || r.currency) + ' ' + f2(ld.sum_insured) + (ld.currency !== ld.policy_currency ? ' (approx. ' + ld.policy_currency + ' ' + f2(ld.sum_in_policy_currency) + ')' : '')], ['Request', 'Please confirm cover and terms for the excess over the policy limit.']]); }
       sec('Assured', [['Assured', disclose ? (r.insured_name || w.company) : 'For account of whom it may concern / our client'], ['Role / capacity', r.insured_party ? FC.partyLabel(r.insured_party, r.party_role_other) : '']]);
       sec('Subject-matter', [['Cargo type', x.commodity_name], ['Description of goods', r.goods_description], ['Condition', det.condition || (/used/i.test(x.commodity_name || '') ? 'Used' : '')],
         ['Packing / equipment', [r.packaging, det.equipment].filter(Boolean).join(', ')], ['Pieces', det.pieces], ['Gross weight', det.weight_kg ? Number(det.weight_kg).toLocaleString('en-GB') + ' kg' : ''],
@@ -2190,6 +2301,8 @@
         <div class="field"><label for="gdDom">E-mail domains <span class="muted">(comma separated, e.g. bertling.com)</span></label><input id="gdDom" value="${esc(g ? (g.email_domains || []).join(', ') : '')}"></div>
         <div class="field"><label for="gdSort">Sort</label><input id="gdSort" inputmode="numeric" value="${esc(g ? g.sort : 100)}"></div>
         <div class="field"><label>Allowed currencies</label>${curBoxes('gdCurs', g ? g.currencies : [])}</div></div>
+      <div class="grid2"><div class="field"><label for="gdIvm">External invoice value</label>${ivmSel('gdIvm', g && g.external_invoice_value_mode, '', true)}<span class="hint">Mandatory (default) or optional ("or about") on the client request form. Client, subcategory and user can override it.</span></div>
+        <div class="field"><label for="gdMode">Quotations show the client</label>${modeSel('gdMode', g && g.quote_display_mode, 'As the configuration (' + (FC.DISPLAY[setting('quote_display_mode', 'both')] || 'both') + ')')}</div></div>
       <label class="switch"><input type="checkbox" id="gdShow" ${!g || g.show_premium ? 'checked' : ''}><span><b>Clients see the indicative premium</b><span>Off: the portal only takes declarations and requests. Set by staff only; a client or policy can be set differently by staff.</span></span></label>
       <div class="field" style="margin-top:12px"><label for="gdNotes">Internal notes</label><textarea id="gdNotes" rows="2" maxlength="1000">${esc(g ? g.notes || '' : '')}</textarea></div>
       <div class="err-msg" id="gdErr"></div></div>`);
@@ -2199,7 +2312,7 @@
       const name = body.querySelector('#gdName').value.trim(); if(!name){ body.querySelector('#gdErr').textContent = 'Name required.'; return; }
       const doms = body.querySelector('#gdDom').value.split(/[,;\s]+/).map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
       if(doms.some(d => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))){ body.querySelector('#gdErr').textContent = 'Please enter domains like bertling.com.'; return; }
-      const row = { name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
+      const row = { name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, external_invoice_value_mode: body.querySelector('#gdIvm').value, quote_display_mode: body.querySelector('#gdMode').value || null, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
       return (await saveRow('client_groups', row, g && g.id)) ? true : undefined;
     } });
     FC.dialog({ title: g ? 'Client group' : 'New client group', body, actions });
@@ -2236,6 +2349,7 @@
         <div class="field"><label for="cuCountry">Country of the client (ISO)</label><input id="cuCountry" maxlength="2" value="${esc(c ? c.country || '' : '')}" placeholder="e.g. DE"><span class="hint">Policyholder domicile for the German IPT rules.</span></div>
         <div class="field"><label for="cuMode">Quotations show the client</label>${modeSel('cuMode', c && c.quote_display_mode, 'As the configuration (' + (FC.DISPLAY[setting('quote_display_mode', 'both')] || 'both') + ')')}</div>
         <div class="field"><label for="cuIpt">German IPT</label>${iptSel('cuIpt', c && c.ipt_mode, 'As the configuration (' + (FC.IPT_MODE[(S.ipt || {}).default_mode] || 'off') + ')')}</div>
+        <div class="field"><label for="cuIvm">External invoice value</label>${ivmSel('cuIvm', c && c.external_invoice_value_mode, 'As the client group (' + (IVM_T[((grpOf(c ? c.group_id : groupId) || {}).external_invoice_value_mode) || 'mandatory'] || 'Mandatory') + ')')}</div>
         <div class="field"><label>Allowed currencies</label>${curBoxes('cuCurs', c ? c.currencies : [])}</div>
         <div class="field"><label for="cuDom">E-mail domains <span class="muted">(users with these addresses belong to the customer)</span></label><input id="cuDom" value="${esc(c ? (c.email_domains || []).join(', ') : '')}"></div>
         <div class="field"><label for="cuProf">Rate profile</label><select id="cuProf">${profileOptions(c ? { t:'customer', id: c.id } : null, c ? 'Keep the current configuration' : 'Empty (set up later in Rates)')}</select><span class="hint">${c ? 'Choosing a source overwrites schedules, cargo types, zones, factors, map, war areas and default clauses (logged).' : 'Schedules, cargo types, zones, factors, map, war areas and default clauses.'}</span></div>
@@ -2266,7 +2380,7 @@
       const row = { name: v('#cuName'), group_id: Number(v('#cuGroup')) || null, cover_type: v('#cuCover'), show_premium: v('#cuShow') === '' ? null : v('#cuShow') === 'true', currencies: readCurs(body, 'cuCurs'), email_domains: doms, active: body.querySelector('#cuActive').checked, notes: v('#cuNotes') || null, sort: Number(v('#cuSort')) || 100,
         company_type: v('#cuType'), discount_pct: disc, discount_notes: v('#cuDiscN') || null, can_issue_certificates: body.querySelector('#cuFdf').checked, certificate_mode: v('#cuCertMode'), 
         cert_holder: v('#cuCH') || null, cert_open_policy: v('#cuCP') || null, cert_claims_contact: v('#cuCC') || null,
-        country: v('#cuCountry').toUpperCase() || null, quote_display_mode: v('#cuMode') || null, ipt_mode: v('#cuIpt') || null };
+        country: v('#cuCountry').toUpperCase() || null, quote_display_mode: v('#cuMode') || null, ipt_mode: v('#cuIpt') || null, external_invoice_value_mode: v('#cuIvm') };
       if(row.country && !/^[A-Z]{2}$/.test(row.country)) return err('Country as a two-letter ISO code, e.g. DE.');
       const r = c ? await sb.from('customers').update(row).eq('id', c.id).select() : await sb.from('customers').insert(row).select();
       if(r.error) return err('Could not save: ' + r.error.message);
@@ -2400,11 +2514,13 @@
         <div class="field"><label for="pdShow">Clients see the indicative premium</label><select id="pdShow"><option value="" ${!po || po.show_premium == null ? 'selected' : ''}>As the client</option><option value="true" ${po && po.show_premium === true ? 'selected' : ''}>Yes</option><option value="false" ${po && po.show_premium === false ? 'selected' : ''}>No - the portal only takes declarations and requests</option></select></div>
         <div class="field"><label for="pdMode">Quotations show the client</label>${modeSel('pdMode', po && po.quote_display_mode, 'As the client')}</div>
         <div class="field"><label for="pdIpt">German IPT</label>${iptSel('pdIpt', po && po.ipt_mode, 'As the client')}</div>
+        <div class="field"><label for="pdIvm">External invoice value</label>${ivmSel('pdIvm', po && po.external_invoice_value_mode, 'As the client')}</div>
         <div class="field"><label for="pdHC">Policyholder country (ISO)</label><input id="pdHC" maxlength="2" value="${esc(po ? po.policyholder_country || '' : '')}" placeholder="e.g. DE"><span class="hint">Domicile for the IPT rules; empty = as the client.</span></div>
         <div class="field"><label for="pdVia">Placed via</label><input id="pdVia" maxlength="150" value="${esc(po ? po.placed_via || '' : '')}" placeholder="e.g. Assekuranz-Kontor Montan GmbH"></div>
         <div class="field"><label for="pdSort">Sort</label><input id="pdSort" inputmode="numeric" value="${esc(po ? po.sort : 100)}"></div></div>
       <h3 style="margin:16px 0 6px">Policy years</h3><p class="xs muted" style="margin:0 0 8px">Each year with its period, status and certificate numbering. Without an active or extended year covering the shipment, quotations and certificates are blocked.</p>
       ${po ? '<div id="pdYears"></div>' : `<div class="grid3"><div class="field"><label for="pdY1">First policy year from</label><input id="pdY1" type="date" value="${FC.today().slice(0, 4)}-01-01"></div><div class="field"><label for="pdY2">to</label><input id="pdY2" type="date" value="${FC.today().slice(0, 4)}-12-31"></div></div>`}
+      ${po ? '<h3 style="margin:16px 0 6px">Deductibles</h3><div id="pdDeds"></div><h3 style="margin:16px 0 6px">Offices covered</h3><div id="pdOffs" class="ded-offs"></div>' : ''}
       <h3 style="margin:16px 0 6px">Security (insurer splits)</h3><p class="xs muted" style="margin:0 0 8px">Internal only - never shown to clients or on slips. Never copied to other policies.</p>
       <div id="pdSec">${((po && po.security) || []).map(secRow).join('')}</div><button type="button" class="btn btn-ghost btn-sm" id="pdSecAdd" style="margin-top:6px">+ Add insurer</button> <span class="xs" id="pdSecSum"></span>
       <h3 style="margin:18px 0 6px">Schedule rules</h3><p class="xs muted" style="margin:0 0 8px">Only used with “Policy schedules”. Empty = the value shown in grey.</p>
@@ -2423,6 +2539,9 @@
     secHost.addEventListener('input', sum); secHost.addEventListener('click', e => { if(e.target.closest('.sc-del')){ e.target.closest('.gp-sec').remove(); sum(); } });
     body.querySelector('#pdSecAdd').addEventListener('click', () => { secHost.appendChild(FC.el(secRow({}))); sum(); }); sum();
     if(po) paintPolicyYears(body.querySelector('#pdYears'), po);
+    if(po){ policyDeductiblesManager(body.querySelector('#pdDeds'), po);
+      const offs = S.offices.filter(o => o.customer_id === po.customer_id);
+      body.querySelector('#pdOffs').innerHTML = offs.length ? offs.map(o => `<label class="xs"><input type="checkbox" data-po-off="${o.id}" ${S.polOffices.some(x => x.office_id === o.id && x.policy_id === po.id) ? 'checked' : ''} ${o.policy_id === po.id ? 'disabled' : ''}> ${esc(o.name)}${o.location ? ' - ' + esc(o.location) : ''}${o.policy_id === po.id ? ' <span class="muted">(primary)</span>' : ''}</label>`).join('') + '<p class="xs muted" style="margin:4px 0 0">Ticked offices can declare under this subcategory; in quotations the other offices are blocked when this subcategory is chosen (and the reverse).</p>' : '<p class="xs muted">No offices yet.</p>'; }
     const actions = [{ label:'Cancel', kind:'ghost', value:null }];
     if(po) actions.unshift({ label:'Delete subcategory', kind:'danger', onClick: async () => (await delRow('policies', po.id, 'Delete ' + po.name + '?', 'Its own configuration is deleted. Past shipments keep their figures.')) ? true : undefined });
     actions.push({ label:'Save', kind:'primary', onClick: async () => {
@@ -2445,7 +2564,7 @@
       const cust = custOf(Number(v('#pdCust')));
       const row = Object.assign({ name: v('#pdName'), policy_no: v('#pdNo') || null, customer_id: cust.id, group_id: cust.group_id || (po ? po.group_id : null), cover_type: v('#pdType'), policyholder: v('#pdHolder') || null, currency: v('#pdCur'), currencies: curs,
         rating: v('#pdRating'), show_premium: v('#pdShow') === '' ? null : v('#pdShow') === 'true', placed_via: v('#pdVia') || null, security, rules,
-        quote_display_mode: v('#pdMode') || null, ipt_mode: v('#pdIpt') || null, policyholder_country: v('#pdHC').toUpperCase() || null, can_issue_certificates: v('#pdCanCert') === '' ? null : v('#pdCanCert') === 'true', certificate_mode: v('#pdCertMode') || null, active: body.querySelector('#pdActive').checked, notes: v('#pdNotes') || null, sort: Number(v('#pdSort')) || 100 }, nums);
+        quote_display_mode: v('#pdMode') || null, ipt_mode: v('#pdIpt') || null, external_invoice_value_mode: v('#pdIvm'), policyholder_country: v('#pdHC').toUpperCase() || null, can_issue_certificates: v('#pdCanCert') === '' ? null : v('#pdCanCert') === 'true', certificate_mode: v('#pdCertMode') || null, active: body.querySelector('#pdActive').checked, notes: v('#pdNotes') || null, sort: Number(v('#pdSort')) || 100 }, nums);
       if(!row.group_id){ const g = S.groups[0]; row.group_id = g ? g.id : null; }
       const prof = v('#pdProf');
       if(po && prof && hasOwn && !(await FC.confirm('Overwrite the configuration of ' + po.name + '?', "The policy's own schedules, cargo types, zones, factors, map, war areas and default clauses are replaced. Policy number, currency, limits, minimum premium, deductible and security stay.", 'Overwrite', 'danger'))) return;
@@ -2458,6 +2577,10 @@
         const r1 = (ys || []).length ? await sb.from('policy_years').update({ label: lab, starts_on: y1, ends_on: y2, status:'active' }).eq('id', ys[0].id) : await sb.from('policy_years').insert({ policy_id: id, label: lab, starts_on: y1, ends_on: y2, status:'active' });
         if(r1.error) toast('Policy saved, but the policy year could not be set: ' + r1.error.message, 'error'); }
       if(po) await saveTicks(body, 'policy', id);
+      if(po){ const on = Array.from(body.querySelectorAll('[data-po-off]')).filter(i => i.checked || i.disabled).map(i => Number(i.dataset.poOff)), cur = S.polOffices.filter(x => x.policy_id === id).map(x => x.office_id);
+        const add = on.filter(o => !cur.includes(o)), rm = cur.filter(o => !on.includes(o));
+        if(add.length){ const { error } = await sb.from('policy_offices').insert(add.map(o => ({ policy_id: id, office_id: o }))); if(error) toast('Offices not saved: ' + error.message, 'error'); }
+        if(rm.length){ const { error } = await sb.from('policy_offices').delete().eq('policy_id', id).in('office_id', rm); if(error) toast('Offices not saved: ' + error.message, 'error'); } }
       if(prof && id) await applyProfile(prof, { t:'policy', id }, (po ? 'New rate profile for policy ' : 'Set-up of new policy ') + row.name);
       await loadAll(); render(); return true;
     } });
@@ -2471,7 +2594,8 @@
         <div class="field"><label for="odCty">Country</label><select id="odCty"><option value="">-</option>${S.countries.map(c => `<option value="${c.iso2}" ${o && o.country === c.iso2 ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="field"><label for="odKind">Type</label><select id="odKind">${Object.entries(KIND).map(([k, l]) => `<option value="${k}" ${o && o.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label for="odCust">Customer</label><select id="odCust">${S.customers.map(c => `<option value="${c.id}" ${c.id === cid0 ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="field"><label for="odPol">Subcategory</label><select id="odPol"></select></div>
+        <div class="field"><label for="odPol">Subcategory <span class="muted">(primary)</span></label><select id="odPol"></select></div>
+        <div class="field" style="grid-column:1/-1"><label>Also covered by <span class="muted">(further subcategories this office may declare under)</span></label><div id="odPols" class="ded-offs"></div></div>
         <div class="field"><label for="odSub">Subcategory <span class="muted">(e.g. Singapore)</span></label><input id="odSub" maxlength="60" value="${esc(o ? o.subcategory || '' : '')}"></div>
         <div class="field"><label>Allowed currencies <span class="muted">(this office only)</span></label>${curBoxes('odCurs', o ? o.currencies : [])}</div>
         <div class="field"><label for="odSort">Sort</label><input id="odSort" inputmode="numeric" value="${esc(o ? o.sort : 100)}"></div>
@@ -2482,7 +2606,8 @@
       <div class="err-msg" id="odErr"></div></div>`);
     const cs = body.querySelector('#odCust'), ps = body.querySelector('#odPol');
     const paintPol = () => { const cid = Number(cs.value); const pols = S.policies.filter(x => x.customer_id === cid);
-      ps.innerHTML = '<option value="">- none -</option>' + pols.map(x => `<option value="${x.id}" ${x.id === (o ? o.policy_id : policyId) || (!o && !policyId && pols.length === 1) ? 'selected' : ''}>${esc(polLabel(x))} (${esc(x.currency)})</option>`).join(''); paintHint(); };
+      ps.innerHTML = '<option value="">- none -</option>' + pols.map(x => `<option value="${x.id}" ${x.id === (o ? o.policy_id : policyId) || (!o && !policyId && pols.length === 1) ? 'selected' : ''}>${esc(polLabel(x))} (${esc(x.currency)})</option>`).join('');
+      body.querySelector('#odPols').innerHTML = pols.map(x => `<label class="xs"><input type="checkbox" data-od-pol="${x.id}" ${o && S.polOffices.some(m => m.office_id === o.id && m.policy_id === x.id) ? 'checked' : ''}> ${esc(polLabel(x))}</label>`).join('') || '<span class="xs muted">No subcategories.</span>'; paintHint(); };
     const paintHint = () => { const po = polOf(Number(ps.value)); body.querySelector('#odMinH').textContent = po ? '(empty = policy: ' + amt(po.min_premium, po.currency) + ')' : '(empty = schedule)'; body.querySelector('#odDedH').textContent = po ? '(empty = policy: ' + amt(po.deductible, po.currency) + ')' : '(empty = cargo type)'; };
     cs.addEventListener('change', paintPol); ps.addEventListener('change', paintHint); paintPol();
     const actions = [{ label:'Cancel', kind:'ghost', value:null }];
@@ -2494,7 +2619,14 @@
       if((mn != null && !(mn >= 0)) || (dd != null && !(dd >= 0))) return void (body.querySelector('#odErr').textContent = 'Amounts must be numbers of 0 or more, or empty.');
       const row = { name: v('#odName'), location: v('#odLoc') || null, country: v('#odCty') || null, kind: v('#odKind'), customer_id: Number(v('#odCust')), policy_id: Number(v('#odPol')) || null, subcategory: v('#odSub') || null,
         currencies: readCurs(body, 'odCurs'), min_premium: mn, deductible: dd, contacts: v('#odCon') || null, active: body.querySelector('#odActive').checked, sort: Number(v('#odSort')) || 100 };
-      return (await saveRow('offices', row, o && o.id)) ? true : undefined;
+      const saved = await saveRow('offices', row, o && o.id); if(!saved) return;
+      const oid = o ? o.id : saved.id;
+      if(oid){ const on = Array.from(body.querySelectorAll('[data-od-pol]:checked')).map(i => Number(i.dataset.odPol)).concat(row.policy_id ? [row.policy_id] : []), cur = S.polOffices.filter(m => m.office_id === oid).map(m => m.policy_id);
+        const add = on.filter(x => !cur.includes(x)), rm = cur.filter(x => !on.includes(x));
+        if(add.length){ const { error } = await sb.from('policy_offices').upsert(add.map(x => ({ policy_id: x, office_id: oid })), { onConflict:'policy_id,office_id' }); if(error) toast('Subcategories not saved: ' + error.message, 'error'); }
+        if(rm.length){ const { error } = await sb.from('policy_offices').delete().eq('office_id', oid).in('policy_id', rm); if(error) toast('Subcategories not saved: ' + error.message, 'error'); }
+        await loadAll(); render(); }
+      return true;
     } });
     FC.dialog({ title: o ? o.name : 'New office / entity', wide:true, body, actions });
   }
@@ -2524,6 +2656,7 @@
         <div class="field"><label>Currencies</label><div class="xs" id="ecCurs" style="padding-top:10px"></div></div>
         <div class="field"><label for="ecMin">Minimum premium for this user <span class="muted">(empty = office / policy)</span></label><input id="ecMin" inputmode="decimal" value="${esc(p.min_premium_override ?? '')}"></div>
         <div class="field"><label for="ecDed">Deductible for this user <span class="muted">(empty = office / policy)</span></label><input id="ecDed" inputmode="decimal" value="${esc(p.deductible_override ?? '')}"></div>
+        <div class="field"><label for="ecIvm">External invoice value</label>${ivmSel('ecIvm', p.external_invoice_value_mode, 'As the subcategory / client / group')}<span class="hint">The most specific setting wins: user, subcategory, client, client group (default mandatory).</span></div>
       </div>
       <p class="xs muted" id="ecEff" style="margin:-4px 0 0"></p>
       <div class="field" style="margin-top:12px"><label for="ecNote">Internal note</label><textarea id="ecNote" rows="2" maxlength="1000">${esc(p.internal_note || '')}</textarea></div>
@@ -2560,7 +2693,7 @@
         phone: body.querySelector('#ecPhone').value.trim() || null, discount_mode: dm.discount_mode, special_discount_pct: dm.special_discount_pct, internal_note: body.querySelector('#ecNote').value.trim() || null,
         approved: st === 'active', rejected: st === 'rejected', customer_id: cid, office_id: offId, cover_type: body.querySelector('#ecCover').value || null,
         group_id: cid ? (custOf(cid) || {}).group_id || null : null,
-        min_premium_override: minO ? FC.parseNum(minO) : null, deductible_override: dedO ? FC.parseNum(dedO) : null };
+        min_premium_override: minO ? FC.parseNum(minO) : null, deductible_override: dedO ? FC.parseNum(dedO) : null, external_invoice_value_mode: body.querySelector('#ecIvm').value };
       const ac = readAccess(body); if(ac.error){ body.querySelector('#ecErr').textContent = ac.error; return; }
       patch.department_id = ac.department_id;
       if(p.id !== me().id && isStaffAdmin()){ Object.assign(patch, { is_admin: ac.is_admin, user_group_id: ac.user_group_id, staff_roles: ac.staff_roles, insurer_id: ac.insurer_id }); }
@@ -2716,15 +2849,17 @@
 
   function renderClauses(body){
     body.innerHTML = (isStaffAdmin() ? '' : '<div class="notice" style="margin:0 0 12px"><b>Read only</b>The clause library and default lists are changed by staff admins.</div>') + `<p class="small muted" style="margin:0 0 14px">The <b>master clauses library</b> holds every wording. Each level has its own list: <b>General (one-offs)</b>, <b>client defaults</b> (also for clients without a policy) and <b>policy defaults</b>. In a list a clause is <b>active</b> (pre-ticked in quotations) or on <b>standby</b> (offered unticked). Removing a clause from a list never deletes it: drag it back from the library at any time.</p>
-      <div class="tabs" role="tablist">${[['library','Master clauses library'],['categories','Categories'],['one_off_general','General (one-offs)'],['customer','Client defaults'],['policy','Subcategory defaults'],['templates','Text templates']].map(([k, l]) => `<button role="tab" data-cltab="${k}" aria-selected="${(['library','categories','templates'].includes(k) ? clTab === k : clTab === 'lists' && k === clScope.t)}">${l}</button>`).join('')}</div><div id="clBody"></div>`;
+      <div class="tabs" role="tablist">${[['library','Master clauses library'],['categories','Categories'],['one_off_general','General (one-offs)'],['customer','Client defaults'],['policy','Subcategory defaults']].map(([k, l]) => `<button role="tab" data-cltab="${k}" aria-selected="${(['library','categories'].includes(k) ? clTab === k : clTab === 'lists' && k === clScope.t)}">${l}</button>`).join('')}</div>
+      <p class="xs muted" style="margin:-4px 0 12px">Quotation, e-mail and insurer templates are managed under <button type="button" class="linkbtn" id="clTplLink">Templates &amp; Matrices</button>.</p><div id="clBody"></div>`;
     $$('[data-cltab]', body).forEach(b => b.addEventListener('click', () => { const t = b.dataset.cltab;
-      if(['library','categories','templates'].includes(t)) clTab = t;
+      if(['library','categories'].includes(t)) clTab = t;
       else { clTab = 'lists'; clScope = t === 'one_off_general' ? GEN : t === 'customer' ? { t, id: (scCust(clScope) || S.customers[0] || {}).id } : { t, id: clScope.t === 'policy' ? clScope.id : (S.policies.find(po => po.customer_id === (scCust(clScope) || {}).id) || S.policies[0] || {}).id }; }
       renderClauses(body); }));
     const host = $('#clBody', body);
+    $('#clTplLink', body).addEventListener('click', () => { dtType = 'quotation'; tab = 'templates'; syncNav(); render(); });
+    if(clTab === 'templates') clTab = 'library';
     if(clTab === 'library') return renderLibrary(host);
     if(clTab === 'categories') return renderCategories(host);
-    if(clTab === 'templates') return renderTemplates(host);
     renderList(host, clScope);
   }
   function renderLibrary(host){
@@ -2755,7 +2890,8 @@
       },
       menu: r => r.id ? [
         ['Add to one-off defaults (active)', () => addToList(GEN, [r.id], true)], ['Add to one-off defaults (standby)', () => addToList(GEN, [r.id], false)],
-        ['Copy to client…', () => copyDialog(['clauses'], GEN, { clauses:[r.id] }, { only:'customer' })], ['Copy to policy…', () => copyDialog(['clauses'], GEN, { clauses:[r.id] }, { only:'policy' })], '-',
+        ['Copy to client…', () => copyDialog(['clauses'], GEN, { clauses:[r.id] }, { only:'customer' })], ['Copy to policy…', () => copyDialog(['clauses'], GEN, { clauses:[r.id] }, { only:'policy' })],
+        ['Attach policy deductible(s)…', () => clauseDedDialog(S.clauses.find(c => c.id === r.id) || r, null)], '-',
         ['Delete from the library', () => deleteLibClauses([r]), 'danger']] : [],
       bulk:[ ['Add to one-off defaults (standby)', rs => addToList(GEN, rs.filter(r => r.id).map(r => r.id), false)], ['Copy to client…', rs => copyDialog(['clauses'], GEN, { clauses: rs.filter(r => r.id).map(r => r.id) }, { only:'customer' })],
         ['Copy to policy…', rs => copyDialog(['clauses'], GEN, { clauses: rs.filter(r => r.id).map(r => r.id) }, { only:'policy' })], ['Delete', rs => deleteLibClauses(rs.filter(r => r.id)), 'danger'] ] }); };
@@ -2813,11 +2949,14 @@
     const listEl = wrap.querySelector('#clList'), libEl = wrap.querySelector('#ldList'), save = bar.querySelector('#clSave');
     const mark = () => { dirty = true; save.disabled = false; };
     const own2 = c => c.scope_type !== 'one_off_general' ? ' <span class="chip accepted">own</span>' : '';
+    // the subcategories whose deductibles can be linked here
+    const dedPols = sc.t === 'policy' ? [sc.id] : sc.t === 'customer' ? S.policies.filter(po => po.customer_id === sc.id).map(po => po.id) : null;
     const paintList = () => {
       listEl.innerHTML = items.length ? '' : '<div class="cl-drop-empty">Drop clauses here</div>';
       CL_CAT.forEach(([cat]) => { const its = items.filter(x => x.c.category === cat); if(!its.length) return;
         const sec = FC.el(`<section class="cl-cat card" data-cat="${cat}"><h3>${esc(catLabel(cat))} <span class="xs muted">${its.filter(x => x.on).length} active · ${its.filter(x => !x.on).length} standby</span></h3></section>`);
-        its.forEach(x => { const row = FC.el(`<div class="cl-row${x.on ? '' : ' standby'}" draggable="true" data-id="${x.c.id}"><span class="grip" aria-hidden="true">⠿</span><label class="cl-item"><input type="checkbox" ${x.on ? 'checked' : ''} aria-label="Active (pre-ticked)"><span><b>${esc(x.c.title)}</b>${x.c.maritime ? ' <span class="chip neutral">sea</span>' : ''}${x.c.air_only ? ' <span class="chip neutral">air</span>' : ''}${own2(x.c)} <span class="chip ${x.on ? 'approved' : 'pending'}">${x.on ? 'active' : 'standby'}</span><span>${esc(x.c.body.length > 260 ? x.c.body.slice(0, 260) + '…' : x.c.body)}</span></span></label><span class="cl-mv"><button type="button" class="btn btn-ghost btn-sm" data-mv="-1" aria-label="Move ${esc(x.c.title)} up">▲</button><button type="button" class="btn btn-ghost btn-sm" data-mv="1" aria-label="Move ${esc(x.c.title)} down">▼</button></span><button type="button" class="linkbtn cl-rm" aria-label="Remove ${esc(x.c.title)} from this list">Remove</button></div>`);
+        its.forEach(x => { const row = FC.el(`<div class="cl-row${x.on ? '' : ' standby'}" draggable="true" data-id="${x.c.id}"><span class="grip" aria-hidden="true">⠿</span><label class="cl-item"><input type="checkbox" ${x.on ? 'checked' : ''} aria-label="Active (pre-ticked)"><span><b>${esc(x.c.title)}</b>${x.c.maritime ? ' <span class="chip neutral">sea</span>' : ''}${x.c.air_only ? ' <span class="chip neutral">air</span>' : ''}${own2(x.c)} <span class="chip ${x.on ? 'approved' : 'pending'}">${x.on ? 'active' : 'standby'}</span>${dedBadge(x.c.id, dedPols)}<span>${esc(x.c.body.length > 260 ? x.c.body.slice(0, 260) + '…' : x.c.body)}</span></span></label><span class="cl-mv"><button type="button" class="btn btn-ghost btn-sm" data-mv="-1" aria-label="Move ${esc(x.c.title)} up">▲</button><button type="button" class="btn btn-ghost btn-sm" data-mv="1" aria-label="Move ${esc(x.c.title)} down">▼</button></span><button type="button" class="linkbtn cl-ded" aria-label="Attach policy deductibles to ${esc(x.c.title)}">Deductible</button><button type="button" class="linkbtn cl-rm" aria-label="Remove ${esc(x.c.title)} from this list">Remove</button></div>`);
+          row.querySelector('.cl-ded').addEventListener('click', () => clauseDedDialog(x.c, dedPols));
           row.querySelectorAll('[data-mv]').forEach(b => b.addEventListener('click', () => { const same = items.filter(y => y.c.category === x.c.category), i = same.indexOf(x), o = same[i + Number(b.dataset.mv)]; if(!o) return;
             const a1 = items.indexOf(x), a2 = items.indexOf(o); items[a1] = o; items[a2] = x; mark(); paintList(); }));
           row.querySelector('input').addEventListener('change', e => { x.on = e.target.checked; mark(); paintList(); });
@@ -2962,20 +3101,26 @@
     certificate_agreements:'Pre-fills “Additional agreements” on new certificates (plain text).' };
   let tplScope = GEN, tplKind = 'quotation';
   const FMT_FONTS = ['Calibri','Arial','Helvetica','Cambria','Georgia','Times New Roman','Verdana','Tahoma'];
-  function renderTemplates(host){
+  // the parent structure of a quotation: layout, static text and these placeholders; the child clauses come from the Clauses lists
+  const Q_PLACEHOLDERS = [['opening_block','Opening block (opening clauses)'],['policy_no','Policy number'],['general_conditions','General conditions'],['special_conditions','Special conditions (all other clause categories)'],
+    ['deductibles','Deductibles (main + selected clauses)'],['rate_and_min_premium','Rate & minimum premium'],['subjectivities','Subjectivities & warranties'],['disclaimer_block','Disclaimer']];
+  const QPH_RE = /\{\{\s*(opening_block|general_conditions|special_conditions|deductibles|rate_and_min_premium|subjectivities|disclaimer_block)\s*\}\}/g;
+  function renderTemplates(host, opt){
+    opt = opt || {};
     const adm = isStaffAdmin();
-    if(tplScope.t !== 'one_off_general' && !(tplScope.t === 'customer' ? custOf(tplScope.id) : polOf(tplScope.id))) tplScope = GEN;
+    if(!scValid(tplScope)) tplScope = GEN;
     const lid = tplScope.t === 'one_off_general' ? null : tplScope.id;
-    const custId = tplScope.t === 'customer' ? tplScope.id : tplScope.t === 'policy' ? (polOf(tplScope.id) || {}).customer_id : null, polId = tplScope.t === 'policy' ? tplScope.id : null;
-    const own = tplRow(tplKind, tplScope.t, lid), eff = own || tplFor(tplKind, custId, polId);
-    const fromTxt = x => !x ? 'nothing (empty)' : x.scope_type === 'one_off_general' ? 'the configuration (general)' : x.scope_type === 'customer' ? 'client ' + ((custOf(x.scope_id) || {}).name || '') : 'policy ' + polLabel(polOf(x.scope_id));
-    const fOwn = fmtRow(tplScope.t, lid), fEff = fmtFor(custId, polId);
-    const blocks = (tplKind === 'quotation' ? '<optgroup label="Blocks"><option value="[[clauses]]">All active clauses of the list</option><option value="[[pricing]]">Rate, premium &amp; deductible block</option><option value="free">Free-text block (box)</option></optgroup>'
-        : `<optgroup label="Blocks">${tplKind === 'client_text' ? '<option value="[[quotation]]">The quotation</option>' : ''}${tplKind === 'insurer_text' ? '<option value="[[shipment_details]]">Shipment details</option>' : ''}<option value="free">Free-text block (box)</option></optgroup>`)
-      + `<optgroup label="Categories (all active clauses)">${CL_CAT.filter(([k]) => k !== 'pricing' || tplKind === 'quotation').map(([k]) => `<option value="cat:${esc(k)}">${esc(catLabel(k))}</option>`).join('')}</optgroup>`
-      + CL_CAT.map(([k]) => { const cs = S.clauses.filter(c => c.category === k && c.active && (c.scope_type === 'one_off_general' || (custId && c.scope_type === 'customer' && Number(c.scope_id) === custId) || (polId && c.scope_type === 'policy' && Number(c.scope_id) === polId))); return cs.length ? `<optgroup label="${esc(catLabel(k))}">${cs.map(c => `<option value="clause:${c.id}">${esc(c.title)}</option>`).join('')}</optgroup>` : ''; }).join('');
-    host.innerHTML = `<div class="toolbar"><label class="xs" for="tpScope">Level</label><select class="input" id="tpScope" style="max-width:360px">${scopeOptions(tplScope)}</select>
+    const custId = tplScope.t === 'customer' ? tplScope.id : tplScope.t === 'policy' ? (polOf(tplScope.id) || {}).customer_id : null, polId = tplScope.t === 'policy' ? tplScope.id : null, grpId = tplScope.t === 'client_group' ? tplScope.id : null;
+    const own = tplRow(tplKind, tplScope.t, lid), eff = own || tplFor(tplKind, custId, polId, grpId);
+    const fromTxt = x => !x ? 'nothing (empty)' : x.scope_type === 'one_off_general' ? 'the configuration (general)' : x.scope_type === 'client_group' ? 'client group ' + ((grpOf(x.scope_id) || {}).name || '') : x.scope_type === 'customer' ? 'client ' + ((custOf(x.scope_id) || {}).name || '') : 'policy ' + polLabel(polOf(x.scope_id));
+    const fOwn = fmtRow(tplScope.t, lid), fEff = fmtFor(custId, polId, grpId);
+    const blocks = (tplKind === 'quotation' ? `<optgroup label="Structure placeholders">${Q_PLACEHOLDERS.map(([k, l]) => `<option value="{{${k}}}">{{${k}}} ${esc(l)}</option>`).join('')}</optgroup><optgroup label="Blocks"><option value="[[clauses]]">All active clauses in category order</option><option value="free">Free-text block (box)</option></optgroup>`
+        : `<optgroup label="Blocks">${tplKind === 'client_text' ? '<option value="[[quotation]]">The quotation</option>' : ''}${tplKind === 'insurer_text' ? '<option value="[[shipment_details]]">Shipment details</option>' : ''}<option value="free">Free-text block (box)</option></optgroup>`
+      + `<optgroup label="Categories (all active clauses)">${CL_CAT.filter(([k]) => k !== 'pricing').map(([k]) => `<option value="cat:${esc(k)}">${esc(catLabel(k))}</option>`).join('')}</optgroup>`
+      + CL_CAT.map(([k]) => { const cs = S.clauses.filter(c => c.category === k && c.active && (c.scope_type === 'one_off_general' || (custId && c.scope_type === 'customer' && Number(c.scope_id) === custId) || (polId && c.scope_type === 'policy' && Number(c.scope_id) === polId))); return cs.length ? `<optgroup label="${esc(catLabel(k))}">${cs.map(c => `<option value="clause:${c.id}">${esc(c.title)}</option>`).join('')}</optgroup>` : ''; }).join(''));
+    host.innerHTML = `<div class="toolbar">${opt.embedded ? '' : `<label class="xs" for="tpScope">Level</label><select class="input" id="tpScope" style="max-width:360px">${scopeOptions(tplScope, { groups:true })}</select>`}
         <div class="seg" id="tpKind" role="radiogroup" aria-label="Template">${TPL_KINDS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${k === tplKind}">${esc(l)}</button>`).join('')}</div></div>
+      ${tplKind === 'quotation' ? `<p class="xs muted" style="margin:0 0 8px">The quotation template is the <b>parent structure</b> only: layout, static text and placeholders such as <code>{{policy_no}}</code>, <code>{{general_conditions}}</code>, <code>{{special_conditions}}</code>, <code>{{deductibles}}</code>. Which child clauses fill the placeholders comes from the defaults in the Clauses tab (policy, client, group, general) and the ticks in the quotation window.</p>` : ''}
       <div class="notice ${own ? 'ok' : 'info'}" style="margin:0 0 10px"><b>${own ? 'Own template of this level' : 'Inherited'}</b>${own ? 'Used for this level and everything below it that has no template of its own.' : 'This level uses the template of ' + esc(fromTxt(eff)) + '. Saving creates its own template.'} ${esc(TPL_HELP[tplKind])}</div>
       <div class="tpl-grid"><div class="card tpl-card">${rtBarHtml({ fields:true, blocks })}<div class="qe-doc tpl-ed" id="tpEd" contenteditable="${adm}" spellcheck="true" aria-label="Template text"></div>
           <div class="toolbar" style="margin:10px 0 0" id="tpActs"></div><div class="err-msg" id="tpErr"></div></div>
@@ -2992,13 +3137,13 @@
     const clauseText = c => `<p>${CAT_TITLES.has(c.category) ? '<b><u>' + esc(c.title) + '</u></b><br>' : ''}${esc(c.body).replace(/\n/g, '<br>')}</p>`;
     wireRt(host.querySelector('.rt-bar'), ed, { onBlock: (v, insert) => {
       if(v === 'free') return insert('<p class="box">Free text</p>');
-      if(/^\[\[/.test(v)) return insert('<p>' + esc(v) + '</p>');
+      if(/^\[\[/.test(v) || /^\{\{/.test(v)) return insert('<p>' + esc(v) + '</p>');
       const [k, id] = v.split(':');
       if(tplKind === 'quotation') return insert('<p>' + esc(k === 'cat' ? '[[category:' + id + ']]' : '[[clause:' + id + ']]') + '</p>');
       const list = k === 'cat' ? clausesFor(custId, polId).filter(c => c.category === id && clauseOn(c, polId, custId)) : S.clauses.filter(c => c.id === Number(id));
       insert(list.map(clauseText).join('') || '<p></p>');
     } });
-    $('#tpScope', host).addEventListener('change', e => { tplScope = scParse(e.target.value); render(); });
+    if($('#tpScope', host)) $('#tpScope', host).addEventListener('change', e => { tplScope = scParse(e.target.value); render(); });
     $('#tpKind', host).addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; tplKind = b.dataset.v; render(); });
     if(!adm){ host.querySelectorAll('.rt-bar button, .rt-bar select, .rt-bar input, .tpl-fmt input, .tpl-fmt select').forEach(x => x.disabled = true); return; }
     const acts = $('#tpActs', host);
@@ -3009,8 +3154,8 @@
       busy(b, false); if(res.error) return void ($('#tpErr', host).textContent = res.error.message);
       toast('Template saved for ' + scName(tplScope) + '.'); await loadAll(); render(); }));
     acts.appendChild(btn('Preview with a case', 'ghost', () => {
-      const r = S.rows.find(x => (polId ? x.policy_id === polId : custId ? x.customer_id === custId : true)) || S.rows[0] || {};
-      const html = FC.merge(FC.cleanHtml(ed.innerHTML), mergeCtx(r, {}));
+      const r = S.rows.find(x => (polId ? x.policy_id === polId : custId ? x.customer_id === custId : grpId ? (custOf(x.customer_id) || {}).group_id === grpId : true)) || S.rows[0] || {};
+      const html = FC.merge(FC.cleanHtml(ed.innerHTML).replace(QPH_RE, '[[$1]]'), mergeCtx(r, {}));
       FC.dialog({ title:'Preview' + (r.ref ? ' · ' + r.ref : ''), wide:true, body:`<div class="qe-doc" style="${esc(FC.fmtCss(fmtNow()))}">${html}</div><p class="xs muted">Blocks in [[...]] are filled in when the template is used.</p>`, actions:[{ label:'Close', kind:'primary', value:true }] });
     }));
     if(own && tplScope.t !== 'one_off_general') acts.appendChild(btn('Remove own template', 'danger', async () => {
@@ -3806,7 +3951,9 @@
   function resultHtml(data, cur){
     const x = data.result, o = data.one_off, n = x.n || {};
     const one = (r, title) => { const d = r.detail || {};
-      return `<div class="nq-res">${title ? `<h4>${esc(title)}</h4>` : ''}${r.status === 'quoted'
+      return `<div class="nq-res">${title ? `<h4>${esc(title)}</h4>` : ''}${r.status === 'quoted' && r.rate_only
+        ? `<div class="nq-fig"><div><span>Rate (rate only)</span><b>${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Minimum premium</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div><div><span>Sum insured</span><b>not stated</b><i>invoice value optional</i></div></div>`
+        : r.status === 'quoted'
         ? `<div class="nq-fig"><div><span>Premium (excl. tax)</span><b>${esc(money2(r.net, cur))}</b>${r.min_hit ? '<i>minimum premium</i>' : ''}</div><div><span>Rate</span><b>${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Sum insured</span><b>${esc(money2(n.sum_insured, cur))}</b></div><div><span>Minimum</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div></div>`
         : `<div class="notice ${r.status === 'sanctioned' ? 'danger' : 'warn'}" style="margin:0 0 10px"><b>${esc(FC.STATUS[r.status] || r.status)}</b>${esc((r.reasons || []).join('; '))}</div>`}
         ${breakdownRows(r.detail).length ? `<table class="tbl nq-bd"><tbody>${breakdownRows(r.detail).map(([a, b2, c2]) => `<tr><td>${esc(a)}</td><td class="muted">${esc(b2)}</td><td class="r num">${c2}</td></tr>`).join('')}</tbody></table>` : ''}
@@ -3817,6 +3964,158 @@
     return (x.out_of_cover ? `<div class="al-row al-red"><i></i><span><b>Out of cover</b> - ${esc((x.ooc_reasons || []).join('; '))}. Not attached to the policy; quote it as a one-off.</span></div>` : '')
       + one(x, o ? 'Under ' + ((data.policy && polLabel(data.policy)) || 'the policy') : '') + (o ? one(o, 'As a one-off (general pool)') : '');
   }
+
+  // ---------------- policy <-> office applicability ----------------
+  // an office without any mapping is open to every subcategory of its client
+  const polOfficeApplies = (poId, ofId) => { if(!poId || !ofId) return true; const rows = S.polOffices.filter(x => x.office_id === ofId); return !rows.length || rows.some(x => x.policy_id === poId); };
+  A.polOfficeApplies = polOfficeApplies;
+  // office + subcategory selects that block each other (New quotation, quotation window)
+  function wirePolOffice(offSel, polSel, st, o){
+    o = o || {};
+    const paint = () => {
+      const offs = o.offices(), pols = o.policies();
+      offSel.innerHTML = `<option value="">${esc(o.noOffice || '- no office -')}</option>` + offs.map(of => { const ok = polOfficeApplies(st.policy, of.id);
+        return `<option value="${of.id}" ${of.id === st.office ? 'selected' : ''} ${ok ? '' : 'disabled'}>${esc(of.name)}${of.location ? ' - ' + esc(of.location) : ''}${ok ? '' : ' (Not applicable to selected policy)'}</option>`; }).join('');
+      polSel.innerHTML = pols.map(po => { const ok = polOfficeApplies(po.id, st.office);
+        return `<option value="${po.id}" ${po.id === st.policy ? 'selected' : ''} ${ok ? '' : 'disabled'}>${esc(polLabel(po))}${ok ? '' : ' (Not applicable to selected office)'}</option>`; }).join('') + `<option value="" ${!st.policy ? 'selected' : ''}>${esc(o.noPolicy || 'No policy (client configuration)')}</option>`;
+    };
+    offSel.addEventListener('change', () => {
+      st.office = Number(offSel.value) || null;
+      const of = ofcOf(st.office);
+      if(st.policy && st.office && !polOfficeApplies(st.policy, st.office)){
+        toast('Subcategory ' + polLabel(polOf(st.policy)) + ' does not apply to ' + of.name + ' - the subcategory was cleared.', 'error'); st.policy = null; }
+      if(!st.policy && of && of.policy_id && o.policies().some(po => po.id === of.policy_id)) st.policy = of.policy_id;
+      paint(); if(o.onChange) o.onChange();
+    });
+    polSel.addEventListener('change', () => {
+      st.policy = Number(polSel.value) || null;
+      if(st.office && st.policy && !polOfficeApplies(st.policy, st.office)){
+        toast('Office ' + ofcOf(st.office).name + ' is not covered by ' + polLabel(polOf(st.policy)) + ' - the office was cleared.', 'error'); st.office = null; }
+      paint(); if(o.onChange) o.onChange();
+    });
+    paint();
+    return { paint, clear: () => { st.office = null; st.policy = null; paint(); if(o.onChange) o.onChange(); } };
+  }
+
+  // ---------------- policy limits (shown upfront; exceeded = special request to insurers) ----------------
+  const fxRates = () => setting('fx_rates', { EUR:1, USD:1.08, GBP:0.85, SGD:1.45 }) || {};
+  const fxConv = (n, from, to) => { const fx = fxRates(), a = Number(fx[from]), b = Number(fx[to]); if(!isFinite(Number(n))) return NaN; if(!from || !to || from === to || !(a > 0) || !(b > 0)) return Number(n); return Math.round(Number(n) / a * b * 100) / 100; };
+  A.fxConv = fxConv;
+  // the sub-limit that applies: on deck / barge, parcel post / courier, else any one conveyance / storage
+  const limitCheck = (po, sum, cur, deck, post) => {
+    if(!po) return null;
+    const type = deck ? 'on_deck_barge' : post ? 'parcel_post' : 'conveyance';
+    const lim = deck ? (po.limit_on_deck != null ? po.limit_on_deck : po.limit_conveyance) : post ? (po.limit_post != null ? po.limit_post : po.limit_conveyance) : po.limit_conveyance;
+    if(lim == null) return { type, limit: null };
+    const conv = fxConv(sum, cur, po.currency);
+    return { type, limit: Number(lim), currency: po.currency, conv, exceeded: isFinite(conv) && conv > Number(lim), sum: Number(sum), cur };
+  };
+  A.limitCheck = limitCheck;
+  const LIMIT_T = { conveyance:'Standard Conveyance / Storage Limit', on_deck_barge:'On-Deck / Barge Limit', parcel_post:'Parcel Post / Mail Limit' };
+  const limitsHtml = (po, chk) => !po ? '' : `<div class="pol-limits" role="note"><b>Policy Coverage Limits</b> <span class="xs muted">${esc(polLabel(po))}</span>
+      <div class="pl-row">${[['conveyance', po.limit_conveyance], ['on_deck_barge', po.limit_on_deck], ['parcel_post', po.limit_post]].map(([k, v]) => `<span class="${chk && chk.type === k ? 'on' : ''}">${esc(LIMIT_T[k])}: <b>${v != null ? esc(money2(Number(v), po.currency).replace(/\.00$/, '')) : 'as conveyance'}</b></span>`).join('')}</div></div>`;
+  const limitWarnHtml = (chk, cur) => chk && chk.exceeded ? `<div class="limit-warn" role="alert"><b>Policy Limit Exceeded</b>Warning: Sum Insured (${esc(cur || chk.cur)} ${esc(Number(chk.sum).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 }))}) exceeds the Policy Limit of ${esc(chk.currency)} ${esc(Number(chk.limit).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 }))}. This shipment cannot be bound automatically under the open cover and requires a special request / referral to insurers.</div>` : '';
+  A.limitsHtml = limitsHtml; A.limitWarnHtml = limitWarnHtml;
+
+  // ---------------- policy deductibles (main / condition-specific) and their clauses ----------------
+  const DED_T = { main:'Main', condition:'Condition-specific' };
+  const dedsOf = polId => S.polDeds.filter(d => d.policy_id === polId).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+  const dedOf = id => S.polDeds.find(d => d.id === id);
+  const dedsOfClause = (clauseId, polIds) => S.dedLinks.filter(l => l.clause_id === clauseId && (!polIds || polIds.includes(l.policy_id))).map(l => dedOf(l.deductible_id)).filter(d => d && d.active);
+  const clausesOfDed = id => S.dedLinks.filter(l => l.deductible_id === id).map(l => S.clauses.find(c => c.id === l.clause_id)).filter(Boolean);
+  // the main deductibles of a policy for an office: office specific ones replace the general ones
+  const mainDeds = (polId, ofId) => { const m = dedsOf(polId).filter(d => d.active && d.deductible_type === 'main'), own = ofId ? m.filter(d => (d.applicable_office_ids || []).map(Number).includes(ofId)) : [];
+    return own.length ? own : m.filter(d => !(d.applicable_office_ids || []).length); };
+  const dedForOffice = (d, ofId) => !ofId || !(d.applicable_office_ids || []).length || (d.applicable_office_ids || []).map(Number).includes(ofId);
+  A.mainDeds = mainDeds; A.dedsOfClause = dedsOfClause;
+  const dedBadge = (clauseId, polIds) => { const ds = dedsOfClause(clauseId, polIds); if(!ds.length) return '';
+    const t = ds[0].deductible_text; return ` <span class="chip ded-chip" title="${esc(ds.map(d => d.deductible_text).join(' | '))}">Deductible linked: ${esc(t.length > 60 ? t.slice(0, 60) + '...' : t)}${ds.length > 1 ? ' +' + (ds.length - 1) : ''}</span>`; };
+  // replace the links of one clause under one policy
+  async function setClauseLinks(clauseId, polId, dedIds){
+    const cur = S.dedLinks.filter(l => l.clause_id === clauseId && l.policy_id === polId), rm = cur.filter(l => !dedIds.includes(l.deductible_id)).map(l => l.id), add = dedIds.filter(id => !cur.some(l => l.deductible_id === id));
+    if(rm.length){ const { error } = await sb.from('clause_deductible_links').delete().in('id', rm); if(error) return error; }
+    if(add.length){ const { error } = await sb.from('clause_deductible_links').insert(add.map(id => ({ clause_id: clauseId, deductible_id: id, policy_id: polId }))); if(error) return error; }
+    return null;
+  }
+  // replace the clauses of one deductible
+  async function setDedClauses(d, clauseIds){
+    const cur = S.dedLinks.filter(l => l.deductible_id === d.id), rm = cur.filter(l => !clauseIds.includes(l.clause_id)).map(l => l.id), add = clauseIds.filter(id => !cur.some(l => l.clause_id === id));
+    if(rm.length){ const { error } = await sb.from('clause_deductible_links').delete().in('id', rm); if(error) return error; }
+    if(add.length){ const { error } = await sb.from('clause_deductible_links').insert(add.map(id => ({ clause_id: id, deductible_id: d.id, policy_id: d.policy_id }))); if(error) return error; }
+    return null;
+  }
+  // "Attach policy deductible(s)" on a clause (Clauses tab, master library)
+  function clauseDedDialog(c, polIds){
+    const pols = (polIds && polIds.length ? polIds.map(polOf) : S.policies.slice()).filter(Boolean);
+    if(!pols.length) return toast('There is no subcategory with deductibles yet.', 'error');
+    let pid = (pols.find(po => S.dedLinks.some(l => l.clause_id === c.id && l.policy_id === po.id)) || pols[0]).id;
+    const body = FC.el(`<div><p class="small" style="margin-top:0"><b>${esc(c.title)}</b><br><span class="xs muted">${esc(c.body.slice(0, 220))}${c.body.length > 220 ? '...' : ''}</span></p>
+      ${pols.length > 1 ? `<div class="field"><label for="cdPol">Subcategory (policy)</label><select id="cdPol">${pols.map(po => `<option value="${po.id}">${esc(polLabel(po))} (${esc((custOf(po.customer_id) || {}).name || '')})</option>`).join('')}</select></div>` : `<p class="xs muted">Subcategory ${esc(polLabel(pols[0]))}</p>`}
+      <div id="cdList" class="ded-pick"></div><div class="err-msg" id="cdErr"></div></div>`);
+    const paint = () => { const ds = dedsOf(pid).filter(d => d.active), on = S.dedLinks.filter(l => l.clause_id === c.id && l.policy_id === pid).map(l => l.deductible_id);
+      body.querySelector('#cdList').innerHTML = ds.length ? ds.map(d => `<label class="ded-opt"><input type="checkbox" value="${d.id}" ${on.includes(d.id) ? 'checked' : ''}><span><b>${esc(d.label)}</b> ${chip(d.deductible_type === 'main' ? 'approved' : 'pending', DED_T[d.deductible_type])}<br><span class="xs">${esc(d.deductible_text)}</span></span></label>`).join('')
+        : '<p class="xs muted">This subcategory has no deductibles yet - add them under Templates &amp; Matrices / Policy deductibles or in the subcategory.</p>'; };
+    if(body.querySelector('#cdPol')){ body.querySelector('#cdPol').value = String(pid); body.querySelector('#cdPol').addEventListener('change', e => { pid = Number(e.target.value); paint(); }); }
+    paint();
+    return FC.dialog({ title:'Attach Policy Deductible(s)', wide:true, body, actions:[{ label:'Cancel', kind:'ghost', value:false }, { label:'Save links', kind:'primary', onClick: async () => {
+      const ids = Array.from(body.querySelectorAll('#cdList input:checked')).map(i => Number(i.value));
+      const err = await setClauseLinks(c.id, pid, ids); if(err){ body.querySelector('#cdErr').textContent = err.message; return; }
+      toast('Deductible links saved.'); await loadAll(); render(); return true; } }] });
+  }
+  function dedDialog(po, d){
+    const offs = S.offices.filter(o => o.customer_id === po.customer_id && polOfficeApplies(po.id, o.id));
+    const pool = clausesFor(po.customer_id, po.id).concat(S.clauses.filter(c => S.dedLinks.some(l => d && l.deductible_id === d.id && l.clause_id === c.id) && !clausesFor(po.customer_id, po.id).includes(c)));
+    const on = d ? S.dedLinks.filter(l => l.deductible_id === d.id).map(l => l.clause_id) : [];
+    const body = FC.el(`<div><div class="grid2">
+        <div class="field"><label for="ddType">Type</label><select id="ddType"><option value="main" ${!d || d.deductible_type === 'main' ? 'selected' : ''}>Main (general policy deductible)</option><option value="condition" ${d && d.deductible_type === 'condition' ? 'selected' : ''}>Condition-specific (follows its clauses)</option></select></div>
+        <div class="field"><label for="ddLabel">Label <span class="muted">(internal)</span></label><input id="ddLabel" maxlength="120" value="${esc(d ? d.label : '')}" placeholder="e.g. Used Vehicles 3% Deductible"></div></div>
+      <div class="field"><label for="ddText">Wording in the quotation</label><textarea id="ddText" rows="2" maxlength="1000" placeholder="e.g. 3% of total insured value, minimum USD 250 for used vehicles">${esc(d ? d.deductible_text : '')}</textarea></div>
+      <div class="field"><label>Applies to offices <span class="muted">(none ticked = all offices)</span></label><div class="ded-offs">${offs.map(o => `<label class="xs"><input type="checkbox" data-off="${o.id}" ${d && (d.applicable_office_ids || []).map(Number).includes(o.id) ? 'checked' : ''}> ${esc(o.name)}${o.location ? ' - ' + esc(o.location) : ''}</label>`).join('') || '<span class="xs muted">No offices.</span>'}</div></div>
+      <div class="field"><label>Linked clauses <span class="muted">(ticking such a clause in a quotation brings this deductible along)</span></label><input class="input" type="search" id="ddQ" placeholder="Search clauses" aria-label="Search clauses" style="margin-bottom:6px">
+        <div class="ded-cls">${CL_CAT.map(([cat]) => { const cs = pool.filter(c => c.category === cat); return cs.length ? `<div><b class="xs">${esc(catLabel(cat))}</b>${cs.map(c => `<label class="xs" data-t="${esc((c.title + ' ' + c.body).toLowerCase())}"><input type="checkbox" data-cl="${c.id}" ${on.includes(c.id) ? 'checked' : ''}> ${esc(c.title)}</label>`).join('')}</div>` : ''; }).join('')}</div></div>
+      <label class="switch"><input type="checkbox" id="ddOn" ${!d || d.active ? 'checked' : ''}><span><b>Active</b></span></label><div class="err-msg" id="ddErr"></div></div>`);
+    body.querySelector('#ddQ').addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); body.querySelectorAll('.ded-cls label').forEach(l => { l.hidden = !!q && !l.dataset.t.includes(q); }); });
+    const actions = [{ label:'Cancel', kind:'ghost', value:false }];
+    if(d) actions.unshift({ label:'Delete', kind:'danger', onClick: async () => { if(!(await FC.confirm('Delete the deductible ' + d.label + '?', 'Its clause links are removed too. Quotations already saved keep their wording.', 'Delete', 'danger'))) return;
+      const { error } = await sb.from('policy_deductibles').delete().eq('id', d.id); if(error) return void (body.querySelector('#ddErr').textContent = error.message); return true; } });
+    actions.push({ label:'Save', kind:'primary', onClick: async () => {
+      const v = id => body.querySelector(id).value.trim(), err = t => { body.querySelector('#ddErr').textContent = t; };
+      if(!v('#ddLabel') || !v('#ddText')) return err('Label and wording are required.');
+      const row = { policy_id: po.id, deductible_type: v('#ddType'), label: v('#ddLabel'), deductible_text: FC.dash(v('#ddText')), applicable_office_ids: Array.from(body.querySelectorAll('[data-off]:checked')).map(i => Number(i.dataset.off)),
+        active: body.querySelector('#ddOn').checked, updated_at: new Date().toISOString() };
+      if(!d) row.sort_order = (Math.max(0, ...dedsOf(po.id).map(x => Number(x.sort_order) || 0)) + 10);
+      const res = d ? await sb.from('policy_deductibles').update(row).eq('id', d.id).select() : await sb.from('policy_deductibles').insert(row).select();
+      if(res.error) return err(res.error.message);
+      const saved = res.data[0];
+      const e2 = await setDedClauses(saved, Array.from(body.querySelectorAll('[data-cl]:checked')).map(i => Number(i.dataset.cl))); if(e2) return err('Saved, but the clause links failed: ' + e2.message);
+      toast('Deductible saved.'); return true; } });
+    return FC.dialog({ title: (d ? 'Deductible' : 'New deductible') + ' · ' + polLabel(po), wide:true, body, actions });
+  }
+  // the deductibles list of a subcategory: add, edit, reorder, delete
+  function policyDeductiblesManager(host, po){
+    if(!po) return;
+    const can = hasRole('placing');
+    const paint = () => {
+      const ds = dedsOf(po.id);
+      host.innerHTML = `<div class="card card-pad ded-mgr"><div class="toolbar" style="margin:0 0 8px"><b>Policy Deductibles</b><span class="xs muted">${esc(polLabel(po))} · Main deductibles appear in every quotation (office specific ones replace the general ones), condition-specific ones follow their clauses.</span><span style="flex:1"></span>${can ? '<button type="button" class="btn btn-primary btn-sm" data-dadd>+ Add deductible</button>' : ''}</div>
+        ${ds.length ? `<div class="tbl-wrap"><table class="tbl ded-tbl"><thead><tr><th>Type</th><th>Label</th><th>Wording</th><th>Offices</th><th>Linked clauses</th><th></th></tr></thead><tbody>${ds.map((d, i) => { const cls = clausesOfDed(d.id);
+          return `<tr data-d="${d.id}" class="${d.active ? '' : 'standby'}"><td>${chip(d.deductible_type === 'main' ? 'approved' : 'pending', DED_T[d.deductible_type])}${d.active ? '' : ' ' + chip('neutral', 'inactive')}</td><td><b>${esc(d.label)}</b></td><td class="small">${esc(d.deductible_text)}</td>
+            <td class="xs">${(d.applicable_office_ids || []).length ? d.applicable_office_ids.map(id => esc((ofcOf(Number(id)) || {}).name || '#' + id)).join('<br>') : 'All offices'}</td>
+            <td class="xs">${cls.length ? cls.map(c => esc(c.title)).join('<br>') : '<span class="muted">none</span>'}</td>
+            <td class="ded-acts">${can ? `<button type="button" class="btn btn-ghost btn-sm" data-mv="-1" ${i ? '' : 'disabled'} aria-label="Move up">▲</button><button type="button" class="btn btn-ghost btn-sm" data-mv="1" ${i < ds.length - 1 ? '' : 'disabled'} aria-label="Move down">▼</button> <button type="button" class="btn btn-ghost btn-sm" data-ed>Edit</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`
+          : '<p class="xs muted" style="margin:0">No deductibles yet. Add the main deductible (e.g. USD 100.00 each and every loss) and condition-specific ones (e.g. 3% of total insured value, minimum USD 250 for used vehicles).</p>'}</div>`;
+    };
+    host.onclick = async e => { const b = e.target.closest('button'); if(!b) return;
+      if(b.hasAttribute('data-dadd')){ if(await dedDialog(po, null)){ await loadAll(); paint(); } return; }
+      const tr = b.closest('tr[data-d]'); if(!tr) return; const d = dedOf(Number(tr.dataset.d));
+      if(b.hasAttribute('data-ed')){ if(await dedDialog(po, d)){ await loadAll(); paint(); } return; }
+      if(b.dataset.mv){ const ds = dedsOf(po.id), i = ds.indexOf(d), o = ds[i + Number(b.dataset.mv)]; if(!o) return;
+        const a1 = Number(d.sort_order), a2 = Number(o.sort_order), n1 = a1 === a2 ? a2 + Number(b.dataset.mv) : a2;
+        const r1 = await sb.from('policy_deductibles').update({ sort_order: n1 }).eq('id', d.id), r2 = await sb.from('policy_deductibles').update({ sort_order: a1 }).eq('id', o.id);
+        if(r1.error || r2.error) return toast((r1.error || r2.error).message, 'error'); await loadAll(); paint(); } };
+    paint();
+  }
+  A.policyDeductiblesManager = policyDeductiblesManager;
 
   // =================================================================== NEW QUOTATION (staff indication & quote builder)
   const nq = { mode:'one_off', cust:null, office:null, policy:null, basis:'profile', user:'', p:null, last:null, transit:[] };
@@ -3831,9 +4130,10 @@
         <div class="grid3" id="nqCtx" ${nq.mode === 'client' ? '' : 'hidden'}>
           <div class="field"><label for="nqCust">Customer</label><select id="nqCust">${cs.map(c => `<option value="${c.id}" ${c.id === nq.cust ? 'selected' : ''}>${esc(c.name)}</option>`).join('') || '<option value="">No clients yet</option>'}</select></div>
           <div class="field"><label for="nqOff">Office</label><select id="nqOff"></select></div>
-          <div class="field"><label for="nqPol">Subcategory</label><select id="nqPol"></select></div>
+          <div class="field"><label for="nqPol">Subcategory</label><select id="nqPol"></select><button type="button" class="linkbtn xs" id="nqPOClr" style="align-self:flex-start;margin-top:4px">All / Clear office and subcategory</button></div>
           <div class="field" style="grid-column:1/-1"><label for="nqBasis">Calculation basis</label><select id="nqBasis"><option value="profile" ${nq.basis === 'profile' ? 'selected' : ''}>The client's policy / client configuration</option><option value="standalone" ${nq.basis === 'standalone' ? 'selected' : ''}>Standalone one-off (unrelated to the client's policy / profile)</option></select><span class="hint">Standalone: linked to the client for history and invoicing, rated from the general one-off pool.</span></div>
         </div>
+        <div id="nqLim" ${nq.mode === 'client' ? '' : 'hidden'}></div>
         <div class="grid2">
           <div class="field"><label for="nqCom">Cargo type</label><select id="nqCom">${S.commodities.filter(c => c.active).map(c => `<option value="${esc(c.id)}" ${c.id === p.commodity_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
           <div class="field"><label for="nqGoods">Description of goods</label><input id="nqGoods" maxlength="300" value="${esc(p.goods_description || '')}" placeholder="e.g. Spare parts in cartons, 1 x 40ft"></div>
@@ -3843,7 +4143,7 @@
           <div class="field"><label for="nqD">To</label><div class="grid2" style="grid-template-columns:1fr 1fr"><select id="nqD">${cOpts}</select><input id="nqDP" maxlength="100" placeholder="Place / port" value="${esc(p.dest_place || '')}" aria-label="To place"></div></div>
           <div class="field"><label for="nqVia">Transit countries</label><select id="nqVia"><option value="">+ Add transit country</option>${cOpts}</select><div class="tchips" id="nqChips"></div></div>
           <div class="field"><label for="nqRed">Routing via Suez / Red Sea</label><select id="nqRed"><option value="auto">Not stated (assume Suez for Europe ↔ Asia)</option><option value="yes">Yes, via Suez</option><option value="no">No, e.g. via the Cape</option></select></div>
-          <div class="field"><label for="nqInv">Invoice value</label><div class="grid2" style="grid-template-columns:1fr 90px"><input id="nqInv" inputmode="decimal" value="${esc(p.invoice_value || '')}"><select id="nqCur" aria-label="Currency"></select></div></div>
+          <div class="field"><label for="nqInv">Invoice value <span class="chip neutral" id="nqInvOpt" hidden>Optional (Rate-only profile/policy)</span></label><div class="grid2" style="grid-template-columns:1fr 90px"><input id="nqInv" inputmode="decimal" value="${esc(p.invoice_value || '')}" required><select id="nqCur" aria-label="Currency"></select></div></div>
           <div class="field"><label for="nqFr">Freight <span class="muted">(optional)</span></label><input id="nqFr" inputmode="decimal" value="${esc(p.freight_value || '')}"></div>
           <div class="field"><label for="nqUp">Uplift %</label><input id="nqUp" inputmode="decimal" value="${esc(p.uplift_pct)}"></div>
           <div class="field"><label for="nqCov">Cover</label><select id="nqCov">${['icc_a','icc_b','icc_c'].map(k => `<option value="${k}" ${k === p.cover ? 'selected' : ''}>${esc(FC.COVER[k].clause)}</option>`).join('')}</select></div>
@@ -3853,7 +4153,7 @@
           <div class="field"><label for="nqIns">Assured <span class="muted">(optional)</span></label><input id="nqIns" maxlength="150" value="${esc(p.insured_name || '')}"></div>
           <div class="field"><label for="nqVes">Vessel <span class="muted">(sea)</span></label><input id="nqVes" maxlength="100" value="${esc(p.vessel || '')}"></div>
         </div>
-        <div class="small nq-flags"><label><input type="checkbox" id="nqWar" ${p.war_strikes !== false ? 'checked' : ''}> War &amp; strikes</label><label><input type="checkbox" id="nqDeck" ${p.on_deck ? 'checked' : ''}> On deck</label><label><input type="checkbox" id="nqInt" ${p.interest_only ? 'checked' : ''}> Interest only</label><label><input type="checkbox" id="nqHs" ${p.ext_hssc ? 'checked' : ''}> HSSC</label><label><input type="checkbox" id="nqLw" ${p.ext_liw ? 'checked' : ''}> LiW / DiW</label></div>
+        <div class="small nq-flags"><label><input type="checkbox" id="nqWar" ${p.war_strikes !== false ? 'checked' : ''}> War &amp; strikes</label><label><input type="checkbox" id="nqDeck" ${p.on_deck ? 'checked' : ''}> On deck / barge</label><label><input type="checkbox" id="nqPost" ${p.details && p.details.post_courier ? 'checked' : ''}> Post / courier</label><label><input type="checkbox" id="nqInt" ${p.interest_only ? 'checked' : ''}> Interest only</label><label><input type="checkbox" id="nqHs" ${p.ext_hssc ? 'checked' : ''}> HSSC</label><label><input type="checkbox" id="nqLw" ${p.ext_liw ? 'checked' : ''}> LiW / DiW</label></div>
         <div class="toolbar" style="margin-top:12px"><span style="flex:1"></span><button type="button" class="btn btn-ghost btn-sm" id="nqClear">Clear</button><button type="button" class="btn btn-primary" id="nqCalc"><span class="spin"></span>Calculate</button></div>
         <div class="err-msg" id="nqErr"></div>
       </div>
@@ -3866,29 +4166,38 @@
     $q('#nqVia').addEventListener('change', e => { const cc = e.target.value; if(cc && !nq.transit.includes(cc) && nq.transit.length < 8){ nq.transit.push(cc); paintChips(); } e.target.value = ''; });
     $q('#nqChips').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if(b){ nq.transit = nq.transit.filter(x => x !== b.dataset.rm); paintChips(); } });
     paintChips();
+    // what the client sees: subcategory -> client -> client group -> configuration (rate only = invoice value optional)
+    const dispModeNow = () => { const set0 = setting('quote_display_mode', 'both') || 'both'; if(nq.mode !== 'client') return set0;
+      const cu = custOf(nq.cust), po = nq.basis === 'standalone' ? null : polOf(nq.policy), g = cu ? grpOf(cu.group_id) : null;
+      return (po && po.quote_display_mode) || (cu && cu.quote_display_mode) || (g && g.quote_display_mode) || set0; };
+    const rateOnly = () => dispModeNow() === 'rate_only';
+    const custOffs = () => { const cu = custOf(nq.cust); return cu ? S.offices.filter(o => o.customer_id === cu.id && o.active) : []; };
+    const custPols = () => { const cu = custOf(nq.cust); return cu ? S.policies.filter(po => po.customer_id === cu.id && po.active) : []; };
+    const pickCust = id => { nq.cust = id; nq.office = null; const ps = custPols(); nq.policy = ps.length ? ps[0].id : null; };
+    let pctl = null;
     const paintCtx = () => {
-      const client = nq.mode === 'client'; $q('#nqCtx').hidden = !client;
-      if(client && !nq.cust && cs.length) nq.cust = cs[0].id;
-      const cu = client ? custOf(Number($q('#nqCust').value) || nq.cust) : null;
-      if(client && cu){
-        const offs = S.offices.filter(o => o.customer_id === cu.id && o.active), pols = S.policies.filter(po => po.customer_id === cu.id && po.active);
-        $q('#nqOff').innerHTML = '<option value="">- no office -</option>' + offs.map(o => `<option value="${o.id}" ${o.id === nq.office ? 'selected' : ''}>${esc(o.name)}${o.location ? ' - ' + esc(o.location) : ''}</option>`).join('');
-        const o = ofcOf(Number($q('#nqOff').value));
-        $q('#nqPol').innerHTML = pols.map(po => `<option value="${po.id}" ${po.id === (o && o.policy_id ? o.policy_id : nq.policy) ? 'selected' : ''}>${esc(polLabel(po))}</option>`).join('') + `<option value="" ${!pols.length ? 'selected' : ''}>No policy (client configuration)</option>`;
-        $q('#nqPol').disabled = nq.basis === 'standalone';
-      }
-      const o = client ? ofcOf(Number($q('#nqOff').value)) : null, po = client ? polOf(Number($q('#nqPol').value)) : null;
+      const client = nq.mode === 'client'; $q('#nqCtx').hidden = !client; $q('#nqLim').hidden = !client;
+      if(client && !nq.cust && cs.length) pickCust(Number($q('#nqCust').value) || cs[0].id);
+      const cu = client ? custOf(nq.cust) : null;
+      if(client && cu && pctl){ pctl.paint(); $q('#nqPol').disabled = nq.basis === 'standalone'; }
+      const o = client ? ofcOf(nq.office) : null, po = client ? polOf(nq.policy) : null;
       const sa = client && nq.basis === 'standalone';
       const curs = client && cu && !sa ? allowedCurs(o && o.id, po && po.id, cu.id) : allowedCurs(null, null, null), was = $q('#nqCur').value || p.currency;
       $q('#nqCur').innerHTML = curs.map(c => `<option ${c === was ? 'selected' : ''}>${c}</option>`).join('');
       $q('#nqHint').textContent = !client ? 'Rated from the general one-off pool - never from a client’s terms.' : !cu ? 'Choose the client.' : sa ? 'Standalone one-off for ' + cu.name + ': rated from the general one-off pool, kept under the client.' : po ? 'Rated with the schedules, limits and rules of policy ' + polLabel(po) + ' (' + cu.name + '). Out-of-cover shipments are shown with the one-off rating as well.' : cu.cover_type === 'one_off' ? cu.name + ' is a one-off client: rated from the general one-off pool.' : 'Rated with the client configuration of ' + cu.name + ' (no policy).';
+      // the policy limits upfront, next to the valuation
+      const lpo = client && !sa ? po : null;
+      $q('#nqLim').innerHTML = lpo ? limitsHtml(lpo, limitCheck(lpo, 0, $q('#nqCur').value, $q('#nqDeck').checked, $q('#nqPost').checked)) : '';
+      const ro = rateOnly(); $q('#nqInvOpt').hidden = !ro; $q('#nqInv').required = !ro;
     };
     $$('#nqMode button', body).forEach(b => b.addEventListener('click', () => { nq.mode = b.dataset.v; $$('#nqMode button', body).forEach(x => x.setAttribute('aria-checked', String(x === b))); paintCtx(); }));
-    $q('#nqCust').addEventListener('change', e => { nq.cust = Number(e.target.value); nq.office = null; nq.policy = null; paintCtx(); });
-    $q('#nqOff').addEventListener('change', e => { nq.office = Number(e.target.value) || null; const o = ofcOf(nq.office); if(o && o.policy_id) nq.policy = o.policy_id; paintCtx(); });
-    $q('#nqPol').addEventListener('change', e => { nq.policy = Number(e.target.value) || null; paintCtx(); });
+    $q('#nqCust').addEventListener('change', e => { pickCust(Number(e.target.value)); paintCtx(); });
+    // office <-> subcategory: choosing one blocks what does not apply to it
+    pctl = wirePolOffice($q('#nqOff'), $q('#nqPol'), nq, { offices: custOffs, policies: custPols, onChange: () => paintCtx() });
+    $q('#nqPOClr').addEventListener('click', () => { pctl.clear(); toast('All offices and subcategories of the client are available again.'); });
     $q('#nqBasis').addEventListener('change', e => { nq.basis = e.target.value; paintCtx(); });
-    spotClient($q('#nqCust'), () => '', (id, off) => { nq.cust = id; nq.office = off || null; nq.policy = null; paintCtx(); });
+    ['#nqDeck', '#nqPost', '#nqCur'].forEach(id => $q(id).addEventListener('change', paintCtx));
+    spotClient($q('#nqCust'), () => '', (id, off) => { pickCust(id); if(off){ nq.office = off; const o = ofcOf(off); if(o && o.policy_id) nq.policy = o.policy_id; } paintCtx(); });
     paintCtx();
     $q('#nqClear').addEventListener('click', () => { nq.p = null; nq.last = null; nq.transit = []; render(); });
     const read = () => {
@@ -3896,7 +4205,7 @@
       return { commodity_id: v('#nqCom'), goods_description: v('#nqGoods'), conveyance: v('#nqConv'), packaging: v('#nqPack'), origin_country: v('#nqO'), origin_place: v('#nqOP'), dest_country: v('#nqD'), dest_place: v('#nqDP'),
         transit_countries: nq.transit.slice(), red_sea: v('#nqRed'), invoice_value: FC.parseNum(v('#nqInv')), currency: v('#nqCur'), freight_value: FC.parseNum(v('#nqFr')) || 0, uplift_pct: FC.parseNum(v('#nqUp')),
         cover: v('#nqCov'), departure_date: v('#nqDep') || null, incoterm: v('#nqInco') || null, insured_party: v('#nqParty') || null, party_role_other: v('#nqParty') === 'other' ? v('#nqPartyO') : '', insured_name: v('#nqIns'), vessel: v('#nqVes'),
-        war_strikes: c('#nqWar'), on_deck: c('#nqDeck'), interest_only: c('#nqInt'), ext_hssc: c('#nqHs'), ext_liw: c('#nqLw') };
+        war_strikes: c('#nqWar'), on_deck: c('#nqDeck'), interest_only: c('#nqInt'), ext_hssc: c('#nqHs'), ext_liw: c('#nqLw'), details: c('#nqPost') ? { post_courier: true } : {} };
     };
     const ctxArgs = () => { if(nq.mode !== 'client') return { p_customer: null, p_office: null, p_policy: null, p_one_off: true, p_standalone: false };
       const cu = custOf(Number($q('#nqCust').value)), sa = nq.basis === 'standalone' || (cu && cu.cover_type === 'one_off');
@@ -3904,7 +4213,10 @@
     const run = async (save, b) => {
       const pp = read(), err = t => { $q('#nqErr').textContent = t; };
       if(pp.goods_description.length < 2) return err('Describe the goods.');
-      if(!(pp.invoice_value > 0)) return err('Enter the invoice value.');
+      if(!(pp.invoice_value > 0)){
+        if(!rateOnly()) return err('Enter the invoice value.');
+        pp.invoice_value = null; pp.rate_only = true;   // rate-only profile / policy: the value is optional
+      }
       if(nq.mode === 'client' && !ctxArgs().p_customer) return err('Choose the client (or add one on the spot).');
       err(''); busy(b, true);
       const { data, error } = await sb.rpc('admin_indicate', Object.assign({ p: pp, p_save: !!save }, ctxArgs()));
@@ -3927,12 +4239,16 @@
         period: n.departure_date ? 'Transit commencing on or about ' + FC.date(n.departure_date) : 'Single transit as per voyage', conditions: ((FC.COVER[n.cover] || {}).clause || '') + (n.war_strikes ? ', Institute War Clauses (Cargo), Institute Strikes Clauses (Cargo)' : '') + ', warehouse to warehouse',
         insurer: setting('default_insurer', ''), deductible: x.deductible || '', special: x.conditions || '', currency: n.currency, discountPct: 0, minPremium: Number(x.min) || 0, taxPct: 0, lines,
         subtotal: lines[0].premium, discountAmount: 0, net, minApplied: !!x.min_hit, tax: 0, total: net, sumInsured: Number(n.sum_insured), closing: setting('quote_closing', ''), issuedAt: new Date().toISOString(),
-        handler: { name: me().full_name || '', email: me().email }, incoterm: n.incoterm || '', vessel: n.vessel || '', _conv: conv }; };
+        handler: { name: me().full_name || '', email: me().email }, incoterm: n.incoterm || '', vessel: n.vessel || '', _conv: conv, displayMode: x.rate_only ? 'rate_only' : undefined }; };
     const paintOut = () => {
       const out = $q('#nqOut'), L = nq.last; if(!L) return;
       const x = L.data.one_off || L.data.result, oneOff = L.args.p_one_off || L.args.p_standalone || !!L.data.one_off, saved = L.data.saved;
       out.innerHTML = `<div class="nq-head"><h3>${L.args.p_one_off ? 'One-off indication' : L.args.p_standalone ? 'Standalone one-off · ' + esc((L.data.customer || {}).name || '') : 'Indication · ' + esc(L.data.policy ? polLabel(L.data.policy) : ((L.data.customer || {}).name || '') + ' (client configuration)') + (L.data.one_off ? ' - out of cover' : '')}</h3>${saved ? chip('accepted', 'Logged as ' + saved.ref) : ''}</div>${L.data.policy && !L.args.p_standalone ? polCoverNote({ policy_id: L.data.policy.id, departure_date: nq.p.departure_date }) : ''}${resultHtml(L.data, nq.p.currency)}<div class="toolbar nq-acts" style="margin-top:12px"></div>`;
       const acts = out.querySelector('.nq-acts');
+      // the limits of the policy next to the valuation; above the limit = special request to insurers
+      { const lpo = L.data.policy && !L.args.p_standalone ? polOf(L.data.policy.id) : null, nn = (L.data.result || {}).n || {};
+        const chk = lpo ? limitCheck(lpo, nn.sum_insured, nn.currency || nq.p.currency, nq.p.on_deck, nq.p.details && nq.p.details.post_courier) : null;
+        if(lpo) out.querySelector('.nq-head').insertAdjacentHTML('afterend', limitsHtml(lpo, chk) + limitWarnHtml(chk, nn.currency)); }
       if(nq.mode === 'client' && !saved){
         const us = liveUsers().filter(u => (userCust(u) || {}).id === L.args.p_customer && !u.is_admin);
         if(us.length){ const s = FC.el(`<select class="input" id="nqUser" aria-label="On behalf of" style="max-width:240px"><option value="">Logged as staff</option>${us.map(u => `<option value="${u.id}" ${u.id === nq.user ? 'selected' : ''}>For ${esc(u.full_name || u.email)}</option>`).join('')}</select>`); s.addEventListener('change', () => { nq.user = s.value; }); acts.appendChild(s); }
@@ -4046,14 +4362,14 @@
   }
 
   // =================================================================== TEMPLATES & MATRICES (certificate / cover note documents)
-  let dtScope = GEN, dtType = 'certificate';
-  const DT_TYPES = [['certificate','Certificate template'],['cover_note','Cover note template']];
+  let dtScope = GEN, dtType = 'quotation';
+  const DT_TYPES = [['quotation','Quotation templates'],['certificate','Certificate template'],['cover_note','Cover note template'],['deductibles','Policy deductibles'],['numbering','Numbering matrices']];
   const dtRow = (t, id, type) => S.docTemplates.find(x => x.doc_type === type && x.scope_type === t && sameId(x.scope_id, id));
   // subcategory -> client (its chosen template, else its own) -> configuration
-  const docTplFor = (type, custId, polId) => {
+  const docTplFor = (type, custId, polId, grpId) => {
     const own = (t, id) => { const x = dtRow(t, id, type); return x && x.active ? x : null; };
-    const cu = custOf(custId), chosen = cu && (type === 'certificate' ? cu.certificate_template_id : cu.cover_note_template_id);
-    return (polId && own('policy', polId)) || (chosen && S.docTemplates.find(x => x.id === chosen && x.active)) || (custId && own('customer', custId)) || own('one_off_general', null) || null; };
+    const cu = custOf(custId), chosen = cu && (type === 'certificate' ? cu.certificate_template_id : cu.cover_note_template_id), g = grpId || grpOfLevel(custId, polId);
+    return (polId && own('policy', polId)) || (chosen && S.docTemplates.find(x => x.id === chosen && x.active)) || (custId && own('customer', custId)) || (g && own('client_group', g)) || own('one_off_general', null) || null; };
   A.docTplFor = docTplFor;
   // sample certificate data for the live preview: the latest certificate of the level, else an example
   const dtSample = (custId, polId) => {
@@ -4083,21 +4399,53 @@
   }
   A.printCaseDoc = printCaseDoc;
 
+  // one tab for every template: quotation (with e-mail / insurer / certificate texts), certificate, cover note, deductibles, numbering matrices
   function renderDocTemplates(body){
+    if(!scValid(dtScope)) dtScope = GEN;
+    if(!DT_TYPES.some(t => t[0] === dtType)) dtType = 'quotation';
+    const head = FC.el(`<div><div class="toolbar"><label class="xs" for="dtScope">Level</label><select class="input" id="dtScope" style="max-width:360px">${scopeOptions(dtScope, { groups:true })}</select>
+        <div class="seg" id="dtType" role="radiogroup" aria-label="Templates and matrices">${DT_TYPES.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${k === dtType}">${esc(l)}</button>`).join('')}</div></div>
+      <p class="xs muted" style="margin:0 0 10px">Levels: General / one-offs, Client group, Client, Subcategory. The most specific level wins (subcategory, client, client group, general).</p></div>`);
+    body.appendChild(head);
+    $('#dtScope', head).addEventListener('change', e => { dtScope = scParse(e.target.value); render(); });
+    $('#dtType', head).addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; dtType = b.dataset.v; render(); });
+    const host = FC.el('<div></div>'); body.appendChild(host);
+    if(dtType === 'quotation'){ tplScope = dtScope; return renderTemplates(host, { embedded:true }); }
+    if(dtType === 'deductibles') return renderDeductiblesTab(host);
+    if(dtType === 'numbering') return renderNumberingTab(host);
+    renderDocTemplate(host);
+  }
+  const levelPolicies = sc => sc.t === 'policy' ? [polOf(sc.id)].filter(Boolean) : sc.t === 'customer' ? S.policies.filter(po => po.customer_id === sc.id)
+    : sc.t === 'client_group' ? S.policies.filter(po => (custOf(po.customer_id) || {}).group_id === sc.id) : S.policies.slice();
+  function renderNumberingTab(host){
+    const pols = levelPolicies(dtScope);
+    host.innerHTML = `<p class="small muted" style="margin:0 0 10px">Certificate numbering per policy year of each subcategory${dtScope.t === 'one_off_general' ? '' : ' at this level'}. Next numbers are previewed; edit a matrix with "Matrix".</p>`
+      + (pols.length ? '' : '<div class="empty card"><h3>No subcategories at this level</h3><p>Numbering matrices belong to the policy years of a subcategory.</p></div>');
+    pols.forEach(po => { const card = FC.el(`<div class="card card-pad nm-card"><h3 style="margin:0 0 6px">${esc(polLabel(po))} <span class="xs muted">${esc((custOf(po.customer_id) || {}).name || '')}</span></h3><div></div></div>`);
+      host.appendChild(card); paintPolicyYears(card.lastElementChild, po); });
+  }
+  function renderDeductiblesTab(host){
+    const pols = levelPolicies(dtScope);
+    if(!pols.length){ host.innerHTML = '<div class="empty card"><h3>No subcategories at this level</h3><p>Deductibles belong to a subcategory (policy). Choose a client or subcategory as the level.</p></div>'; return; }
+    const sel = dtScope.t === 'policy' ? null : FC.el(`<div class="toolbar"><label class="xs" for="pdSel">Subcategory</label><select class="input" id="pdSel" style="max-width:360px">${pols.map(po => `<option value="${po.id}" ${po.id === dedPol ? 'selected' : ''}>${esc(polLabel(po))} (${esc((custOf(po.customer_id) || {}).name || '')})</option>`).join('')}</select></div>`);
+    if(!pols.some(po => po.id === dedPol)) dedPol = pols[0].id;
+    if(sel){ host.appendChild(sel); sel.querySelector('select').value = String(dedPol); sel.querySelector('select').addEventListener('change', e => { dedPol = Number(e.target.value); render(); }); }
+    const box = FC.el('<div></div>'); host.appendChild(box);
+    policyDeductiblesManager(box, polOf(dedPol));
+  }
+  let dedPol = null;
+  function renderDocTemplate(body){
     const adm = isStaffAdmin();
-    if(!scValid(dtScope) || dtScope.t === 'client_group') dtScope = GEN;
     const lid = dtScope.t === 'one_off_general' ? null : dtScope.id;
-    const custId = dtScope.t === 'customer' ? dtScope.id : dtScope.t === 'policy' ? (polOf(dtScope.id) || {}).customer_id : null, polId = dtScope.t === 'policy' ? dtScope.id : null;
+    const custId = dtScope.t === 'customer' ? dtScope.id : dtScope.t === 'policy' ? (polOf(dtScope.id) || {}).customer_id : null, polId = dtScope.t === 'policy' ? dtScope.id : null, grpId = dtScope.t === 'client_group' ? dtScope.id : null;
     const cu = custOf(custId), po = polOf(polId);
-    const own = dtRow(dtScope.t, lid, dtType), eff = own || docTplFor(dtType, custId, polId);
-    const fromTxt = x => !x ? 'nothing yet' : x.scope_type === 'one_off_general' ? 'the configuration (general)' : x.scope_type === 'customer' ? 'client ' + ((custOf(x.scope_id) || {}).name || '') : 'subcategory ' + polLabel(polOf(x.scope_id));
+    const own = dtRow(dtScope.t, lid, dtType), eff = own || docTplFor(dtType, custId, polId, grpId);
+    const fromTxt = x => !x ? 'nothing yet' : x.scope_type === 'one_off_general' ? 'the configuration (general)' : x.scope_type === 'client_group' ? 'client group ' + ((grpOf(x.scope_id) || {}).name || '') : x.scope_type === 'customer' ? 'client ' + ((custOf(x.scope_id) || {}).name || '') : 'subcategory ' + polLabel(polOf(x.scope_id));
     // working copy
     const W = { body: eff ? eff.body : '', settings: Object.assign({ font_family:'Calibri', font_size_pt:10, orientation:'portrait', border:'thin', show_header:true, client_logo_url:'' }, eff ? eff.settings : {}),
       matrices: JSON.parse(JSON.stringify(eff && Array.isArray(eff.matrices) ? eff.matrices : [])) };
     const S2 = W.settings, sample = dtSample(custId, polId);
     body.innerHTML = `${adm ? '' : '<div class="notice" style="margin:0 0 12px"><b>Read only</b>Templates are changed by staff admins.</div>'}
-      <div class="toolbar"><label class="xs" for="dtScope">Level</label><select class="input" id="dtScope" style="max-width:360px">${scopeOptions(dtScope)}</select>
-        <div class="seg" id="dtType" role="radiogroup" aria-label="Document">${DT_TYPES.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${k === dtType}">${esc(l)}</button>`).join('')}</div></div>
       ${cu ? `<div class="card cert-set"><div><b>Certificates for ${esc(po ? polLabel(po) : cu.name)}</b><span class="xs muted">${po ? 'Subcategory setting; empty = as the client.' : 'Applies to the client and its subcategories unless a subcategory overrides it.'}</span></div>
         ${po ? `<select id="dtCan" aria-label="Can issue certificates"><option value="" ${po.can_issue_certificates == null ? 'selected' : ''}>As the client (${cu.can_issue_certificates ? 'yes' : 'no'})</option><option value="true" ${po.can_issue_certificates === true ? 'selected' : ''}>Can issue certificates</option><option value="false" ${po.can_issue_certificates === false ? 'selected' : ''}>No certificates</option></select>
               <select id="dtMode" aria-label="Certificate generation"><option value="" ${!po.certificate_mode ? 'selected' : ''}>As the client (${cu.certificate_mode === 'fdf_export' ? '.fdf' : 'platform PDF'})</option><option value="platform_pdf" ${po.certificate_mode === 'platform_pdf' ? 'selected' : ''}>Platform certification document</option><option value="fdf_export" ${po.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file</option></select>`
@@ -4159,8 +4507,6 @@
     body.querySelector('.dt-set').addEventListener('change', preview); body.querySelector('.dt-set').addEventListener('input', preview);
     body.querySelector('.rt-bar').addEventListener('click', () => setTimeout(preview, 50)); body.querySelector('.rt-bar').addEventListener('change', () => setTimeout(preview, 50));
     paintMx();
-    $('#dtScope', body).addEventListener('change', e => { dtScope = scParse(e.target.value); render(); });
-    $('#dtType', body).addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; dtType = b.dataset.v; render(); });
     // certificate switches of the client / subcategory
     if(cu){
       const saveCert = async () => {
@@ -4343,6 +4689,17 @@
         if(res.error) return toast(res.error.message, 'error'); toast('IPT settings saved.'); await loadAll(); }));
       ic.querySelector('#dmDef').addEventListener('change', async e => { const { error } = await sb.from('settings').update({ value: e.target.value, updated_at: new Date().toISOString() }).eq('key', 'quote_display_mode'); if(error) return toast(error.message, 'error'); toast('Default display saved.'); await loadAll(); });
     }
+    // FX table: limit checks in the policy currency
+    { const fx = Object.assign({ EUR:1 }, fxRates());
+      const fc = FC.el(`<div class="card ipt-card"><h2 style="margin:0 0 4px">FX rates</h2><p class="small muted" style="margin:0 0 12px">Units per 1 EUR. Used to compare a sum insured with the policy limits when the shipment currency differs from the policy currency.</p>
+        <div class="grid3">${CURS.map(c => `<div class="field"><label for="fx${c}">${c}</label><input id="fx${c}" inputmode="decimal" value="${esc(fx[c] != null ? fx[c] : '')}" ${c === 'EUR' ? 'disabled' : ''}></div>`).join('')}</div><div class="toolbar" id="fxActs"></div></div>`);
+      body.appendChild(fc);
+      if(isStaffAdmin()) fc.querySelector('#fxActs').appendChild(btn('Save FX rates', 'primary', async b => {
+        const v = { EUR: 1 }; for(const c of CURS){ if(c === 'EUR') continue; const n = FC.parseNum(fc.querySelector('#fx' + c).value); if(!(n > 0)) return toast('Every rate must be a number above 0.', 'error'); v[c] = n; }
+        busy(b, true); const ex = S.settingRows.some(s => s.key === 'fx_rates');
+        const { error } = ex ? await sb.from('settings').update({ value: v, updated_at: new Date().toISOString() }).eq('key', 'fx_rates') : await sb.from('settings').insert({ key:'fx_rates', value: v }); busy(b, false);
+        if(error) return toast(error.message, 'error'); toast('FX rates saved.'); await loadAll(); }));
+      else fc.querySelectorAll('input').forEach(i => i.disabled = true); }
     body.appendChild(FC.el('<h2 style="margin:6px 0 10px">All settings</h2>'));
     const wrap = FC.el('<div class="tbl-wrap"></div>'); body.appendChild(wrap);
     wrap.innerHTML = '<table class="tbl"><thead><tr><th>Key</th><th>Value</th><th>Meaning</th><th></th></tr></thead><tbody></tbody></table>';

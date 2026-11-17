@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-16c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-17a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -105,23 +105,87 @@
   // ---------- form ----------
   const form = $('#shipForm');
   const officeOf = id => ((org && org.offices) || []).find(o => o.id === Number(id)) || null;
+  // ---------- account & cover assignment: policy and office, locked unless the user asks on behalf of another one ----------
+  const POLS = (org && org.policies) || [];
+  const polById = id => POLS.find(p => p.id === Number(id)) || null;
+  const assignedOffice = OC && org.assigned_office_id ? officeOf(org.assigned_office_id) : null;
+  const assignedPol = OC && org.assigned_policy_id ? polById(org.assigned_policy_id) : null;
+  let unlocked = false, polV = assignedPol ? String(assignedPol.id) : '', offV = assignedOffice ? String(assignedOffice.id) : (org && org.office ? String(org.office.id) : '');
+  // an office without any mapping is open to every policy of the company
+  const polApplies = (pid, oid) => { const o = officeOf(oid); if(!pid || !o) return true; const ids = (o.policy_ids || []).map(Number); return !ids.length || ids.includes(Number(pid)); };
+  const polSel = () => OC && $('#fPolicy') ? polV : '';
+  const isStandalone = () => polSel() === 'sa';
+  // the policy the shipment is declared under: chosen (unlocked) or the one of the office / assignment
+  const activePol = () => { if(!OC || isStandalone()) return null; if(unlocked) return polById(polV); const o = officeOf(offV); return (o && polById(o.policy_id)) || assignedPol || null; };
+  const onBehalf = () => OC && unlocked && (isStandalone() || Number(polV || 0) !== Number((assignedPol || {}).id || 0) || Number(offV || 0) !== Number((assignedOffice || {}).id || 0));
   if(OC){
-    const groups = {}; (org.offices || []).forEach(o => { const k = o.policy + (o.policy_no ? ' · ' + o.policy_no : ''); (groups[k] = groups[k] || []).push(o); });
     const kindLbl = { warehouse:' (warehouse)', agent:'' };
-    form.querySelector('.form-sec').insertBefore(FC.el(`<div class="field" id="officeField"><label for="fOffice">Your office / entity</label><select id="fOffice" required><option value="">Choose your office</option>${Object.entries(groups).map(([k, list]) => `<optgroup label="${esc(k)}">${list.map(o => `<option value="${o.id}" ${org.office && org.office.id === o.id ? 'selected' : ''}>${esc(o.name)}${o.location ? ' - ' + esc(o.location) : ''}${kindLbl[o.kind] || ''}</option>`).join('')}</optgroup>`).join('')}</select><span class="hint" id="officeHint"></span><span class="err">Choose the office this shipment is declared for.</span></div>`), form.querySelector('.form-sec h2').nextSibling);
-    $('#fOffice').addEventListener('change', async () => {
-      const o = officeOf($('#fOffice').value); paintCurrency();
-      if(o && (!org.office || org.office.id !== o.id)){ const { error } = await sb.rpc('set_my_office', { p_office_id: o.id }); if(!error){ org.office = o; $('#whoCo').textContent = o.name; } }
+    form.querySelector('.form-sec').insertBefore(FC.el(`<div class="assign-card" id="assignCard"><div class="ac-top"><b>Account &amp; Cover Assignment</b><span class="ac-badge" id="acBadge" hidden>Acting on behalf of selected office/policy</span><button type="button" class="btn btn-ghost btn-sm" id="acUnlock">Unlock (Ask on behalf of)</button></div>
+      <div class="grid2"><div class="field"><label for="fPolicy">Assigned Policy</label><select id="fPolicy"></select><button type="button" class="linkbtn xs" id="acClear" hidden style="align-self:flex-start;margin-top:4px">All / Clear policy and office</button></div>
+        <div class="field" id="officeField"><label for="fOffice">Assigned Office</label><select id="fOffice" required></select><span class="hint" id="officeHint"></span><span class="err">Choose the office this shipment is declared for.</span></div></div></div>`), form.querySelector('.form-sec h2').nextSibling);
+    const paintAssign = () => {
+      if(!unlocked){ const o = officeOf(offV); polV = o && o.policy_id && polById(o.policy_id) ? String(o.policy_id) : assignedPol ? String(assignedPol.id) : (POLS[0] ? String(POLS[0].id) : ''); }
+      const pv = polV, ov = offV, sa = unlocked && pv === 'sa';
+      $('#fPolicy').innerHTML = (unlocked ? '<option value="">Choose a policy</option>' : POLS.length ? '' : '<option value="">No policy</option>') + POLS.map(p => { const ok = !unlocked || polApplies(p.id, ov);
+          return `<option value="${p.id}" ${ok ? '' : 'disabled'}>${esc(p.name)}${p.policy_no ? ' - ' + esc(p.policy_no) : ''}${ok ? '' : ' (Not applicable to selected office)'}</option>`; }).join('')
+        + (unlocked && org.standalone_allowed ? '<option value="sa">No Policy / Standalone One-Off Request</option>' : '');
+      const groups = {}; (org.offices || []).forEach(o => { const k = o.policy + (o.policy_no ? ' · ' + o.policy_no : ''); (groups[k] = groups[k] || []).push(o); });
+      $('#fOffice').innerHTML = `<option value="">${sa ? 'Not needed for a standalone request' : 'Choose your office'}</option>` + Object.entries(groups).map(([k, list]) => `<optgroup label="${esc(k)}">${list.map(o => { const ok = !unlocked || sa || polApplies(pv, o.id);
+          return `<option value="${o.id}" ${ok ? '' : 'disabled'}>${esc(o.name)}${o.location ? ' - ' + esc(o.location) : ''}${kindLbl[o.kind] || ''}${ok ? '' : ' (Not applicable to selected policy)'}</option>`; }).join('')}</optgroup>`).join('');
+      $('#fPolicy').value = pv; $('#fOffice').value = sa ? '' : ov;
+      $('#acClear').hidden = !unlocked;
+      // locked: policy follows the office; the office is fixed once the user has an assigned office
+      $('#fPolicy').disabled = !unlocked; $('#fOffice').disabled = (!unlocked && !!assignedOffice) || sa;
+      $('#acBadge').hidden = !onBehalf();
+      $('#acUnlock').textContent = unlocked ? 'Lock (back to my assignment)' : 'Unlock (Ask on behalf of)';
+      $('#officeField').querySelector('label').textContent = unlocked ? 'Office' : assignedOffice ? 'Assigned Office' : 'Your office / entity';
+      $('#fPolicy').closest('.field').querySelector('label').textContent = unlocked ? 'Policy' : 'Assigned Policy';
+    };
+    FC.paintAssign = paintAssign;
+    $('#acUnlock').addEventListener('click', () => {
+      unlocked = !unlocked;
+      if(!unlocked){ polV = assignedPol ? String(assignedPol.id) : ''; offV = assignedOffice ? String(assignedOffice.id) : (org.office ? String(org.office.id) : ''); }
+      paintAssign(); paintCurrency(); refreshIvMode();
+      if(unlocked) toast('Unlocked: choose another policy or office of your company. The request is marked as on behalf of it.');
     });
+    $('#acClear').addEventListener('click', () => { polV = ''; offV = ''; paintAssign(); paintCurrency(); refreshIvMode(); toast('All policies and offices of your company are available again.'); });
+    $('#fPolicy').addEventListener('change', () => {
+      polV = $('#fPolicy').value;
+      if(polV === 'sa') offV = '';
+      else if(offV && polV && !polApplies(polV, offV)){ offV = ''; toast('The office is not covered by the selected policy - the office was cleared.', 'error'); }
+      paintAssign(); paintCurrency(); refreshIvMode();
+    });
+    $('#fOffice').addEventListener('change', async () => {
+      offV = $('#fOffice').value; const o = officeOf(offV);
+      if(unlocked && o && polV && polV !== 'sa' && !polApplies(polV, o.id)){ polV = ''; toast('The selected policy does not apply to this office - the policy was cleared.', 'error'); }
+      if(unlocked && o && !polV && o.policy_id && polById(o.policy_id)) polV = String(o.policy_id);
+      paintAssign(); paintCurrency(); refreshIvMode();
+      // without an assignment the chosen office becomes the user's office (as before); acting on behalf never changes it
+      if(!unlocked && o && (!org.office || org.office.id !== o.id)){ const { error } = await sb.rpc('set_my_office', { p_office_id: o.id }); if(!error){ org.office = o; $('#whoCo').textContent = o.name; } }
+    });
+    paintAssign();
+  }
+  // external invoice value: mandatory (default) or optional ("or about"), user -> policy -> client -> group
+  let ivMode = (org && org.invoice_value_mode) || 'mandatory';
+  const ivOptional = () => ivMode === 'optional';
+  function paintIvMode(){
+    const lb = document.querySelector('label[for="fValue"] .muted'); if(lb) lb.textContent = ivOptional() ? '(or about - optional)' : '(or about)';
+    $('#fValue').required = !ivOptional();
+    if(typeof onFormChange === 'function' && liveReadyFlag()) onFormChange();
+  }
+  function refreshIvMode(){
+    const po = activePol();
+    ivMode = (po && po.invoice_value_mode) || (org && org.invoice_value_mode) || 'mandatory';
+    paintIvMode();
   }
   // currency: an open cover is written in one currency
   function paintCurrency(){
     const host = $('#fCur'), cur = segVal(host);
-    const o = OC ? officeOf($('#fOffice').value) : null;
-    const list = OC ? officeCurs(o) : orgCurs();
+    const o = OC ? officeOf($('#fOffice').value) : null, apo = OC ? activePol() : null;
+    const list = OC ? (isStandalone() ? orgCurs() : apo && (!o || Number(o.policy_id) !== apo.id) ? (apo.currencies || [apo.currency]).filter(c => CURS.includes(c)) : officeCurs(o)) : orgCurs();
     host.innerHTML = list.map(c => `<button type="button" role="radio" data-v="${c}" aria-checked="${c === cur || list.length === 1}">${c}</button>`).join('') || '<span class="xs muted" style="padding:10px 4px">Choose your office first</span>';
     if(!host.querySelector('[aria-checked="true"]') && host.querySelector('button')) host.querySelector('button').setAttribute('aria-checked', 'true');
-    if(OC) $('#officeHint').textContent = o ? `Declared under ${o.policy}${o.policy_no ? ' (' + o.policy_no + ')' : ''} in ${officeCurs(o).join(' / ')}.` : 'Every shipment is declared for one of your offices.';
+    if(OC) $('#officeHint').textContent = isStandalone() ? 'Standalone one-off request, not declared under a policy.' : apo ? `Declared under ${apo.name}${apo.policy_no ? ' (' + apo.policy_no + ')' : ''} in ${list.join(' / ')}.` : 'Every shipment is declared for one of your offices.';
     if(typeof onFormChange === 'function' && liveReadyFlag()) onFormChange();
   }
   const liveReadyFlag = () => { try{ return liveReady; }catch(e){ return false; } };
@@ -207,13 +271,15 @@
       customer_ref: $('#fCustRef').value.trim(),
       ext_hssc: !$('#extFields').hidden && !$('#hsscField').hidden && $('#fHssc').checked,
       ext_liw: !$('#extFields').hidden && !$('#liwField').hidden && $('#fLiw').checked,
-      office_id: OC ? (Number($('#fOffice').value) || null) : null,
+      office_id: OC && !isStandalone() ? (Number($('#fOffice').value) || null) : null,
+      policy_id: OC && unlocked && !isStandalone() ? (Number(polSel()) || null) : null,
+      on_behalf: onBehalf(), standalone: OC && unlocked && isStandalone(),
       transit_countries: transit.slice(),
       red_sea: isSea(segVal(convHost)) && !$('#redSeaField').hidden ? segVal($('#fRed')) || 'auto' : 'auto',
       freight_value: $('#fFreight').value.trim() ? FC.parseNum($('#fFreight').value) : null,
       insured_country: $('#fInsCountry').value || null,
       ftz: $('#ftzField').hidden || !segVal($('#fFtz')) ? null : segVal($('#fFtz')) === 'true',
-      details: Object.assign(readDetails(), partyHost.value === 'other' && $('#fPartyOther').value.trim() ? { party_role_other: $('#fPartyOther').value.trim().slice(0, 100) } : {})
+      details: Object.assign(readDetails(), partyHost.value === 'other' && $('#fPartyOther').value.trim() ? { party_role_other: $('#fPartyOther').value.trim().slice(0, 100) } : {}, !$('#postField').hidden && $('#fPost').checked ? { post_courier: true } : {})
     };
   }
   function writeForm(r){
@@ -223,11 +289,11 @@
     $('#fDest').value = r.dest_country || ''; $('#fDestPlace').value = r.dest_place || '';
     $('#fDep').value = r.departure_date && r.departure_date >= FC.today() ? r.departure_date : '';
     $('#fValue').value = r.invoice_value ? Number(r.invoice_value).toLocaleString('en-GB', { maximumFractionDigits:2 }) : '';
-    if(OC && r.office_id && officeOf(r.office_id)){ $('#fOffice').value = r.office_id; paintCurrency(); }
+    if(OC && r.office_id && officeOf(r.office_id)){ offV = String(r.office_id); if(FC.paintAssign) FC.paintAssign(); paintCurrency(); }
     if(!OC && orgCurs().includes(r.currency)) segSet($('#fCur'), r.currency); $('#fUplift').value = r.uplift_pct != null ? Number(r.uplift_pct) : (settings.uplift_pct || 10);
     const c = form.querySelector(`input[name=cover][value="${r.cover || 'icc_a'}"]`); if(c) c.checked = true;
     $('#fWar').checked = r.war_strikes !== false;
-    $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; partyHost.value = r.insured_party || 'seller'; $('#fPartyOther').value = r.party_role_other || (r.details || {}).party_role_other || ''; $('#fPartyOther').hidden = partyHost.value !== 'other';
+    $('#fVessel').value = r.vessel || ''; $('#fDeck').checked = !!r.on_deck; $('#fPost').checked = !!(r.details || {}).post_courier; $('#fInterest').checked = !!r.interest_only; $('#fInco').value = r.incoterm || ''; partyHost.value = r.insured_party || 'seller'; $('#fPartyOther').value = r.party_role_other || (r.details || {}).party_role_other || ''; $('#fPartyOther').hidden = partyHost.value !== 'other';
     $('#fHssc').checked = !!r.ext_hssc; $('#fLiw').checked = !!r.ext_liw;
     $('#fForCust').checked = !!r.insured_name; $('#fInsName').value = r.insured_name || ''; $('#fInsAddr').value = r.insured_address || ''; $('#fCustRef').value = r.customer_ref || '';
     transit = (r.transit_countries || []).slice(); paintTransit(); segSet($('#fRed'), r.red_sea || 'auto');
@@ -249,6 +315,27 @@
     siRaf = requestAnimationFrame(step);
   }
   let liveReady = false, current = null;   // current: last result row
+  // policy limits upfront; above the limit = special request / referral to insurers
+  const fxConv = (n, from, to) => { const fx = settings.fx_rates || {}, a = Number(fx[from]), b = Number(fx[to]); if(!isFinite(n)) return NaN; if(!from || !to || from === to || !(a > 0) || !(b > 0)) return n; return Math.round(n / a * b * 100) / 100; };
+  const LIM_T = { conveyance:'Standard Conveyance / Storage Limit', on_deck_barge:'On-Deck / Barge Limit', parcel_post:'Parcel Post / Mail Limit' };
+  const fmtAmt = (c, n) => c + ' ' + Number(n).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  function limitNow(v, si){
+    const po = OC ? activePol() : null; if(!po) return null;
+    if(si == null) si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? (v.invoice_value + (v.freight_value > 0 ? v.freight_value : 0)) * (1 + v.uplift_pct / 100) : NaN;
+    const post = !!(v.details || {}).post_courier, type = v.on_deck ? 'on_deck_barge' : post ? 'parcel_post' : 'conveyance';
+    const lim = v.on_deck ? (po.limit_on_deck != null ? po.limit_on_deck : po.limit_conveyance) : post ? (po.limit_post != null ? po.limit_post : po.limit_conveyance) : po.limit_conveyance;
+    const conv = fxConv(si, v.currency, po.currency);
+    return { po, type, limit: lim == null ? null : Number(lim), sum: si, cur: v.currency, exceeded: lim != null && isFinite(conv) && conv > Number(lim) };
+  }
+  const limitText = l => `Warning: Sum Insured (${fmtAmt(l.cur, l.sum)}) exceeds the Policy Limit of ${fmtAmt(l.po.currency, l.limit)}. This shipment cannot be bound automatically under the open cover and requires a special request / referral to insurers.`;
+  function paintLimits(v, si){
+    const host = $('#limBox'); if(!host) return;
+    const l = limitNow(v, si); $('#postField').hidden = !(OC && activePol());
+    if(!l){ host.innerHTML = ''; return; }
+    const po = l.po, val = x => x != null ? fmtAmt(po.currency, x).replace(/\.00$/, '') : 'as conveyance';
+    host.innerHTML = `<div class="pol-limits"><b>Policy Coverage Limits</b> <span class="xs muted">${esc(po.name)}${po.policy_no ? ' · ' + esc(po.policy_no) : ''}</span><div class="pl-row">${[['conveyance', po.limit_conveyance], ['on_deck_barge', po.limit_on_deck], ['parcel_post', po.limit_post]].map(([k, x]) => `<span class="${l.type === k ? 'on' : ''}">${esc(LIM_T[k])}: <b>${esc(val(x))}</b></span>`).join('')}</div></div>`
+      + (l.exceeded ? `<div class="limit-warn" role="alert"><b>Policy Limit Exceeded</b>${esc(limitText(l))}</div>` : '');
+  }
   function onFormChange(){
     const v = readForm();
     const com = commodities.find(c => c.id === v.commodity_id);
@@ -267,6 +354,7 @@
     $('#fWar').disabled = ocSea; if(ocSea) $('#fWar').checked = true;
     const si = isFinite(v.invoice_value) && v.invoice_value > 0 && isFinite(v.uplift_pct) ? (v.invoice_value + (v.freight_value > 0 ? v.freight_value : 0)) * (1 + v.uplift_pct / 100) : NaN;
     tweenSi(si, v.currency);
+    paintLimits(v, si);
     // routing via Suez only matters at sea; free trade zone only for UAE interests
     // only where the route can actually pass Suez: west of Suez ↔ east of Suez, or a port / transit on the Red Sea
     const side = cc => (countries.find(c => c.iso2 === cc) || {}).suez;
@@ -337,9 +425,9 @@
   const MODE = c => /^air/.test(c) ? 'air' : c === 'road' || c === 'rail' ? 'land' : 'sea';
   function paintLive(v){
     const com = commodities.find(c => c.id === v.commodity_id);
-    const need = [!!v.commodity_id && (!OC || !!v.office_id), v.goods_description.length >= 2, !!v.origin_country, !!v.dest_country, isFinite(v.invoice_value) && v.invoice_value > 0];
+    const need = [!!v.commodity_id && (!OC || !!v.office_id || v.standalone || (v.on_behalf && !!v.policy_id)), v.goods_description.length >= 2, !!v.origin_country, !!v.dest_country].concat(ivOptional() ? [] : [isFinite(v.invoice_value) && v.invoice_value > 0]);
     const n = need.filter(Boolean).length, ready = n === need.length;
-    const done = [need[0] && need[1], need[2] && need[3], need[4], !$('#fForCust').checked || v.insured_name.length >= 2, true, !!v.cover];
+    const done = [need[0] && need[1], need[2] && need[3], ivOptional() || need[4], !$('#fForCust').checked || v.insured_name.length >= 2, true, !!v.cover];
     secs.forEach((x, i) => x.classList.toggle('done', !!done[i] && (i < 3 || ready)));
     // hero: route text, mode, distance
     const end = (iso, place, b, sub, ph, phSub) => { $(b).textContent = iso ? (place || countryName(iso)) : ph; $(b).classList.toggle('ph', !iso); $(sub).textContent = iso ? (place ? countryName(iso) : iso) : phSub; };
@@ -409,6 +497,7 @@
   $('#nsHelp').addEventListener('click', () => { const fb = $('#feedbackBtn'); if(fb) fb.click(); });
   form.addEventListener('input', onFormChange); form.addEventListener('change', onFormChange);
   form.addEventListener('input', e => { const f = e.target.closest('.field'); if(f) f.classList.remove('invalid'); });
+  refreshIvMode();
   onFormChange();
 
   function validate(v){
@@ -418,11 +507,11 @@
     mark('#fGoods', v.goods_description.length >= 2);
     mark('#fOrigin', !!v.origin_country); mark('#fDest', !!v.dest_country);
     mark('#fDep', !v.departure_date || v.departure_date >= FC.today());
-    mark('#fValue', isFinite(v.invoice_value) && v.invoice_value > 0);
+    mark('#fValue', ivOptional() ? (!isFinite(v.invoice_value) || v.invoice_value > 0) : isFinite(v.invoice_value) && v.invoice_value > 0);
     mark('#fUplift', isFinite(v.uplift_pct) && v.uplift_pct >= 0 && v.uplift_pct <= 30);
     mark('#fFreight', v.freight_value == null || (isFinite(v.freight_value) && v.freight_value >= 0));
     mark('#fInsName', !$('#fForCust').checked || v.insured_name.length >= 2);
-    if(OC) mark('#fOffice', !!v.office_id);
+    if(OC) mark('#fOffice', !!v.office_id || v.standalone || (v.on_behalf && !!v.policy_id));
     if(bad.length){ $(bad[0]).focus(); return false; }
     return true;
   }
@@ -454,6 +543,9 @@
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const v = readForm(); if(!validate(v)) return;
+    if(!(v.invoice_value > 0)) v.invoice_value = null;
+    const lim = limitNow(v);
+    if(lim && lim.exceeded && !(await FC.confirm('Policy limit exceeded', limitText(lim) + ' Send it to us as a special request?', 'Send special request'))) return;
     const b = $('#calcBtn'); busy(b, true); $('#formMsg').textContent = '';
     const { data, error } = await sb.rpc('calc_indication', { p: v });
     busy(b, false);
@@ -529,6 +621,8 @@
         ${isSea(r.conveyance) ? `<div><dt>Vessel</dt><dd>${esc(r.vessel || 'To be declared')}</dd></div>` : ''}
         ${r.incoterm ? `<div><dt>Incoterm</dt><dd>${esc(r.incoterm)}</dd></div>` : ''}${r.insured_party ? `<div><dt>Your role</dt><dd>${esc(FC.partyLabel(r.insured_party, r.party_role_other))}</dd></div>` : ''}
       </dl>
+      ${r.limit_exceeded && r.limit_exceeded_details ? `<div class="limit-warn" role="alert"><b>Policy Limit Exceeded</b>${esc('Warning: Sum Insured (' + fmtAmt(r.currency, r.sum_insured) + ') exceeds the Policy Limit of ' + fmtAmt(r.limit_exceeded_details.policy_currency, r.limit_exceeded_details.limit) + '. This shipment cannot be bound automatically under the open cover and requires a special request / referral to insurers.')}</div>` : ''}
+      ${r.is_on_behalf_of ? '<p class="xs"><span class="ac-badge">Acting on behalf of selected office/policy</span></p>' : ''}
       ${body}
       ${r.intake ? `<div class="consign-actions"><div class="row"><button class="btn btn-ghost" id="againBtn" type="button">${FC.icon.plus}Declare another shipment</button></div></div>
       <p class="fine">Cover is only in place on the terms of your open cover and once we have confirmed the declaration in writing.</p>` : `<div class="consign-actions">
@@ -855,7 +949,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-16c');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-17a');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -865,7 +959,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-16c').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-17a').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
