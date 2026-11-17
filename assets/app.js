@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-17a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-17b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -949,7 +949,7 @@
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-17a');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-17b');
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -959,7 +959,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-17a').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-17b').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
@@ -1017,6 +1017,11 @@
   function renderQuotes(){
     const host = $('#qList'); host.innerHTML = '';
     $('#waitBadge').hidden = !waiting.length; $('#waitBadge').textContent = waiting.length;
+    if(qTab === 'quotations' && quotes.length && window.FCX){ const xb = FC.el('<div class="toolbar"><span class="xs muted">Quotations &amp; shipments</span><span style="flex:1"></span></div>'); host.appendChild(xb);
+      FCX.bar(xb, () => ({ title:'My quotations & shipments', staff:false, rows: quotes, filters: [], columns:[{ label:'Reference', get: q => q.ref || '' }, { label:'Version', type:'number', get: q => q.version },
+        { label:'Goods', get: q => (q.data || {}).goods || '' }, { label:'From', get: q => countryName((q.data || {}).originCountry) }, { label:'To', get: q => countryName((q.data || {}).destCountry) },
+        { label:'Status', get: q => q.cover_note ? 'Covered' : ({ open:'Open', accepted:'Accepted', declined:'Declined', superseded:'Revised', expired:'Expired' }[q.status] || q.status) },
+        { label:'Premium / rate', get: q => qAmt(q) }, { label:'Valid until', type:'datetime', get: q => q.valid_until }, { label:'Cover note', get: q => (q.cover_note || {}).number || '' }] })); }
     if(qTab === 'quotations'){
       if(!quotes.length){ host.innerHTML = `<div class="empty card">${FC.shipArt}<h3>No shipments yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
       quotes.forEach(q => {
@@ -1079,7 +1084,7 @@
     other:       { label:'Something else',       hint:'Describe it in your own words', ic:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5M12 16.5h.01"/>' }
   };
   const lossIc = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${(LOSS[k] || LOSS.other).ic}</svg>`;
-  const CL_STATUS = { reported:'Reported', in_review:'In review', documents_requested:'Documents requested', surveyor_appointed:'Surveyor appointed', with_insurer:'With insurer', settled:'Settled', rejected:'Declined by insurer', closed:'Closed' };
+  const CL_STATUS = { reported:'FNOL received', in_review:'Under investigation', documents_requested:'Docs pending', surveyor_appointed:'Survey instructed', with_insurer:'Submitted to insurer', settled:'Settled', rejected:'Repudiated', closed:'Closed' };
   FC.CL_STATUS = CL_STATUS; FC.LOSS = LOSS; FC.lossIc = lossIc;
   const CL_FLOW = ['reported','in_review','with_insurer','settled'];
   const clStep = s => s === 'documents_requested' || s === 'surveyor_appointed' ? 1 : s === 'rejected' || s === 'closed' ? 3 : Math.max(0, CL_FLOW.indexOf(s));
@@ -1090,13 +1095,18 @@
     intro.appendChild(btn('Report a claim', 'claim', () => claimWizard(null)));
     host.appendChild(intro);
     if(!claims.length){ host.appendChild(FC.el(`<div class="empty card">${FC.shipArt}<h3>No claims</h3><p>Good news: nothing reported so far.</p></div>`)); return; }
+    if(window.FCX){ const xb = FC.el('<div class="toolbar"><span class="xs muted">My claims</span><span style="flex:1"></span></div>'); host.appendChild(xb);
+      FCX.bar(xb, () => ({ title:'My claims', staff:false, rows: claims, filters: [], columns:[{ label:'Claim', get: c => c.ref }, { label:'Policy No.', get: c => c.policy_no || '' },
+        { label:'Reported', type:'date', get: c => c.notification_date || c.created_at }, { label:'Date of loss', type:'date', get: c => c.incident_date }, { label:'What happened', get: c => (LOSS[c.loss_type] || {}).label || c.loss_type },
+        { label:'Cargo', get: c => c.cargo_description || (c.shipment || {}).goods || '' }, { label:'Voyage', get: c => [c.voyage_from || (c.shipment || {}).origin, c.voyage_to || (c.shipment || {}).dest].filter(Boolean).join(' - ') },
+        { label:'Currency', get: c => c.currency }, { label:'Claimed', type:'money', get: c => c.estimated_amount }, { label:'Paid', type:'money', get: c => c.settled_amount }, { label:'Status', get: c => CL_STATUS[c.status] || c.status }] })); }
     claims.forEach(c => {
       const s = c.shipment || {}, step = clStep(c.status), done = ['settled','rejected','closed'].includes(c.status), last = (c.events || []).slice(-1)[0];
       const it = FC.el(`<div class="item claim-card click" tabindex="0">
         <div class="cl-ic t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div>
         <div><div class="t">${esc((LOSS[c.loss_type] || {}).label || 'Claim')} · ${esc(s.goods || '')} <span class="chip ${done ? (c.status === 'settled' ? 'paid' : 'neutral') : 'pending'}">${esc(CL_STATUS[c.status] || c.status)}</span></div>
           <div class="meta">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''} · reported ${esc(FC.date(c.created_at))}${last ? ' · last update ' + esc(FC.ago(last.created_at)) : ''}</div>
-          <div class="cl-track"><i style="width:${[8, 40, 72, 100][step]}%"></i>${['Reported','In review','With insurer', c.status === 'rejected' ? 'Declined' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<span class="${i <= step ? 'on' : ''}" style="left:${[0, 34, 67, 100][i]}%">${l}</span>`).join('')}</div></div>
+          <div class="cl-track"><i style="width:${[8, 40, 72, 100][step]}%"></i>${['FNOL received','Under investigation','Submitted to insurer', c.status === 'rejected' ? 'Repudiated' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<span class="${i <= step ? 'on' : ''}" style="left:${[0, 34, 67, 100][i]}%">${l}</span>`).join('')}</div></div>
         <div class="acts"></div></div>`);
       it.querySelector('.acts').appendChild(btn('Open', 'ghost', () => openClaim(c.id)));
       it.addEventListener('click', e => { if(!e.target.closest('button')) openClaim(c.id); });
@@ -1256,7 +1266,7 @@
     const paint = async () => {
       const files = c.files || [];
       body.innerHTML = `<div class="cv-head"><div class="cl-ic big t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div><div><b>${esc((LOSS[c.loss_type] || {}).label || 'Claim')}</b> · ${esc(s.goods || '')}<div class="xs muted">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''}${c.insurer_claim_no ? ' · insurer claim no. ' + esc(c.insurer_claim_no) : ''}</div></div><span class="chip ${c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending'}">${esc(CL_STATUS[c.status])}</span></div>
-        <ol class="cv-steps">${['Reported','In review','With insurer', c.status === 'rejected' ? 'Declined' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span></span>${l}</li>`).join('')}</ol>
+        <ol class="cv-steps">${['FNOL received','Under investigation','Submitted to insurer', c.status === 'rejected' ? 'Repudiated' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span></span>${l}</li>`).join('')}</ol>
         ${c.settled_amount != null ? `<div class="notice ok" style="margin:0 0 14px"><b>Settled: ${esc(money2(c.settled_amount, c.currency))}</b>The insurer has agreed the claim.</div>` : ''}
         <div class="cv-grid"><div><h3>Messages</h3><div class="chat">${(c.events || []).map(e => e.author_role === 'system' ? `<div class="sys">${esc(e.body || '')} · ${esc(FC.dateTime(e.created_at))}</div>`
             : `<div class="msg ${e.author_role === 'client' ? 'me' : 'them'}">${e.status ? `<span class="chip pending">${esc(CL_STATUS[e.status] || e.status)}</span>` : ''}${e.body ? `<p>${esc(e.body)}</p>` : ''}<span class="xs">${esc(e.author_role === 'client' ? 'You' : (e.author_name || 'FREIGHTCON'))} · ${esc(FC.dateTime(e.created_at))}</span></div>`).join('')}</div>
@@ -1412,6 +1422,11 @@
     const s = $('#hSearch').value.trim().toLowerCase();
     const rows = hist.filter(r => !s || [r.goods_description, r.ref, r.customer_ref, r.insured_name, r.origin_country, r.dest_country, countryName(r.origin_country), countryName(r.dest_country), r.origin_place, r.dest_place].join(' ').toLowerCase().includes(s));
     const host = $('#hList'); host.innerHTML = '';
+    if(rows.length && window.FCX){ const xb = FC.el('<div class="toolbar"><span class="xs muted">My requests / declarations</span><span style="flex:1"></span></div>'); host.appendChild(xb);
+      FCX.bar(xb, () => ({ title:'My requests / declarations', staff:false, rows, filters: s ? ['Search = "' + s + '"'] : [], columns:[{ label:'Created', type:'datetime', get: r => r.created_at }, { label:'Reference', get: r => r.ref || '' },
+        { label:'Your ref.', get: r => r.customer_ref || '' }, { label:'Goods', get: r => r.goods_description }, { label:'From', get: r => [r.origin_place, countryName(r.origin_country)].filter(Boolean).join(', ') },
+        { label:'To', get: r => [r.dest_place, countryName(r.dest_country)].filter(Boolean).join(', ') }, { label:'Assured', get: r => r.insured_name || '' }, { label:'Currency', get: r => r.currency },
+        { label:'Sum insured', type:'money', get: r => r.sum_insured }, { label:'Premium', type:'money', get: r => r.status === 'quoted' && r.premium != null ? r.premium : null }, { label:'Status', get: r => r.is_out_of_cover ? 'Outside open cover' : r.intake ? 'Declared' : (r.status || '') }] })); }
     if(!rows.length){ host.innerHTML = `<div class="empty card">${hist.length ? '' : FC.shipArt}<h3>${hist.length ? 'No matches' : 'No indications yet'}</h3><p>${hist.length ? 'Try another search term.' : 'Your calculations appear here.'}</p></div>`; return; }
     rows.forEach(r => {
       const it = FC.el(`<div class="item"><div>
@@ -1434,7 +1449,27 @@
   }
 
   // ---------- badges ----------
+  // ---------- notifications (bell): claim updates ----------
+  let notifs = [];
+  async function loadNotifs(){
+    const { data } = await sb.from('notifications').select('*').eq('recipient_user_id', profile.id).order('created_at', { ascending:false }).limit(30);
+    notifs = data || []; const un = notifs.filter(n => !n.is_read).length, b = $('#bellBtn'); if(!b) return;
+    b.hidden = !notifs.length; b.querySelector('.bell-n').hidden = !un; b.querySelector('.bell-n').textContent = un || '';
+    b.setAttribute('aria-label', 'Notifications' + (un ? ', ' + un + ' unread' : ''));
+  }
+  if($('#bellBtn')){ $('#bellBtn').insertAdjacentHTML('afterbegin', FC.icon.bell);
+    $('#bellBtn').addEventListener('click', e => {
+      const anchor = e.currentTarget; document.querySelectorAll('.bell-pop').forEach(x => x.remove());
+      const pop = FC.el(`<div class="bell-pop" role="dialog" aria-label="Notifications"><div class="toolbar" style="margin:0 0 6px"><b>Notifications</b><span style="flex:1"></span><button type="button" class="linkbtn" data-all>Mark all read</button></div>
+        ${notifs.length ? notifs.map(n => `<button type="button" class="bell-it${n.is_read ? '' : ' un'}" data-n="${n.id}"><b>${esc(n.title)}</b><span class="xs">${esc(n.message || '')}</span><span class="xs muted">${esc(FC.ago(n.created_at))}</span></button>`).join('') : '<p class="xs muted">No notifications.</p>'}</div>`);
+      document.body.appendChild(pop); const r = anchor.getBoundingClientRect(); pop.style.top = (r.bottom + window.scrollY + 6) + 'px'; pop.style.left = Math.max(8, Math.min(window.innerWidth - 348, r.right - 340)) + 'px';
+      const off = ev => { if(!pop.contains(ev.target) && !anchor.contains(ev.target)){ pop.remove(); document.removeEventListener('click', off, true); } }; setTimeout(() => document.addEventListener('click', off, true), 0);
+      pop.querySelector('[data-all]').addEventListener('click', async () => { await sb.rpc('mark_notifications_read', { p_ids: null }); pop.remove(); loadNotifs(); });
+      pop.querySelectorAll('[data-n]').forEach(x => x.addEventListener('click', async () => { const n = notifs.find(y => String(y.id) === x.dataset.n); await sb.rpc('mark_notifications_read', { p_ids: [n.id] }); pop.remove(); loadNotifs();
+        if(n.entity_type === 'claim' && n.entity_id){ await go('claims'); await loadQuotes(); if(claims.some(c => c.id === n.entity_id)) openClaim(n.entity_id); } }));
+    }); }
   async function refreshBadges(){
+    loadNotifs().catch(() => {});
     const { data } = await sb.rpc('my_quotations');
     const n = (data || []).filter(q => !q.seen_at || q.status === 'open').length;
     $('#quoteBadge').hidden = !n; $('#quoteBadge').textContent = n;

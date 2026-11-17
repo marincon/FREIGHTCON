@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-17a';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-17b';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -232,6 +232,7 @@
     shield: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>'),
     doc: svg('<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
     download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+    bell: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
     send: svg('<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
     list: svg('<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>'),
@@ -269,7 +270,7 @@
   // FC.dialog({ title, body (html or node), wide, actions:[{label, kind, value, onClick(close, dlg) }] }) → Promise(value)
   FC.dialog = (o) => new Promise(resolve => {
     const back = document.createElement('div'); back.className = 'dlg-back';
-    const box = document.createElement('div'); box.className = 'dlg' + (o.wide ? ' wide' : ''); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    const box = document.createElement('div'); box.className = 'dlg' + (o.wide ? ' wide' : '') + (o.cls ? ' ' + o.cls : ''); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
     box.innerHTML = `<div class="dlg-head"><h2></h2><button type="button" class="x" aria-label="Close">&times;</button></div><div class="dlg-body"></div><div class="dlg-foot"></div>`;
     box.querySelector('h2').textContent = o.title || '';
     const body = box.querySelector('.dlg-body');
