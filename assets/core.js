@@ -8,14 +8,14 @@
   try{ const m = localStorage.getItem('freightcon-motion'); if(m === 'on' || m === 'off') document.documentElement.setAttribute('data-motion', m); }catch(e){}
   // animations: 'auto' follows the system setting, 'on' / 'off' overrides it (account menu)
   FC.motionPref = () => document.documentElement.getAttribute('data-motion') || 'auto';
-  FC.setMotion = m => { if(m === 'auto') document.documentElement.removeAttribute('data-motion'); else document.documentElement.setAttribute('data-motion', m); try{ m === 'auto' ? localStorage.removeItem('freightcon-motion') : localStorage.setItem('freightcon-motion', m); }catch(e){} };
+  FC.setMotion = m => { if(m === 'auto') document.documentElement.removeAttribute('data-motion'); else document.documentElement.setAttribute('data-motion', m); try{ m === 'auto' || !FC.consentAllows('functional') ? localStorage.removeItem('freightcon-motion') : localStorage.setItem('freightcon-motion', m); }catch(e){} };
   FC.isDark = () => {
     const t = document.documentElement.getAttribute('data-theme');
     return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   };
   FC.toggleTheme = (originEl) => {
     const next = FC.isDark() ? 'light' : 'dark';
-    const apply = () => { document.documentElement.setAttribute('data-theme', next); try{ localStorage.setItem('freightcon-theme', next); }catch(e){} if(FC.onTheme) FC.onTheme(); };
+    const apply = () => { document.documentElement.setAttribute('data-theme', next); try{ if(FC.consentAllows('functional')) localStorage.setItem('freightcon-theme', next); }catch(e){} if(FC.onTheme) FC.onTheme(); };
     // circular reveal from the button (View Transitions; browsers without it switch instantly)
     if(!document.startViewTransition || FC.reducedMotion()){ apply(); return; }
     const r = originEl && originEl.getBoundingClientRect ? originEl.getBoundingClientRect() : { left: innerWidth - 60, top: 20, width: 0, height: 0 };
@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-17b';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-18a';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -190,23 +190,29 @@
   FC.showRate = m => m !== 'premium_only';
   FC.showPremium = m => m !== 'rate_only';
   // German insurance premium tax: same rules as public.ipt_eval
-  FC.IPT_MODE = { auto:'Auto (rules)', on:'Apply by default', off:'Turned off' };
+  FC.IPT_MODE = { on:'On (default)', auto:'Auto-detect (German route or policyholder / assured)', off:'Off' };
+  // one rule: on, off, or auto = route from / to Germany or a German policyholder / assured
   FC.iptEval = (s, mode, from, to, holder, assured) => {
-    s = s || { default_rate:19, default_mode:'off' };
-    const r = Number(s.default_rate), rs = String(Math.round(r * 100) / 100), m = mode || s.default_mode;
+    s = s || { default_rate:19, default_mode:'auto' };
+    const r = Number(s.default_rate || 19), rs = String(Math.round(r * 100) / 100), m = mode || s.default_mode || 'auto';
     if(m === 'off') return { applied:false, rate:r, mode:m, reason:'German IPT turned off' };
-    if(m === 'on') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: set to apply by default' };
+    if(m === 'on') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: on by default' };
     const U = x => String(x || '').toUpperCase(), why = [];
-    if(s.rule_holder_de && U(holder) === 'DE') why.push('German Policyholder');
-    if(s.rule_assured_de && U(assured) === 'DE') why.push('German Assured');
-    const dom = why.length > 0 || !(s.rule_holder_de || s.rule_assured_de);
-    let route = false;
-    if(s.rule_domestic && U(from) === 'DE' && U(to) === 'DE'){ why.push('Domestic German transport'); route = true; }
-    else{ if(s.rule_from_de && U(from) === 'DE'){ why.push('Route from Germany'); route = true; } if(s.rule_to_de && U(to) === 'DE'){ why.push('Route to Germany'); route = true; } }
-    if(!(s.rule_domestic || s.rule_from_de || s.rule_to_de)) route = s.combine === 'domicile_and_route';
-    const ok = s.combine === 'any' ? why.length > 0 : dom && route;
-    return { applied: ok, rate:r, mode:m, reason: ok ? 'German IPT ' + rs + '% applied: ' + why.join(' & ') : 'No German IPT: ' + (why.length ? why.join(' & ') + ' only' : 'no German policyholder, assured or route') };
+    if(U(from) === 'DE' && U(to) === 'DE') why.push('Domestic German transport'); else if(U(from) === 'DE') why.push('Route from Germany'); else if(U(to) === 'DE') why.push('Route to Germany');
+    if(U(holder) === 'DE') why.push('German Policyholder');
+    if(U(assured) === 'DE' && U(holder) !== 'DE') why.push('German Assured');
+    return { applied: why.length > 0, rate:r, mode:m, reason: why.length ? 'German IPT ' + rs + '% applied: ' + why.join(' & ') : 'No German IPT: no German route, policyholder or assured' };
   };
+  // quotation validity chip: "Valid until DD.MM.YYYY", "Expiring Soon" (under 48 h), "Expired"
+  FC.dmy = v => { const d = new Date(v); return isNaN(d) ? '-' : String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(); };
+  FC.validityState = v => { const t = new Date(v).getTime() - Date.now(); return isNaN(t) ? '' : t < 0 ? 'expired' : t < 48 * 3600e3 ? 'soon' : 'valid'; };
+  FC.validityChip = v => { const st = FC.validityState(v); if(!st) return '';
+    return st === 'expired' ? `<span class="chip declined vchip" title="${FC.esc(FC.dateTime(v))}">Expired</span>`
+      : st === 'soon' ? `<span class="chip pending vchip" title="${FC.esc(FC.dateTime(v))}">Expiring Soon</span> <span class="chip neutral vchip">Valid until ${FC.dmy(v)}</span>`
+      : `<span class="chip neutral vchip" title="${FC.esc(FC.dateTime(v))}">Valid until ${FC.dmy(v)}</span>`; };
+  // claims lifecycle (client and staff use the same labels)
+  FC.CLAIM_STATUS = { new_claim:'New Claim', under_review:'Working on it / Under Review', survey_ordered:'Surveyor Instructed / Awaiting Docs', submitted_to_insurer:'Submitted to Insurer',
+    offer_settlement:'Settlement Offered / Agreed', paid_settled:'Settled / Paid', repudiated_declined:'Declined / Repudiated', closed:'Closed' };
   // merge tags for text templates
   FC.MERGE_TAGS = [['client_name','Client name'],['assured_name','Assured name'],['policy_number','Policy number'],['certificate_number','Certificate number'],['reference','Our reference'],
     ['cargo_description','Cargo description'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['conveyance','Conveyance'],['departure_date','Departure date'],['sum_insured','Sum insured'],['currency','Currency'],
@@ -389,4 +395,52 @@
     s.onerror = () => { delete _scripts[src]; s.remove(); rej(new Error('Could not load ' + src)); };
     document.head.appendChild(s);
   }));
+
+  // =================================================================== GDPR: cookie & privacy consent
+  // Strictly necessary (always on): log-in session, security time-out, this consent.
+  // Functional / startup preferences: theme, animations, remembered views and stamps.
+  // Analytics: no analytics tool is used today; the choice is recorded for the future.
+  const CK = 'freightcon-consent';
+  FC.CONSENT_VERSION = '2026-11-18';
+  FC.consentGet = () => { try{ const v = JSON.parse(localStorage.getItem(CK) || 'null'); return v && typeof v === 'object' ? v : null; }catch(e){ return null; } };
+  FC.consentAllows = k => { if(k === 'necessary') return true; const v = FC.consentGet(); return !!(v && v[k]); };
+  const FUNCTIONAL_KEYS = ['freightcon-theme', 'freightcon-motion', 'freightcon-stamps'];
+  FC.consentSave = (v, choice) => {
+    const c = { necessary:true, functional: !!v.functional, analytics: !!v.analytics, choice: choice || 'custom', version: FC.consentVersion || FC.CONSENT_VERSION, at: new Date().toISOString() };
+    try{ localStorage.setItem(CK, JSON.stringify(c)); }catch(e){}
+    if(!c.functional) FUNCTIONAL_KEYS.forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
+    else { try{ const t = document.documentElement.getAttribute('data-theme'); if(t) localStorage.setItem('freightcon-theme', t); }catch(e){} }
+    document.querySelectorAll('.ck-banner').forEach(x => x.remove());
+    if(FC.consentSync) FC.consentSync(c);
+    return c;
+  };
+  FC.consent = {
+    banner(){
+      if(document.querySelector('.ck-banner')) return;
+      const b = document.createElement('div'); b.className = 'ck-banner'; b.setAttribute('role', 'dialog'); b.setAttribute('aria-label', 'Cookies and privacy');
+      b.innerHTML = `<div class="ck-in"><div><b>Cookies &amp; privacy</b><p>We use strictly necessary storage to keep you logged in and secure. With your consent we also remember functional preferences (theme, animations, startup views). No advertising cookies. <a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a></p></div>
+        <div class="ck-acts"><button type="button" class="btn btn-ghost btn-sm" data-ck="custom">Customize</button><button type="button" class="btn btn-ghost btn-sm" data-ck="reject">Reject non-essential</button><button type="button" class="btn btn-primary btn-sm" data-ck="all">Accept all</button></div></div>`;
+      b.addEventListener('click', e => { const t = e.target.closest('[data-ck]'); if(!t) return;
+        if(t.dataset.ck === 'all') FC.consentSave({ functional:true, analytics:true }, 'accept_all');
+        else if(t.dataset.ck === 'reject') FC.consentSave({ functional:false, analytics:false }, 'reject_non_essential');
+        else FC.consent.open(); });
+      document.body.appendChild(b);
+    },
+    open(){
+      const cur = FC.consentGet() || { functional:false, analytics:false };
+      const row = (id, title, text, on, dis) => `<label class="switch ck-row"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span><b>${title}</b><span>${text}</span></span></label>`;
+      return FC.dialog({ title:'Cookie & privacy preferences', body: `<p style="margin-top:0" class="small">Choose what ${FC.esc(FC.brand || 'FREIGHTCON')} may store in your browser. You can change this at any time (Settings → Privacy, or the link in the footer).</p>
+        ${row('ckN', 'Strictly necessary', 'Log-in session, security time-out and this choice. Always on.', true, true)}
+        ${row('ckF', 'Functional / startup preferences', 'Theme, animations, remembered views and quotation stamps on this device.', cur.functional)}
+        ${row('ckA', 'Analytics', 'Anonymous usage statistics to improve the platform. No analytics tool is active at the moment; your choice is recorded for when one is added.', cur.analytics)}
+        ${cur.at ? `<p class="xs muted">Current choice saved ${FC.esc(FC.dateTime(cur.at))} (version ${FC.esc(cur.version || '')}).</p>` : ''}`,
+        actions:[{ label:'Reject non-essential', kind:'ghost', onClick: async () => { FC.consentSave({ functional:false, analytics:false }, 'reject_non_essential'); return true; } },
+          { label:'Accept all', kind:'ghost', onClick: async () => { FC.consentSave({ functional:true, analytics:true }, 'accept_all'); return true; } },
+          { label:'Save preferences', kind:'primary', onClick: async (c, box) => { FC.consentSave({ functional: box.querySelector('#ckF').checked, analytics: box.querySelector('#ckA').checked }, 'custom'); FC.toast && FC.toast('Preferences saved.'); return true; } }] });
+    },
+    // first visit or a new consent version: ask
+    check(version){ if(version) FC.consentVersion = version; const v = FC.consentGet(); if(!v || (FC.consentVersion && v.version !== FC.consentVersion)) FC.consent.banner(); }
+  };
+  const ckInit = () => { FC.consent.check(); document.querySelectorAll('[data-cookie-prefs]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); FC.consent.open(); })); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ckInit); else setTimeout(ckInit, 0);
 })();

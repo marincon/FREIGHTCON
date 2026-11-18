@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-17b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-18a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -16,6 +16,15 @@
   const { data: profile } = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
   if(!profile || !profile.approved || profile.rejected || profile.is_active === false){ await sb.auth.signOut(); location.replace('index.html'); return; }
   FC.profile = profile;
+  // two-factor (TOTP): a verified factor asks for the code after the password
+  try{ if(sb.auth.mfa && sb.auth.mfa.getAuthenticatorAssuranceLevel){ const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2' && !(await mfaChallenge())){ await sb.auth.signOut(); location.replace('index.html'); return; } } }catch(e){ console.warn(e); }
+  // GDPR consent: the browser choice is mirrored into the profile (audit); a stored choice follows the user to a new device
+  FC.consentSync = c => sb.rpc('save_my_consent', { p: c, p_user_agent: String(navigator.userAgent || '').slice(0, 300) }).then(() => { profile.gdpr_consent = c; }, () => {});
+  { const loc = FC.consentGet(), srv = profile.gdpr_consent;
+    if(loc && (!srv || srv.at !== loc.at)) FC.consentSync(loc);
+    else if(!loc && srv){ try{ localStorage.setItem('freightcon-consent', JSON.stringify(srv)); }catch(e){} document.querySelectorAll('.ck-banner').forEach(x => x.remove()); } }
+  sb.rpc('public_gdpr').then(r => { if(r && r.data){ FC.gdpr = r.data; if(r.data.version) FC.consent.check(r.data.version); } }, () => {});
   sb.rpc('touch_login').then(() => null, () => null);
   let settings = {};
   try{ const r = await sb.rpc('public_settings'); settings = r.data || {}; }catch(e){}
@@ -39,7 +48,7 @@
   // ---------- header ----------
   $('#wm').innerHTML = FC.wordmarkHtml();
   $('#icBox').innerHTML = FC.icon.box; $('#icRoute').innerHTML = FC.icon.route; $('#icCoin').innerHTML = FC.icon.coin; $('#icShield').innerHTML = FC.icon.shield; $('#icDoc').innerHTML = FC.icon.doc; $('#icUser').innerHTML = FC.icon.user;
-  $('#inviteBtn').innerHTML = FC.icon.gift; $('#feedbackBtn').innerHTML = FC.icon.chat;
+  $('#inviteBtn').innerHTML = FC.icon.user; $('#feedbackBtn').innerHTML = FC.icon.chat;
   $$('[data-ic]').forEach(s => s.outerHTML = FC.icon[s.dataset.ic]);
   const paintTheme = () => { $('#themeBtn').innerHTML = FC.isDark() ? FC.icon.sun : FC.icon.moon; };
   FC.onTheme = paintTheme; paintTheme(); $('#themeBtn').addEventListener('click', e => FC.toggleTheme(e.currentTarget));
@@ -867,7 +876,7 @@
   }
 
   // ---------- views & routing ----------
-  const views = ['new', 'quotes', 'history', 'upload', 'admin', 'cover', 'insurer'];
+  const views = ['new', 'quotes', 'history', 'upload', 'admin', 'cover', 'insurer', 'settings'];
   // features switched on by staff (permission matrix): what this user may see and do
   const can = k => FEAT[k] !== false;
   const isInsurer = !profile.is_admin && FEAT.insurer === true;
@@ -933,7 +942,7 @@
   async function go(v){
     if(v === 'shipments' || v === 'claims'){ if(v === 'claims') qTab = 'claims'; v = 'quotes'; }
     if(!views.includes(v) || (v === 'admin' && !profile.is_admin)) v = isInsurer ? 'insurer' : 'new';
-    if(isInsurer && v !== 'insurer') v = 'insurer';
+    if(isInsurer && v !== 'insurer' && v !== 'settings') v = 'insurer';
     if(!isInsurer && ((v === 'new' && !can('new_request')) || v === 'insurer')) v = 'quotes';
     if(v !== 'admin') FC.lastExternal = v;
     const inAdm = v === 'admin', il = document.getElementById('internalLbl'), ml = document.getElementById('mobInternalLbl');
@@ -948,8 +957,10 @@
     if(v === 'upload') initUpload();
     if(v === 'insurer') loadInsurer();
     if(v === 'cover') loadCover();
+    if(v === 'settings') renderSettingsView();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-17b');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-18a');
+      if(FC.adminStartTab && window.FCAdmin.setTab){ window.FCAdmin.setTab(FC.adminStartTab); FC.adminStartTab = null; }
       window.FCAdmin.open($('#view-admin'));
     }
     window.scrollTo({ top: 0 });
@@ -959,7 +970,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-17b').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-18a').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
@@ -990,7 +1001,7 @@
   function paintHub(){
     const h = new Date().getHours(), first = (profile.first_name || (profile.full_name || '').split(' ')[0] || '').trim();
     $('#hubHi').textContent = (h < 11 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
-    const covered = quotes.filter(q => q.cover_note), open = quotes.filter(q => q.status === 'open'), openCl = claims.filter(c => !['settled','rejected','closed'].includes(c.status));
+    const covered = quotes.filter(q => q.cover_note), open = quotes.filter(q => q.status === 'open'), openCl = claims.filter(c => !CL_DONE.includes(c.status));
     const val = {}; covered.forEach(q => { const d = q.data || {}; val[d.currency] = (val[d.currency] || 0) + Number(d.sumInsured || 0); });
     const tile = (n, label, sub, tab, ic) => `<button type="button" class="kpi" data-kpi="${tab}"><span class="kpi-ic">${FC.icon[ic]}</span><b data-count="${n}">${n}</b><span>${esc(label)}</span>${sub ? `<i>${esc(sub)}</i>` : ''}</button>`;
     $('#hubKpis').innerHTML = tile(covered.length, 'Covered shipments', Object.keys(val).length ? Object.entries(val).map(([c, v]) => money(v, c)).join(' · ') + ' insured' : '', 'quotations', 'shield')
@@ -1001,9 +1012,9 @@
     $$('#hubKpis b[data-count]').forEach(b => FC.countUp(b, Number(b.dataset.count), null, 600));
     $('#claimBadge').hidden = !openCl.length; $('#claimBadge').textContent = openCl.length;
   }
-  const qStatusLabel = { open:'Open', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' };
+  const qStatusLabel = { open:'Open', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn', revision_requested:'Revision requested' };
   let justStamped = null;
-  const stampSeen = id => { try{ const s = JSON.parse(localStorage.getItem('freightcon-stamps') || '[]'); if(s.includes(id)) return true; s.push(id); localStorage.setItem('freightcon-stamps', JSON.stringify(s.slice(-200))); }catch(e){} return false; };
+  const stampSeen = id => { if(!FC.consentAllows('functional')) return true; try{ const s = JSON.parse(localStorage.getItem('freightcon-stamps') || '[]'); if(s.includes(id)) return true; s.push(id); localStorage.setItem('freightcon-stamps', JSON.stringify(s.slice(-200))); }catch(e){} return false; };
   // small route strip used on shipment and claim cards
   const miniRoute = (o, d, conv) => `<div class="mini-route"><b>${esc(o || '')}</b><span class="mr-line"><i></i><em>${FC.icon[conv] || FC.icon.sea_container}</em><i></i></span><b>${esc(d || '')}</b></div>`;
   const shipSteps = (q) => {
@@ -1020,7 +1031,7 @@
     if(qTab === 'quotations' && quotes.length && window.FCX){ const xb = FC.el('<div class="toolbar"><span class="xs muted">Quotations &amp; shipments</span><span style="flex:1"></span></div>'); host.appendChild(xb);
       FCX.bar(xb, () => ({ title:'My quotations & shipments', staff:false, rows: quotes, filters: [], columns:[{ label:'Reference', get: q => q.ref || '' }, { label:'Version', type:'number', get: q => q.version },
         { label:'Goods', get: q => (q.data || {}).goods || '' }, { label:'From', get: q => countryName((q.data || {}).originCountry) }, { label:'To', get: q => countryName((q.data || {}).destCountry) },
-        { label:'Status', get: q => q.cover_note ? 'Covered' : ({ open:'Open', accepted:'Accepted', declined:'Declined', superseded:'Revised', expired:'Expired' }[q.status] || q.status) },
+        { label:'Status', get: q => q.cover_note ? 'Covered' : ({ open:'Open', accepted:'Accepted', declined:'Declined', superseded:'Revised', expired:'Expired', revision_requested:'Revision requested' }[q.status] || q.status) }, { label:'Order reference', get: q => q.order_ref || '' },
         { label:'Premium / rate', get: q => qAmt(q) }, { label:'Valid until', type:'datetime', get: q => q.valid_until }, { label:'Cover note', get: q => (q.cover_note || {}).number || '' }] })); }
     if(qTab === 'quotations'){
       if(!quotes.length){ host.innerHTML = `<div class="empty card">${FC.shipArt}<h3>No shipments yet</h3><p>Calculate a shipment and request a quotation. It appears here when it is ready.</p><button class="btn btn-primary" data-go-new>New shipment</button></div>`; }
@@ -1029,7 +1040,7 @@
         const it = FC.el(`<div class="item ship${!q.seen_at ? ' new' : ''}">
           <div class="ship-main">${miniRoute(d.originCountry, d.destCountry, d.conveyance)}
             <div><div class="t">${esc(d.goods || '')}</div>
-            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''} · <b class="num">${esc(qAmt(q))}</b>${q.status === 'open' ? ' · valid until ' + esc(FC.dateTime(q.valid_until)) : ''}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}${cls.length ? ' · <span class="chip pending">' + cls.length + ' claim' + (cls.length > 1 ? 's' : '') + '</span>' : ''}</div>
+            <div class="meta">${esc(q.ref || '')}${q.version > 1 ? ' (version ' + q.version + ')' : ''} · <b class="num">${esc(qAmt(q))}</b>${q.status === 'open' ? ' · ' + FC.validityChip(q.valid_until) : q.status === 'revision_requested' ? ' · <span class="chip pending">Revision requested</span>' : ''}${q.order_ref ? ' · order ' + esc(q.order_ref) : ''}${q.cover_note ? ' · cover note ' + esc(q.cover_note.number) : ''}${cls.length ? ' · <span class="chip pending">' + cls.length + ' claim' + (cls.length > 1 ? 's' : '') + '</span>' : ''}</div>
             ${shipSteps(q)}</div></div>
           <div class="acts"></div></div>`);
         if(st === 'bound' || st === 'accepted'){
@@ -1084,10 +1095,11 @@
     other:       { label:'Something else',       hint:'Describe it in your own words', ic:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5M12 16.5h.01"/>' }
   };
   const lossIc = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${(LOSS[k] || LOSS.other).ic}</svg>`;
-  const CL_STATUS = { reported:'FNOL received', in_review:'Under investigation', documents_requested:'Docs pending', surveyor_appointed:'Survey instructed', with_insurer:'Submitted to insurer', settled:'Settled', rejected:'Repudiated', closed:'Closed' };
+  const CL_STATUS = FC.CLAIM_STATUS;
+  const CL_DONE = ['paid_settled','repudiated_declined','closed'];
+  const clFinal = c => c.status === 'repudiated_declined' ? 'Declined' : c.status === 'closed' ? 'Closed' : 'Settled / Paid';
   FC.CL_STATUS = CL_STATUS; FC.LOSS = LOSS; FC.lossIc = lossIc;
-  const CL_FLOW = ['reported','in_review','with_insurer','settled'];
-  const clStep = s => s === 'documents_requested' || s === 'surveyor_appointed' ? 1 : s === 'rejected' || s === 'closed' ? 3 : Math.max(0, CL_FLOW.indexOf(s));
+  const clStep = s => ({ new_claim:0, under_review:1, survey_ordered:1, submitted_to_insurer:2, offer_settlement:2, paid_settled:3, repudiated_declined:3, closed:3 }[s] || 0);
   const STAGES = { loading:'At loading', transit:'During transport', transhipment:'At transhipment', storage:'In storage', delivery:'At delivery', unknown:'Not sure' };
   const fmtSize = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
   function renderClaims(host){
@@ -1101,12 +1113,12 @@
         { label:'Cargo', get: c => c.cargo_description || (c.shipment || {}).goods || '' }, { label:'Voyage', get: c => [c.voyage_from || (c.shipment || {}).origin, c.voyage_to || (c.shipment || {}).dest].filter(Boolean).join(' - ') },
         { label:'Currency', get: c => c.currency }, { label:'Claimed', type:'money', get: c => c.estimated_amount }, { label:'Paid', type:'money', get: c => c.settled_amount }, { label:'Status', get: c => CL_STATUS[c.status] || c.status }] })); }
     claims.forEach(c => {
-      const s = c.shipment || {}, step = clStep(c.status), done = ['settled','rejected','closed'].includes(c.status), last = (c.events || []).slice(-1)[0];
+      const s = c.shipment || {}, step = clStep(c.status), done = CL_DONE.includes(c.status), last = (c.events || []).slice(-1)[0];
       const it = FC.el(`<div class="item claim-card click" tabindex="0">
         <div class="cl-ic t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div>
-        <div><div class="t">${esc((LOSS[c.loss_type] || {}).label || 'Claim')} · ${esc(s.goods || '')} <span class="chip ${done ? (c.status === 'settled' ? 'paid' : 'neutral') : 'pending'}">${esc(CL_STATUS[c.status] || c.status)}</span></div>
+        <div><div class="t">${esc((LOSS[c.loss_type] || {}).label || 'Claim')} · ${esc(s.goods || '')} <span class="chip ${done ? (c.status === 'paid_settled' ? 'paid' : 'neutral') : 'pending'}">${esc(CL_STATUS[c.status] || c.status)}</span></div>
           <div class="meta">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''} · reported ${esc(FC.date(c.created_at))}${last ? ' · last update ' + esc(FC.ago(last.created_at)) : ''}</div>
-          <div class="cl-track"><i style="width:${[8, 40, 72, 100][step]}%"></i>${['FNOL received','Under investigation','Submitted to insurer', c.status === 'rejected' ? 'Repudiated' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<span class="${i <= step ? 'on' : ''}" style="left:${[0, 34, 67, 100][i]}%">${l}</span>`).join('')}</div></div>
+          <div class="cl-track"><i style="width:${[8, 40, 72, 100][step]}%"></i>${['New Claim','Under Review','Submitted to Insurer', clFinal(c)].map((l, i) => `<span class="${i <= step ? 'on' : ''}" style="left:${[0, 34, 67, 100][i]}%">${l}</span>`).join('')}</div></div>
         <div class="acts"></div></div>`);
       it.querySelector('.acts').appendChild(btn('Open', 'ghost', () => openClaim(c.id)));
       it.addEventListener('click', e => { if(!e.target.closest('button')) openClaim(c.id); });
@@ -1266,11 +1278,11 @@
     const paint = async () => {
       const files = c.files || [];
       body.innerHTML = `<div class="cv-head"><div class="cl-ic big t-${esc(c.loss_type)}">${lossIc(c.loss_type)}</div><div><b>${esc((LOSS[c.loss_type] || {}).label || 'Claim')}</b> · ${esc(s.goods || '')}<div class="xs muted">${esc(c.ref)} · ${esc(s.origin || '')} → ${esc(s.dest || '')}${c.cover_note_no ? ' · cover note ' + esc(c.cover_note_no) : ''}${c.insurer_claim_no ? ' · insurer claim no. ' + esc(c.insurer_claim_no) : ''}</div></div><span class="chip ${c.status === 'settled' ? 'paid' : ['rejected','closed'].includes(c.status) ? 'neutral' : 'pending'}">${esc(CL_STATUS[c.status])}</span></div>
-        <ol class="cv-steps">${['FNOL received','Under investigation','Submitted to insurer', c.status === 'rejected' ? 'Repudiated' : c.status === 'closed' ? 'Closed' : 'Settled'].map((l, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span></span>${l}</li>`).join('')}</ol>
+        <ol class="cv-steps">${['New Claim','Under Review','Submitted to Insurer', clFinal(c)].map((l, i) => `<li class="${i < step ? 'done' : i === step ? 'cur' : ''}"><span></span>${l}</li>`).join('')}</ol>
         ${c.settled_amount != null ? `<div class="notice ok" style="margin:0 0 14px"><b>Settled: ${esc(money2(c.settled_amount, c.currency))}</b>The insurer has agreed the claim.</div>` : ''}
         <div class="cv-grid"><div><h3>Messages</h3><div class="chat">${(c.events || []).map(e => e.author_role === 'system' ? `<div class="sys">${esc(e.body || '')} · ${esc(FC.dateTime(e.created_at))}</div>`
             : `<div class="msg ${e.author_role === 'client' ? 'me' : 'them'}">${e.status ? `<span class="chip pending">${esc(CL_STATUS[e.status] || e.status)}</span>` : ''}${e.body ? `<p>${esc(e.body)}</p>` : ''}<span class="xs">${esc(e.author_role === 'client' ? 'You' : (e.author_name || 'FREIGHTCON'))} · ${esc(FC.dateTime(e.created_at))}</span></div>`).join('')}</div>
-          ${['closed','rejected','settled'].includes(c.status) ? '' : `<div class="composer"><textarea id="cvMsg" rows="2" maxlength="4000" placeholder="Write to us, e.g. new information or the survey date"></textarea><div class="composer-row"><label class="btn btn-ghost btn-sm" style="cursor:pointer">${FC.icon.upload}Attach<input type="file" id="cvFiles" multiple hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.txt,.heic"></label><span class="xs muted" id="cvPicked"></span><span style="flex:1"></span><button type="button" class="btn btn-primary btn-sm" id="cvSend"><span class="spin"></span>${FC.icon.send}Send</button></div></div>`}</div>
+          ${CL_DONE.includes(c.status) ? '' : `<div class="composer"><textarea id="cvMsg" rows="2" maxlength="4000" placeholder="Write to us, e.g. new information or the survey date"></textarea><div class="composer-row"><label class="btn btn-ghost btn-sm" style="cursor:pointer">${FC.icon.upload}Attach<input type="file" id="cvFiles" multiple hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.msg,.eml,.txt,.heic"></label><span class="xs muted" id="cvPicked"></span><span style="flex:1"></span><button type="button" class="btn btn-primary btn-sm" id="cvSend"><span class="spin"></span>${FC.icon.send}Send</button></div></div>`}</div>
           <div><h3>Details</h3><dl class="kv"><dt>Reported</dt><dd>${esc(FC.dateTime(c.created_at))}</dd>
             ${c.incident_date ? `<dt>Incident</dt><dd>${esc(FC.date(c.incident_date))}</dd>` : ''}${c.place ? `<dt>Place</dt><dd>${esc(c.place)}</dd>` : ''}
             ${c.transit_stage ? `<dt>Stage</dt><dd>${esc(STAGES[c.transit_stage] || c.transit_stage)}</dd>` : ''}
@@ -1324,7 +1336,7 @@
     const ck = /\(A\)/.test(cond) ? 'icc_a' : /\(B\)/.test(cond) ? 'icc_b' : /\(C\)/.test(cond) ? 'icc_c' : null, cv = FC.COVER[ck] || null;
     const conv = FC.CONVEYANCE[d.conveyance] || null;
     const st = q.cover_note ? 'covered' : q.status;
-    const stTxt = { covered:'Covered', open:'Open for review', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn' }[st] || st;
+    const stTxt = { covered:'Covered', open:'Open for review', accepted:'Accepted', declined:'Declined', expired:'Expired', withdrawn:'Withdrawn', revision_requested:'Revision requested' }[st] || st;
     const left = new Date(q.valid_until) - Date.now(), hrs = Math.floor(left / 36e5);
     const validTxt = q.status !== 'open' ? FC.dateTime(q.valid_until) : left <= 0 ? 'expired' : (hrs >= 48 ? Math.floor(hrs / 24) + ' days left' : hrs >= 1 ? hrs + ' hours left' : 'less than an hour left') + ' · ' + FC.dateTime(q.valid_until);
     const incl = [
@@ -1340,6 +1352,7 @@
     const lines = (d.lines || []).map(l => `<tr><td>${esc(l.label)}<span>${esc(money2(l.sum, cur))}${sR ? ' × ' + esc(FC.pct(l.rate)) : ''}</span></td><td class="r">${sP ? esc(money2(l.premium, cur)) : esc(FC.pct(l.rate))}</td></tr>`).join('');
     const next = q.cover_note ? `Your cover is in place. Cover note <b>${esc(q.cover_note.number)}</b> is ready to download. If something happens in transit, report it under <b>Claims</b>.`
       : q.status === 'accepted' ? 'Thank you for your instruction. We are placing the cover with the insurer and send you the cover note shortly.'
+      : q.status === 'revision_requested' ? 'You asked for a revision' + (q.revision_comment ? ' (' + esc(q.revision_comment) + ')' : '') + '. We come back to you with an updated quotation.'
       : q.status === 'open' ? 'Take your time to review. If everything fits, accept the quotation and we place the cover and send you the cover note. Questions or changes? Just write us a message below.'
       : 'This quotation is no longer open. Calculate the shipment again or contact us for a new offer.';
     return `<div class="qv">
@@ -1394,19 +1407,22 @@
     if(myC) actions.push({ label:'Download certificate', kind:'ok', onClick: async () => { await downloadMyCert(myC); } });
     if(q.status === 'accepted' && canClientIssueCertificate()) actions.push({ label: myC ? 'Issue new certificate' : FEAT.certificate_mode === 'fdf_export' ? 'Generate certificate (.fdf)' : 'Issue certificate', kind: myC ? 'ghost' : 'primary', onClick: async () => { await clientCertificate(q.indication_id, null, { ref: (q.data || {}).customerRef || '' }); } });
     if(open){
-      actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, false, box, close) });
-      actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, true, box, close) });
+      actions.push({ label:'Decline', kind:'danger', onClick: async (close, box) => respond(q, 'decline', box, close) });
+      actions.push({ label:'Request revision', kind:'ghost', onClick: async (close, box) => respond(q, 'revision', box, close) });
+      if(FC.validityState(q.valid_until) !== 'expired') actions.push({ label:'Accept quotation', kind:'ok', onClick: async (close, box) => respond(q, 'accept', box, close) });
     }
     FC.dialog({ title: 'Quotation ' + (q.ref || ''), wide:true,
-      body: quoteBody(q) + (open ? `<div class="field" style="margin-top:16px"><label for="qrNote">Message <span class="muted">(optional)</span></label><textarea id="qrNote" maxlength="1000" placeholder="e.g. B/L number, vessel, or reason for declining"></textarea></div>${q.data && q.data.closing ? `<p class="xs muted">${esc(q.data.closing)}</p>` : ''}<div class="err-msg" id="qrErr"></div>` : ''),
+      body: quoteBody(q) + (open ? `<div class="qv-valid-row">${FC.validityChip(q.valid_until)}</div><div class="field" style="margin-top:16px"><label for="qrOrd">Your order / reference <span class="muted">(optional, confirms the acceptance)</span></label><input id="qrOrd" maxlength="120" placeholder="e.g. PO 4711"></div><div class="field"><label for="qrNote">Message <span class="muted">(optional)</span></label><textarea id="qrNote" maxlength="1000" placeholder="e.g. B/L number, vessel, or reason for declining"></textarea></div>${q.data && q.data.closing ? `<p class="xs muted">${esc(q.data.closing)}</p>` : ''}<div class="err-msg" id="qrErr"></div>` : ''),
       actions, onOpen: box => { const x = box.querySelector('.x'); if(x) x.focus({ preventScroll:true }); box.scrollTop = 0; } });
   }
-  async function respond(q, accept, box, close){
-    if(accept && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms ' + (q.data.total != null ? 'for ' + money2(q.data.total, q.data.currency) : 'at the rate quoted') + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
-    const { error } = await sb.rpc('respond_to_quotation', { p_quotation_id: q.id, p_accept: accept, p_note: box.querySelector('#qrNote').value });
+  async function respond(q, action, box, close){
+    const note = box.querySelector('#qrNote').value.trim(), ord = (box.querySelector('#qrOrd') || {}).value || '';
+    if(action === 'revision' && note.length < 3){ box.querySelector('#qrErr').textContent = 'Please tell us what should be revised (message field).'; return; }
+    if(action === 'accept' && !(await FC.confirm('Accept this quotation?', 'You instruct us to place cover on these terms ' + (q.data.total != null ? 'for ' + money2(q.data.total, q.data.currency) : 'at the rate quoted') + '. We confirm in writing and send the cover note.', 'Accept quotation', 'ok'))) return;
+    const { error } = await sb.rpc('respond_to_quotation_v2', { p_quotation_id: q.id, p_action: action, p_note: FC.dash(note) || null, p_order_ref: action === 'accept' ? FC.dash(ord.trim()) || null : null });
     if(error){ box.querySelector('#qrErr').textContent = FC.errText(error); return; }
-    if(accept) justStamped = q.id;
-    close(true); toast(accept ? 'Accepted. We confirm the cover shortly.' : 'Quotation declined.'); loadQuotes();
+    if(action === 'accept') justStamped = q.id;
+    close(true); toast(action === 'accept' ? 'Accepted. We confirm the cover shortly.' : action === 'revision' ? 'Revision requested. We come back to you.' : 'Quotation declined.'); loadQuotes();
   }
 
   // ---------- history ----------
@@ -1460,13 +1476,19 @@
   if($('#bellBtn')){ $('#bellBtn').insertAdjacentHTML('afterbegin', FC.icon.bell);
     $('#bellBtn').addEventListener('click', e => {
       const anchor = e.currentTarget; document.querySelectorAll('.bell-pop').forEach(x => x.remove());
+      const cats = [['all','All'],['quotes','Quotes'],['cases','Requests'],['claims','Claims'],['reminders','Reminders']];
       const pop = FC.el(`<div class="bell-pop" role="dialog" aria-label="Notifications"><div class="toolbar" style="margin:0 0 6px"><b>Notifications</b><span style="flex:1"></span><button type="button" class="linkbtn" data-all>Mark all read</button></div>
-        ${notifs.length ? notifs.map(n => `<button type="button" class="bell-it${n.is_read ? '' : ' un'}" data-n="${n.id}"><b>${esc(n.title)}</b><span class="xs">${esc(n.message || '')}</span><span class="xs muted">${esc(FC.ago(n.created_at))}</span></button>`).join('') : '<p class="xs muted">No notifications.</p>'}</div>`);
+        <div class="bell-cats">${cats.map(([k, l]) => `<button type="button" data-cat="${k}" aria-selected="${k === 'all'}">${l}</button>`).join('')}</div>
+        ${notifs.length ? notifs.map(n => `<button type="button" class="bell-it${n.is_read ? '' : ' un'}" data-n="${n.id}" data-c="${esc(n.category || 'system')}"><b>${esc(n.title)}</b><span class="xs">${esc(n.message || '')}</span><span class="xs muted">${esc(FC.ago(n.created_at))}</span></button>`).join('') : '<p class="xs muted">No notifications.</p>'}</div>`);
       document.body.appendChild(pop); const r = anchor.getBoundingClientRect(); pop.style.top = (r.bottom + window.scrollY + 6) + 'px'; pop.style.left = Math.max(8, Math.min(window.innerWidth - 348, r.right - 340)) + 'px';
+      pop.querySelector('.bell-cats').addEventListener('click', ev => { const b = ev.target.closest('[data-cat]'); if(!b) return; pop.querySelectorAll('[data-cat]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+        pop.querySelectorAll('[data-n]').forEach(x => { x.hidden = b.dataset.cat !== 'all' && x.dataset.c !== b.dataset.cat; }); });
       const off = ev => { if(!pop.contains(ev.target) && !anchor.contains(ev.target)){ pop.remove(); document.removeEventListener('click', off, true); } }; setTimeout(() => document.addEventListener('click', off, true), 0);
       pop.querySelector('[data-all]').addEventListener('click', async () => { await sb.rpc('mark_notifications_read', { p_ids: null }); pop.remove(); loadNotifs(); });
       pop.querySelectorAll('[data-n]').forEach(x => x.addEventListener('click', async () => { const n = notifs.find(y => String(y.id) === x.dataset.n); await sb.rpc('mark_notifications_read', { p_ids: [n.id] }); pop.remove(); loadNotifs();
-        if(n.entity_type === 'claim' && n.entity_id){ await go('claims'); await loadQuotes(); if(claims.some(c => c.id === n.entity_id)) openClaim(n.entity_id); } }));
+        if(n.entity_type === 'claim' && n.entity_id){ await go('claims'); await loadQuotes(); if(claims.some(c => c.id === n.entity_id)) openClaim(n.entity_id); }
+        else if(n.entity_type === 'quotation' || n.entity_type === 'case' || n.link === 'quotes'){ qTab = 'quotations'; await go('quotes'); await loadQuotes(); const q = n.entity_type === 'quotation' ? quotes.find(x => x.id === n.entity_id) : quotes.find(x => x.indication_id === n.entity_id); if(q) openQuote(q); }
+        else if(n.link && views.includes(n.link)) go(n.link); }));
     }); }
   async function refreshBadges(){
     loadNotifs().catch(() => {});
@@ -1514,7 +1536,6 @@
         <div class="grid2" style="margin-top:12px;grid-template-columns:110px 1fr"><div class="field"><label for="acZip">Postcode</label><input id="acZip" maxlength="20" value="${esc(profile.postcode || '')}"></div><div class="field"><label for="acCity">City</label><input id="acCity" maxlength="80" value="${esc(profile.city || '')}"></div></div>
         <div class="grid2" style="margin-top:12px"><div class="field"><label for="acCountry">Country</label><input id="acCountry" maxlength="80" value="${esc(profile.country || '')}"></div><div class="field"><label for="acPhone">Phone</label><input id="acPhone" maxlength="40" value="${esc(profile.phone || '')}"></div></div>
         <div class="field"><label>E-mail</label><input readonly value="${esc(profile.email)}"><span class="hint">To change company or e-mail, please contact us.</span></div>
-        ${Number(profile.client_discount_pct) > 0 ? `<div class="notice ok" style="margin:14px 0 0"><b>Client discount ${esc(Number(profile.client_discount_pct))} %</b>Applied to all your indications.</div>` : ''}
         <div class="err-msg" id="acErr"></div>`,
         actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Save', kind:'primary', onClick: async (close, box) => {
           const nm = box.querySelector('#acName').value.trim();
@@ -1540,22 +1561,9 @@
           const { error } = await sb.auth.updateUser({ password: a }); if(error) return e('Could not change the password.');
           toast('Password changed.'); return true;
         } }] });
-    }else if(kind === 'invite'){
-      const { data } = await sb.rpc('my_referrals');
-      const code = data && data.code, link = code ? location.origin + location.pathname.replace(/app\.html$/, '') + 'index.html?ref=' + encodeURIComponent(code) : '';
-      const reward = data && data.reward_pct != null ? Number(data.reward_pct) : 5;
-      const subject = 'Cargo insurance online - ' + FC.brand;
-      const text = 'Hello,\n\nI use ' + FC.brand + ' to get cargo insurance indications and quotations online in a few minutes, and thought it could be useful for you as well.\n\nYou can register here: ' + link + '\n\nBest regards\n' + (profile.full_name || '');
-      FC.dialog({ title:'Invite a client', body:`
-        <p style="margin-top:0">Know a forwarder, trader or shipper who could use ${esc(FC.brand)}? Share your personal link. When they become a customer, you receive a <b>${esc(reward)} % client discount</b> on all your future requests.</p>
-        <div class="field"><label for="invLink">Your personal link</label><input id="invLink" readonly value="${esc(link || 'Not available yet')}"></div>
-        <p class="xs muted">${data ? esc(data.count) + ' registered with your link, ' + esc(data.approved) + ' confirmed.' : ''}</p>
-        <div class="ok-msg" id="invMsg"></div>`,
-        actions:[
-          { label:'Open in e-mail', kind:'ghost', onClick: async () => { location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text); } },
-          { label:'Copy invitation text', kind:'ghost', onClick: async (c, box) => { await copy(subject + '\n\n' + text); box.querySelector('#invMsg').textContent = 'Invitation text copied.'; } },
-          { label:'Copy link', kind:'primary', onClick: async (c, box) => { await copy(link); box.querySelector('#invMsg').textContent = 'Link copied.'; } }
-        ] });
+    }else if(kind === 'settings'){ go('settings');
+    }else if(kind === 'privacy'){ FC.consent.open();
+    }else if(kind === 'invite'){ colleagueInvite();
     }else if(kind === 'data'){
       FC.dialog({ title:'My data', body:`<p style="margin-top:0">Download everything we hold about you in ${esc(FC.brand)} as an Excel file. You can also ask us to delete your account; we confirm by e-mail. Quotation and policy records may have to be kept for statutory reasons.</p><div class="ok-msg" id="dMsg"></div><div class="err-msg" id="dErr"></div>`,
         actions:[
@@ -1574,6 +1582,7 @@
   }
   $$('[data-acc]').forEach(b => b.addEventListener('click', () => openAccount(b.dataset.acc)));
   $('#inviteBtn').addEventListener('click', () => openAccount('invite'));
+  if(profile.is_admin || isInsurer){ $('#inviteBtn').hidden = true; $$('[data-acc="invite"]').forEach(x => { x.hidden = true; }); }
   async function copy(t){ try{ await navigator.clipboard.writeText(t); }catch(e){ const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } }
   FC.copy = copy;
 
@@ -1592,6 +1601,106 @@
     FC.saveBlob(await wb.xlsx.writeBuffer(), 'FREIGHTCON_My_Data_' + FC.today() + '.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
 
+
+  // ---------- two-factor authentication (TOTP) ----------
+  async function mfaChallenge(){
+    const { data: f } = await sb.auth.mfa.listFactors(); const tf = ((f && f.totp) || []).find(x => x.status === 'verified'); if(!tf) return true;
+    return FC.dialog({ title:'Two-factor authentication', dismissible:false, body:`<p style="margin-top:0">Enter the 6-digit code from your authenticator app.</p><div class="field"><label for="mfaC">Code</label><input id="mfaC" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div><div class="err-msg" id="mfaE"></div>`,
+      actions:[{ label:'Log out', kind:'ghost', value:false }, { label:'Verify', kind:'primary', onClick: async (c, box) => {
+        const code = box.querySelector('#mfaC').value.trim(); if(!/^\d{6}$/.test(code)){ box.querySelector('#mfaE').textContent = 'Enter the 6 digits.'; return; }
+        const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: tf.id, code }); if(error){ box.querySelector('#mfaE').textContent = 'The code is not correct.'; return; } return true; } }] });
+  }
+  async function mfaEnroll(){
+    const { data, error } = await sb.auth.mfa.enroll({ factorType:'totp', friendlyName:'FREIGHTCON ' + new Date().toISOString().slice(0, 10) });
+    if(error || !data) return toast('Two-factor authentication is not available: ' + ((error && error.message) || 'enrolment failed'), 'error');
+    const ok = await FC.dialog({ title:'Set up two-factor authentication', body:`<p style="margin-top:0">Scan the QR code with an authenticator app (e.g. Microsoft or Google Authenticator), then enter the 6-digit code.</p>
+      <div class="mfa-qr">${data.totp && data.totp.qr_code ? `<img src="${esc(data.totp.qr_code)}" alt="QR code" width="180" height="180">` : ''}</div><p class="xs muted">Or enter this key by hand: <code>${esc((data.totp || {}).secret || '')}</code></p>
+      <div class="field"><label for="mfaN">Code</label><input id="mfaN" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div><div class="err-msg" id="mfaNE"></div>`,
+      actions:[{ label:'Cancel', kind:'ghost', value:false }, { label:'Activate', kind:'primary', onClick: async (c, box) => {
+        const code = box.querySelector('#mfaN').value.trim(); if(!/^\d{6}$/.test(code)){ box.querySelector('#mfaNE').textContent = 'Enter the 6 digits.'; return; }
+        const { error: e2 } = await sb.auth.mfa.challengeAndVerify({ factorId: data.id, code }); if(e2){ box.querySelector('#mfaNE').textContent = 'The code is not correct.'; return; } return true; } }] });
+    if(!ok){ try{ await sb.auth.mfa.unenroll({ factorId: data.id }); }catch(e){} return false; }
+    toast('Two-factor authentication is on.'); return true;
+  }
+
+  // ---------- invite a colleague (own company only; the office decides the policy) ----------
+  async function colleagueInvite(){
+    const { data: cx, error } = await sb.rpc('my_colleague_context');
+    if(error || !cx || !cx.can_invite) return FC.dialog({ title:'Invite a colleague', body:`<p style="margin-top:0">${esc((cx && cx.reason) || 'Colleague invitations are not available for your account.')}</p>` });
+    const others = (cx.offices || []).filter(o => !cx.own_office || o.id !== cx.own_office.id);
+    const box = FC.el(`<div class="rem-form"><p style="margin-top:0" class="small">Your colleague gets our confirmation e-mail, confirms the address and sets a password. The account is linked to your company; the cover (policy) follows the office automatically.</p>
+      <div class="field"><label for="ciCo">Company</label><input id="ciCo" readonly value="${esc(cx.company.name)}"><span class="hint">Locked to your company.</span></div>
+      <div class="grid2"><div class="field"><label for="ciName">Colleague's name *</label><input id="ciName" maxlength="150" autocomplete="off"></div><div class="field"><label for="ciMail">E-mail *</label><input id="ciMail" type="email" maxlength="160" autocomplete="off"></div></div>
+      <div class="field"><label for="ciDep">Department</label><input id="ciDep" maxlength="120" list="ciDeps"><datalist id="ciDeps">${(cx.departments || []).map(d => `<option value="${esc(d)}">`).join('')}</datalist></div>
+      <div class="field"><label>Office</label><div class="seg" id="ciMode" role="radiogroup" aria-label="Office"><button type="button" data-v="same" aria-checked="true">Same office${cx.own_office ? ' (' + esc(cx.own_office.name) + ')' : ''}</button><button type="button" data-v="different" aria-checked="false" ${others.length ? '' : 'disabled title="Your company has no other active office"'}>Different office</button></div></div>
+      <div class="field" id="ciOffF" hidden><label for="ciOff">Office of your company</label><select id="ciOff">${others.map(o => `<option value="${o.id}">${esc(o.name)}${o.location ? ' · ' + esc(o.location) : ''}</option>`).join('')}</select></div>
+      ${(cx.invited || []).length ? `<p class="xs muted">Invited before: ${cx.invited.slice(0, 5).map(x => esc(x.name) + ' (' + esc(FC.date(x.at)) + ')').join(', ')}</p>` : ''}
+      <div class="err-msg" id="ciErr"></div></div>`);
+    box.querySelector('#ciMode').addEventListener('click', e => { const b = e.target.closest('button'); if(!b || b.disabled) return; box.querySelectorAll('#ciMode button').forEach(x => x.setAttribute('aria-checked', String(x === b))); box.querySelector('#ciOffF').hidden = b.dataset.v !== 'different'; });
+    const ok = await FC.dialog({ title:'Invite a colleague', body: box, actions:[{ label:'Cancel', kind:'ghost', value:null }, { label:'Send invitation', kind:'primary', onClick: async () => {
+      const err = t => { box.querySelector('#ciErr').textContent = t; }, name = box.querySelector('#ciName').value.trim(), email = box.querySelector('#ciMail').value.trim().toLowerCase();
+      const mode = box.querySelector('#ciMode [aria-checked="true"]').dataset.v;
+      if(name.length < 2) return err("Enter your colleague's name."); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('Enter a valid e-mail address.');
+      const { data, error: e2 } = await sb.functions.invoke('admin-manage-user', { body: { action:'invite_colleague', email, full_name: FC.dash(name), department: FC.dash(box.querySelector('#ciDep').value.trim()), office_mode: mode, office_id: mode === 'different' ? Number(box.querySelector('#ciOff').value) : null } });
+      const msg = (data && data.error) || (e2 && (e2.message || String(e2)));
+      if(msg) return err(/already/i.test(msg) ? 'This e-mail address is already registered.' : msg); return data; } }] });
+    if(ok){ toast('Invitation sent to ' + (ok.office ? ok.office + ' - ' : '') + ok.company + '. Our team was informed.'); if(curView() === 'settings') renderSettingsView(); }
+  }
+
+  // ---------- GDPR: personal data as JSON / CSV ----------
+  async function exportPersonal(fmt){
+    const { data, error } = await sb.rpc('export_my_data'); if(error) throw error;
+    const stamp = FC.today();
+    if(fmt === 'json') return FC.saveBlob(JSON.stringify(data, null, 2), 'FREIGHTCON_My_Personal_Data_' + stamp + '.json', 'application/json');
+    const rows = [['Section','Record','Field','Value']], val = v => v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    const add = (sec, rec, obj) => Object.entries(obj || {}).forEach(([k, v]) => rows.push([sec, rec, k, val(v)]));
+    add('profile', '', data.profile);
+    ['consent_history','indications','quotations','claims','notifications','invoices'].forEach(sec => (data[sec] || []).forEach((r, i) => add(sec, r.ref || r.number || String(i + 1), r)));
+    const cell = v => /[",;\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    FC.saveBlob('﻿' + rows.map(r => r.map(x => cell(FC.dash(String(x)))).join(';')).join('\n'), 'FREIGHTCON_My_Personal_Data_' + stamp + '.csv', 'text/csv;charset=utf-8');
+  }
+
+  // ---------- Settings (clients, insurers; staff: personal part) ----------
+  const NOTIFY_C = [['quotes','Quotations'],['cases','Requests'],['claims','Claims'],['reminders','Reminders']];
+  async function renderSettingsView(){
+    const host = $('#settingsHost'); if(!host) return;
+    const pref = Object.assign({}, profile.preferences || {}), gd = FC.gdpr || (await sb.rpc('public_gdpr').then(r => r.data || {}, () => ({})));
+    const starts = isInsurer ? [['insurer','Insurer Portal'],['settings','Settings']] : [['new','New Shipment'],['quotes','My Requests / Shipments'],['history','History'],['cover','My cover'],['settings','Settings']];
+    let cx = null; if(!profile.is_admin && !isInsurer){ try{ cx = (await sb.rpc('my_colleague_context')).data; }catch(e){} }
+    let mfa = null; try{ if(sb.auth.mfa && sb.auth.mfa.listFactors){ const { data } = await sb.auth.mfa.listFactors(); mfa = ((data && data.totp) || []).find(x => x.status === 'verified') || false; } }catch(e){}
+    const card = (id, title, html) => `<section class="card set-card" id="${id}"><h2>${title}</h2>${html}</section>`;
+    host.innerHTML = `<div class="view-head"><div><h1>Settings</h1><p>Your profile, security, team, display, notifications and privacy.</p></div></div><div class="set-grid">
+      ${card('sProfile', 'Profile', `<dl class="kv"><dt>Name</dt><dd>${esc(profile.full_name || '')}</dd><dt>Company</dt><dd>${esc(profile.company || '')}</dd><dt>E-mail</dt><dd>${esc(profile.email)}</dd><dt>Address</dt><dd>${esc([profile.address_line, [profile.postcode, profile.city].filter(Boolean).join(' '), profile.country].filter(Boolean).join(', ') || '-')}</dd><dt>Phone</dt><dd>${esc(profile.phone || '-')}</dd></dl><div class="toolbar"><button type="button" class="btn btn-ghost btn-sm" data-act="profile">Edit profile</button></div>`)}
+      ${card('sSec', 'Password &amp; two-factor authentication', `<p class="small muted">Two-factor authentication: <b>${mfa ? 'on' : mfa === false ? 'off' : 'not available'}</b></p><div class="toolbar"><button type="button" class="btn btn-ghost btn-sm" data-act="password">Change password</button>${mfa === false ? '<button type="button" class="btn btn-primary btn-sm" data-act="mfa_on">Turn on two-factor authentication</button>' : mfa ? '<button type="button" class="btn btn-ghost btn-sm" data-act="mfa_off">Turn off two-factor authentication</button>' : ''}</div>`)}
+      ${cx ? card('sTeam', 'Team', cx.can_invite ? `<p class="small muted">Invite colleagues of <b>${esc(cx.company.name)}</b>. They are linked to your company; the cover follows their office.</p>${(cx.invited || []).length ? `<div class="list">${cx.invited.map(x => `<div class="item"><div><div class="t">${esc(x.name)}</div><div class="meta">${esc(x.email)}${x.office ? ' · ' + esc(x.office) : ''} · invited ${esc(FC.date(x.at))}</div></div></div>`).join('')}</div>` : ''}<div class="toolbar"><button type="button" class="btn btn-primary btn-sm" data-act="invite">Invite a colleague</button></div>` : `<p class="small muted">${esc(cx.reason || '')}</p>`) : ''}
+      ${card('sDisp', 'Display', `<div class="grid2"><div class="field"><label for="sCur">Default currency</label><select id="sCur"><option value="">As my company</option>${orgCurs().map(c => `<option ${c === pref.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+        <div class="field"><label for="sLang">Language</label><select id="sLang"><option value="en" selected>English</option></select><span class="hint">The platform is in English; amounts and dates use the format DD.MM.YYYY.</span></div>
+        <div class="field"><label for="sStart">Startup page</label><select id="sStart"><option value="">Default</option>${starts.map(([k, l]) => `<option value="${k}" ${k === profile.default_startup_view ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div></div>
+        <div class="toolbar"><button type="button" class="btn btn-primary btn-sm" data-act="disp">Save display</button></div>`)}
+      ${card('sNot', 'Notifications', `<p class="small muted">How we reach you for each topic: in the portal (bell), by e-mail, both, or not at all.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Topic</th><th>Portal</th><th>E-mail</th><th>Both</th><th>Off</th></tr></thead><tbody>${NOTIFY_C.map(([k, l]) => { const v = (pref.notify || {})[k] || (k === 'reminders' ? 'both' : 'platform'); return `<tr><td>${esc(l)}</td>${['platform','email','both','off'].map(o => `<td><input type="radio" name="sn_${k}" value="${o}" ${o === v ? 'checked' : ''} aria-label="${esc(l)} ${o}"></td>`).join('')}</tr>`; }).join('')}</tbody></table></div>
+        <p class="xs muted">Important messages about your cover and claims are always sent by e-mail.</p><div class="toolbar"><button type="button" class="btn btn-primary btn-sm" data-act="notify">Save notifications</button></div>`)}
+      ${card('sPriv', 'Privacy &amp; GDPR', `<dl class="kv"><dt>Data controller</dt><dd>${esc(gd.controller || 'MARINCON GmbH & Co. KG')}</dd>${gd.contact ? `<dt>Contact</dt><dd>${esc(gd.contact)}</dd>` : ''}<dt>Retention</dt><dd>${esc(gd.retention || '')}</dd><dt>Cookie choice</dt><dd>${(() => { const c = FC.consentGet(); return c ? esc((c.functional ? 'functional on' : 'functional off') + ', ' + (c.analytics ? 'analytics on' : 'analytics off') + ', saved ' + FC.dateTime(c.at)) : 'not set'; })()}</dd></dl>
+        <div class="toolbar"><button type="button" class="btn btn-ghost btn-sm" data-act="cookies">Cookie preferences</button><button type="button" class="btn btn-ghost btn-sm" data-act="json">Export my personal data (JSON)</button><button type="button" class="btn btn-ghost btn-sm" data-act="csv">Export (CSV)</button><button type="button" class="btn btn-ghost btn-sm" data-act="xlsx">Export (Excel)</button><button type="button" class="btn btn-danger btn-sm" data-act="erase">Request account / data erasure</button></div>
+        ${profile.deletion_requested_at ? `<p class="xs muted">Erasure requested ${esc(FC.dateTime(profile.deletion_requested_at))}. We confirm by e-mail.</p>` : ''}<p class="xs"><a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a></p>`)}
+    </div>`;
+    const savePref = async patch => { const { data, error } = await sb.rpc('update_my_preferences', { p: patch }); if(error){ toast(error.message, 'error'); return false; } profile.preferences = data; toast('Saved.'); return true; };
+    host.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', async () => { const a = b.dataset.act;
+      if(a === 'profile' || a === 'password') return openAccount(a);
+      if(a === 'invite') return colleagueInvite();
+      if(a === 'mfa_on'){ if(await mfaEnroll()) renderSettingsView(); return; }
+      if(a === 'mfa_off'){ if(!(await FC.confirm('Turn off two-factor authentication?', 'Logging in then needs the password only.', 'Turn off', 'danger'))) return; const { data } = await sb.auth.mfa.listFactors(); for(const f of ((data && data.totp) || [])) await sb.auth.mfa.unenroll({ factorId: f.id }); toast('Two-factor authentication is off.'); return renderSettingsView(); }
+      if(a === 'disp'){ busy(b, true); const v = host.querySelector('#sStart').value || null; const r1 = await sb.rpc('set_my_startup_view', { p_view: v }); if(r1.error){ busy(b, false); return toast(r1.error.message, 'error'); } profile.default_startup_view = v;
+        const cur = host.querySelector('#sCur').value; await savePref({ currency: cur, language: 'en' }); busy(b, false); if(cur && orgCurs().includes(cur)) segSet($('#fCur'), cur); return; }
+      if(a === 'notify'){ const v = {}; NOTIFY_C.forEach(([k]) => { v[k] = (host.querySelector(`input[name="sn_${k}"]:checked`) || {}).value || 'platform'; }); busy(b, true); await savePref({ notify: Object.assign({}, pref.notify || {}, v) }); busy(b, false); return; }
+      if(a === 'cookies') return FC.consent.open().then(() => renderSettingsView());
+      if(a === 'json' || a === 'csv'){ busy(b, true); try{ await exportPersonal(a); toast('Download started.'); }catch(e){ toast('Could not prepare the download.', 'error'); } busy(b, false); return; }
+      if(a === 'xlsx'){ busy(b, true); try{ await exportData(); }catch(e){ toast('Could not prepare the download.', 'error'); } busy(b, false); return; }
+      if(a === 'erase'){ if(!(await FC.confirm('Request erasure of your account and data?', 'We delete your account and personal data and confirm by e-mail. Quotation, policy and claim records may have to be kept for statutory periods (see retention). You can no longer log in afterwards.', 'Request erasure', 'danger'))) return;
+        const { error } = await sb.rpc('request_account_deletion'); if(error) return toast('Could not send the request.', 'error'); profile.deletion_requested_at = new Date().toISOString(); toast('Request received. We confirm by e-mail.'); renderSettingsView(); }
+    }));
+  }
+  FC.renderSettingsView = renderSettingsView;
+
   // ---------- feedback ----------
   $('#feedbackMenu').addEventListener('click', () => { setMenu(false); $('#feedbackBtn').click(); });
   $('#feedbackBtn').addEventListener('click', () => FC.dialog({ title:'Send feedback',
@@ -1605,5 +1714,10 @@
 
   // ---------- start ----------
   writeForm({});
-  go(location.hash.slice(1) || 'new');
+  { const pc = (profile.preferences || {}).currency; if(pc && orgCurs().includes(pc)) segSet($('#fCur'), pc); }
+  // startup page: the hash, else the user's choice, else the user group, else the role default
+  let startV = location.hash.slice(1), moved = false;
+  if(!startV){ const h0 = location.hash; try{ const { data } = await sb.rpc('my_startup_view'); startV = data || ''; }catch(e){} moved = location.hash !== h0; }
+  if(/^admin:/.test(startV)){ FC.adminStartTab = startV.split(':')[1]; startV = profile.is_admin ? 'admin' : 'new'; }
+  if(!moved) go(startV || 'new');   // the user may have navigated while the startup page was looked up
 })();
