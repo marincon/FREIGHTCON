@@ -8,7 +8,7 @@
 <script>try{var t=localStorage.getItem("freightcon-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);var m=localStorage.getItem("freightcon-motion");if(m==="on"||m==="off")document.documentElement.setAttribute("data-motion",m)}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/carlito-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/carlito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/style.css?v=2026-11-17b">
+<link rel="stylesheet" href="assets/style.css?v=2026-11-18a">
 </head>
 <body>
 <div class="auth">
@@ -101,7 +101,6 @@
         <div class="field" style="margin-top:12px"><label for="reEmail">Business e-mail</label><input id="reEmail" type="email" autocomplete="email" required></div>
         <div class="field"><label for="rePw">Password</label><input id="rePw" type="password" autocomplete="new-password" minlength="8" required><span class="hint">At least 8 characters.</span></div>
         <label class="check"><input type="checkbox" id="reTerms"><span>I accept the <a href="terms.html" target="_blank" rel="noopener">Terms of Use</a> and have read the <a href="privacy.html" target="_blank" rel="noopener">Privacy Notice</a>.</span></label>
-        <div class="xs muted" id="reRef" hidden style="margin-top:10px"></div>
         <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit"><span class="spin"></span>Create account</button>
         <div class="auth-msg" id="reMsg" role="alert"></div>
         <p class="switch-mode">Already registered? <button type="button" class="linkbtn" data-go="login">Log in</button></p>
@@ -127,14 +126,14 @@
         <div class="auth-msg" id="rsMsg" role="alert"></div>
       </form>
 
-      <p class="legal"><a href="terms.html">Terms of Use</a> &nbsp;&middot;&nbsp; <a href="privacy.html">Privacy</a> &nbsp;&middot;&nbsp; <a href="imprint.html">Imprint</a></p>
+      <p class="legal"><a href="terms.html">Terms of Use</a> &nbsp;&middot;&nbsp; <a href="privacy.html">Privacy</a> &nbsp;&middot;&nbsp; <a href="imprint.html">Imprint</a> &nbsp;&middot;&nbsp; <a href="#" data-cookie-prefs>Cookie settings</a></p>
     </div>
   </section>
 </div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="assets/core.js?v=2026-11-17b"></script>
+<script src="assets/core.js?v=2026-11-18a"></script>
 <script>
 (async () => {
   const { $, sb, busy, esc } = FC;
@@ -147,17 +146,15 @@
   document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
   const msg = (id, text, ok) => { const m = $(id); m.textContent = text || ''; m.className = 'auth-msg' + (text ? ' show ' + (ok ? 'ok' : 'err') : ''); };
 
-  // invitation link: ?ref=CODE (kept for the session, shown on the register form)
   const params = new URLSearchParams(location.search);
-  let ref = (params.get('ref') || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
-  try{ if(ref) sessionStorage.setItem('fc_ref', ref); else ref = sessionStorage.getItem('fc_ref') || ''; }catch(e){}
-  if(ref){ $('#reRef').hidden = false; $('#reRef').textContent = 'You were invited with code ' + ref + '.'; show('register'); }
   if(params.get('idle')) msg('#liMsg', 'You were logged out after 60 minutes without activity.', true);
   if(params.get('mode') === 'register') show('register');
 
   // password recovery link lands here with a recovery session
   sb.auth.onAuthStateChange(ev => { if(ev === 'PASSWORD_RECOVERY') show('reset'); });
   if(/type=recovery/.test(location.hash)) show('reset');
+  // colleague invitation: the standard invite link confirms the e-mail; the colleague sets a password here
+  if(/type=invite/.test(location.hash)){ show('reset'); msg('#rsMsg', 'Welcome! Your colleague invited you. Choose your password to activate your account.', true); }
 
   async function enterIfAllowed(){
     const { data: { session } } = await sb.auth.getSession();
@@ -194,11 +191,10 @@
     const { error } = await sb.auth.signUp({
       email: v('#reEmail'), password: $('#rePw').value,
       options: { emailRedirectTo: location.origin + location.pathname,
-                 data: { first_name: v('#reFirst'), last_name: v('#reLast'), full_name: v('#reFirst') + ' ' + v('#reLast'), company: v('#reCompany'), address_line: v('#reAddr'), postcode: v('#reZip'), city: v('#reCity'), country: v('#reCountry'), phone: v('#rePhone'), ref } }
+                 data: { first_name: v('#reFirst'), last_name: v('#reLast'), full_name: v('#reFirst') + ' ' + v('#reLast'), company: v('#reCompany'), address_line: v('#reAddr'), postcode: v('#reZip'), city: v('#reCity'), country: v('#reCountry'), phone: v('#rePhone') } }
     });
     busy(b, false);
     if(error){ msg('#reMsg', /registered|exists/i.test(error.message) ? 'An account with this e-mail already exists. Log in or reset your password.' : 'Registration did not go through: ' + error.message); return; }
-    try{ sessionStorage.removeItem('fc_ref'); }catch(e){}
     $('#fRegister').querySelectorAll('input,button[type=submit]').forEach(x => x.disabled = true);
     msg('#reMsg', 'Almost done. Confirm your e-mail address with the link we just sent. We then check your account and let you know when it is active.', true);
   });
