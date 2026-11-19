@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-18a';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-18b';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -210,6 +210,19 @@
     return st === 'expired' ? `<span class="chip declined vchip" title="${FC.esc(FC.dateTime(v))}">Expired</span>`
       : st === 'soon' ? `<span class="chip pending vchip" title="${FC.esc(FC.dateTime(v))}">Expiring Soon</span> <span class="chip neutral vchip">Valid until ${FC.dmy(v)}</span>`
       : `<span class="chip neutral vchip" title="${FC.esc(FC.dateTime(v))}">Valid until ${FC.dmy(v)}</span>`; };
+  // ---------- certificate rights: the one helper for every certificate button ----------
+  // Staff (admin, placing, claims) may ALWAYS issue / generate certificates (.fdf or platform PDF) for any case, client or policy.
+  // Clients: the right comes from their tree. The server resolves it (my_features, case_certificate_rights) with
+  // "most specific explicit setting wins": user > subcategory (policy) > office > client (company) > client group; nothing set = no.
+  FC.isStaffProfile = p => !!(p && (p.is_admin === true || ['staff','admin','admins','placing','claims','broker'].includes(String(p.user_group || p.role || '').toLowerCase())));
+  FC.canCurrentUserIssueCertificate = (targetRecord, currentUserProfile) => {
+    if(FC.isStaffProfile(currentUserProfile)) return true;
+    const t = targetRecord || {};
+    if(t.can_issue_certificates === true || t.can_issue_certificates === false) return t.can_issue_certificates;   // resolved on the server
+    const company = t.company || t.customer || {}, tree = [currentUserProfile, t.policy, t.office, company, company.parent_group || company.company_group || company.group];
+    const v = tree.map(x => x && x.can_issue_certificates).find(x => x === true || x === false);
+    return v === true;
+  };
   // claims lifecycle (client and staff use the same labels)
   FC.CLAIM_STATUS = { new_claim:'New Claim', under_review:'Working on it / Under Review', survey_ordered:'Surveyor Instructed / Awaiting Docs', submitted_to_insurer:'Submitted to Insurer',
     offer_settlement:'Settlement Offered / Agreed', paid_settled:'Settled / Paid', repudiated_declined:'Declined / Repudiated', closed:'Closed' };

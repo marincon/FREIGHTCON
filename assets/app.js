@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-18a'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-18b'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -32,8 +32,9 @@
   FC.setPartyRoles(settings.party_roles);
   // features switched on by staff (loaded early: everything below is wired without waiting)
   const FEAT = await featP;
-  // the one rule for certificates: can_issue_certificates of the client company (subcategory may override), resolved in my_features()
-  const canClientIssueCertificate = () => FEAT.can_issue_certificates === true;
+  // certificates: FC.canCurrentUserIssueCertificate() - staff always; clients by their tree, resolved in my_features()
+  // (user > subcategory > office > client > client group)
+  const canClientIssueCertificate = () => FC.canCurrentUserIssueCertificate(FEAT, profile);
   // open cover clients: office → policy; some groups only send requests (no premium shown)
   let org = null; try{ const r = await sb.rpc('my_org'); org = r.data || null; }catch(e){}
   FC.org = org;
@@ -959,7 +960,7 @@
     if(v === 'cover') loadCover();
     if(v === 'settings') renderSettingsView();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-18a');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-18b');
       if(FC.adminStartTab && window.FCAdmin.setTab){ window.FCAdmin.setTab(FC.adminStartTab); FC.adminStartTab = null; }
       window.FCAdmin.open($('#view-admin'));
     }
@@ -970,7 +971,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-18a').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-18b').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];

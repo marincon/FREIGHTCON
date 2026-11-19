@@ -483,10 +483,11 @@
   }
   A.filterKit = filterKit;
 
-  // ---------------- certificates: one rule for every client ----------------
-  // can_issue_certificates of the subcategory (if set), else of the client; direct certificates always
-  // the one rule: can_issue_certificates of the client (subcategory may override); no name or cover type checks anywhere
-  const canClientIssueCertificate = x => {
+  // ---------------- certificates ----------------
+  // Staff are never blocked: every certificate button in the internal view asks canIssueCert(), which is always true for staff.
+  // clientCertRight() only tells whether the CLIENT may issue (shown as information, never used to hide staff actions).
+  const canIssueCert = x => FC.canCurrentUserIssueCertificate(x, me());
+  const clientCertRight = x => {
     if(!x) return false;
     if(x.goods_description !== undefined || x.quote_requested_at !== undefined){   // a case
       const v = S.certRights[x.id];
@@ -494,7 +495,8 @@
     }
     return x.can_issue_certificates === true;   // a client (company) record
   };
-  A.canClientIssueCertificate = canClientIssueCertificate;
+  A.canClientIssueCertificate = clientCertRight;
+  A.canIssueCert = canIssueCert;
   const certModeOf = r => (S.certRights[r.id] || {}).certificate_mode || certMode(r);
   const certLabel = r => certModeOf(r) === 'fdf_export' ? 'Generate Certificate (.fdf)' : 'Issue Certificate (PDF)';
   // the same handler everywhere: case drawer, ⋮ menus, certificates list
@@ -502,7 +504,7 @@
   // download an issued certificate in the client's format
   const certDownload = c => { const r = S.rows.find(x => x.id === c.indication_id); if(r && certModeOf(r) === 'platform_pdf') return printCaseDoc(r, 'certificate', Object.assign({}, c.data || {}, { no: c.number })); return fdfDownload(c); };
   // the certificate entries of a ⋮ menu
-  const certMenuItems = r => { if(!canClientIssueCertificate(r)) return [];
+  const certMenuItems = r => { if(!canIssueCert(r)) return [];
     const cs = S.certs.filter(c => c.indication_id === r.id && c.status !== 'cancelled'), last = cs[cs.length - 1];
     return last ? [['Download certificate (.fdf / PDF)', () => certDownload(last)], ['Issue new certificate', () => issueCertificate(r)]] : [[certModeOf(r) === 'fdf_export' ? 'Download certificate (.fdf)' : 'Issue certificate', () => issueCertificate(r)]]; };
 
@@ -656,7 +658,7 @@
             hasRole('claims') ? ['Open claim from shipment', () => createClaimDialog({ indication: x.r, certificate_id: x.c.id })] : null, '-',
             ['Amend certificate', () => certificateDialog(x.r, x.c).then(async ok => { if(ok){ await sb.from('certificates').update({ status:'amended' }).eq('id', x.c.id); await loadAll(); render(); } })],
             x.c.status !== 'cancelled' ? ['Cancel / void…', () => cancelCert(x.c), 'danger'] : ['Reinstate as issued', async () => { await sb.from('certificates').update({ status:'issued', status_note:null }).eq('id', x.c.id); await loadAll(); render(); }],
-            canClientIssueCertificate(x.r) ? ['Issue new certificate for this case', () => issueCertificate(x.r)] : null, '-', ...recordItems('certificate', x.c, x.c.number)],
+            canIssueCert(x.r) ? ['Issue new certificate for this case', () => issueCertificate(x.r)] : null, '-', ...recordItems('certificate', x.c, x.c.number)],
           bulk:[ [ARCH.certificate === 'archive' ? 'Restore to main tab' : 'Archive', rs => { ctSel.clear(); return setArchived('certificate', rs.map(x => x.c.id), ARCH.certificate !== 'archive'); }],
             ['Download .fdf files', async rs => { for(const x of rs){ fdfDownload(x.c); await new Promise(res => setTimeout(res, 250)); } }],
             ['Export CSV', rs => csvSave('FREIGHTCON_certificates', ['Number','State','Mode','Case','Client','Holder','Currency','Sum insured','Policy year','Issued','Issued by'], rs.map(x => [x.c.number, x.c.status || 'issued', x.c.numbering_mode, x.r.ref, who(x.r).company, (x.c.data || {}).holder, (x.c.data || {}).curr, (x.c.data || {}).sum, (S.polYears.find(z => z.id === x.c.policy_year_id) || {}).label || '', x.c.created_at, certIssuer(x.c)]))] ] });
@@ -1307,7 +1309,7 @@
         // certificates: for every client with can_issue_certificates, at any stage
         const cs1 = cs0.filter(c => c.status !== 'cancelled');
         if(cs1.length) top.appendChild(btn('Download certificate (.fdf / PDF)', 'ok', () => certDownload(cs1[cs1.length - 1])));
-        if(canClientIssueCertificate(r)) top.appendChild(btn(cs1.length ? 'Issue new certificate' : certLabel(r), cs1.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
+        if(canIssueCert(r)) top.appendChild(btn(cs1.length ? 'Issue new certificate' : certLabel(r), cs1.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
         if(stg(r) !== 'closed') top.appendChild(btn('Close case…', 'ghost', () => closeCases([r.id]).then(ok => ok && refresh())));
         if(dueRem('case', r.id).length) top.prepend(FC.el('<span class="chip declined rem-due">Reminder Due</span>'));
         top.appendChild(btn(r.is_archived ? 'Restore to main tab' : 'Archive', 'ghost', () => setArchived('case', [r.id], !r.is_archived).then(refresh)));
@@ -1386,7 +1388,7 @@
         $('#csCertActs', body).appendChild(btn(cs.length ? 'New certificate' : 'Create certificate', cs.length ? 'ghost' : 'primary', () => certificateDialog(r).then(ok => ok && refresh())));
       }
       $('#csCoverActs', body).appendChild(btn('Issue cover note', accepted ? 'primary' : 'ghost', () => coverNoteEditor(r, accepted || qs.filter(q => q.status !== 'superseded').pop()).then(ok => ok && refresh())));
-      if(canClientIssueCertificate(r)) $('#csCoverActs', body).appendChild(btn(certLabel(r), accepted ? 'primary' : 'ghost', () => certificateDialog(r).then(ok => ok && refresh())));
+      if(canIssueCert(r)) $('#csCoverActs', body).appendChild(btn(certLabel(r), accepted ? 'primary' : 'ghost', () => certificateDialog(r).then(ok => ok && refresh())));
       // invoices
       const { data: invs } = await sb.from('invoices').select('*').eq('indication_id', r.id).order('created_at');
       const ih = $('#csInv', body);
@@ -2140,18 +2142,18 @@
       return true;
     };
     const fileBase = x => 'Certificate_' + String(x.no).replace(/[^\w-]+/g, '_') + (r.ref ? '_' + r.ref : '');
-    return FC.dialog({ title: (existing ? 'Certificate ' + existing.number : 'New certificate') + ' · ' + (og.policy ? og.policy.name : '') + ' · ' + (certMode(r) === 'fdf_export' ? '.fdf data file' : 'platform certification document'), wide:true, body, actions:[
+    return FC.dialog({ title: (existing ? 'Certificate ' + existing.number : 'New certificate') + ' · ' + (og.policy ? og.policy.name : '') + ' · ' + 'default: ' + (certMode(r) === 'fdf_export' ? '.fdf data file' : 'platform certification document (PDF)'), wide:true, body, actions:[
       { label:'Cancel', kind:'ghost', value:null },
       { label:'Upload blank form', kind:'ghost', onClick: async () => {
           const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
           inp.onchange = async () => { const fl = inp.files[0]; if(!fl) return; const { error } = await sb.storage.from('forms').upload(CERT_PATH, fl, { upsert:true, contentType:'application/pdf' }); toast(error ? 'Upload failed: ' + error.message : 'Blank form stored.', error ? 'error' : undefined); };
           inp.click();
         } },
-      certMode(r) === 'platform_pdf' ? { label:'Issue certificate (PDF)', kind:'primary', onClick: async () => {
+      { label:'Issue certificate (PDF)', kind: certMode(r) === 'platform_pdf' ? 'primary' : 'ghost', onClick: async () => {
           const x = collect(); if(!x) return; if(!(await store(x))) return;
           await printCaseDoc(r, 'certificate', Object.assign({ deductible: (q && q.data && q.data.deductible) || '' }, x));
           toast('Certificate ' + x.no + ' saved.'); return true;
-        } } : null,
+        } },
       { label:'Download .fdf', kind: certMode(r) === 'fdf_export' ? 'primary' : 'ghost', onClick: async () => {
           const x = collect(); if(!x) return; if(!(await store(x))) return;
           FC.saveBlob(FCPDF.fdf('', formFields(x)), fileBase(x) + '.fdf', 'application/vnd.fdf');
@@ -3424,7 +3426,8 @@
         <div class="field"><label for="gdDom">E-mail domains <span class="muted">(comma separated, e.g. bertling.com)</span></label><input id="gdDom" value="${esc(g ? (g.email_domains || []).join(', ') : '')}"></div>
         <div class="field"><label for="gdSort">Sort</label><input id="gdSort" inputmode="numeric" value="${esc(g ? g.sort : 100)}"></div>
         <div class="field"><label>Allowed currencies</label>${curBoxes('gdCurs', g ? g.currencies : [])}</div></div>
-      <div class="grid2"><div class="field"><label for="gdIvm">External invoice value</label>${ivmSel('gdIvm', g && g.external_invoice_value_mode, '', true)}<span class="hint">Mandatory (default) or optional ("or about") on the client request form. Client, subcategory and user can override it.</span></div>
+      <div class="grid2"><div class="field"><label for="gdCert">Certificates for the clients of this group</label><select id="gdCert"><option value="" ${!g || g.can_issue_certificates == null ? 'selected' : ''}>As each client</option><option value="true" ${g && g.can_issue_certificates === true ? 'selected' : ''}>Yes, where the client has no setting</option><option value="false" ${g && g.can_issue_certificates === false ? 'selected' : ''}>No, where the client has no setting</option></select><span class="hint">Staff can always issue certificates.</span></div>
+        <div class="field"><label for="gdIvm">External invoice value</label>${ivmSel('gdIvm', g && g.external_invoice_value_mode, '', true)}<span class="hint">Mandatory (default) or optional ("or about") on the client request form. Client, subcategory and user can override it.</span></div>
         <div class="field"><label for="gdMode">Quotations show the client</label>${modeSel('gdMode', g && g.quote_display_mode, 'As the configuration (' + (FC.DISPLAY[setting('quote_display_mode', 'both')] || 'both') + ')')}</div></div>
       <label class="switch"><input type="checkbox" id="gdShow" ${!g || g.show_premium ? 'checked' : ''}><span><b>Clients see the indicative premium</b><span>Off: the portal only takes declarations and requests. Set by staff only; a client or policy can be set differently by staff.</span></span></label>
       <div class="field" style="margin-top:12px"><label for="gdNotes">Internal notes</label><textarea id="gdNotes" rows="2" maxlength="1000">${esc(g ? g.notes || '' : '')}</textarea></div>
@@ -3435,7 +3438,8 @@
       const name = body.querySelector('#gdName').value.trim(); if(!name){ body.querySelector('#gdErr').textContent = 'Name required.'; return; }
       const doms = body.querySelector('#gdDom').value.split(/[,;\s]+/).map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
       if(doms.some(d => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))){ body.querySelector('#gdErr').textContent = 'Please enter domains like bertling.com.'; return; }
-      const row = { name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, external_invoice_value_mode: body.querySelector('#gdIvm').value, quote_display_mode: body.querySelector('#gdMode').value || null, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
+      const gcv = body.querySelector('#gdCert').value;
+      const row = { can_issue_certificates: gcv === '' ? null : gcv === 'true', name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, external_invoice_value_mode: body.querySelector('#gdIvm').value, quote_display_mode: body.querySelector('#gdMode').value || null, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
       return (await saveRow('client_groups', row, g && g.id)) ? true : undefined;
     } });
     FC.dialog({ title: g ? 'Client group' : 'New client group', body, actions });
@@ -3727,6 +3731,7 @@
         <div class="field" style="grid-column:1/-1"><label>Also covered by <span class="muted">(further subcategories this office may declare under)</span></label><div id="odPols" class="ded-offs"></div></div>
         <div class="field"><label for="odSub">Subcategory <span class="muted">(e.g. Singapore)</span></label><input id="odSub" maxlength="60" value="${esc(o ? o.subcategory || '' : '')}"></div>
         <div class="field"><label>Allowed currencies <span class="muted">(this office only)</span></label>${curBoxes('odCurs', o ? o.currencies : [])}</div>
+        <div class="field"><label for="odCert">Certificates for this office</label><select id="odCert"><option value="" ${!o || o.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / client</option><option value="true" ${o && o.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${o && o.can_issue_certificates === false ? 'selected' : ''}>No</option></select></div>
         <div class="field"><label for="odSort">Sort</label><input id="odSort" inputmode="numeric" value="${esc(o ? o.sort : 100)}"></div>
         <div class="field"><label for="odMin">Minimum premium <span class="muted" id="odMinH"></span></label><input id="odMin" inputmode="decimal" value="${esc(o ? o.min_premium ?? '' : '')}"></div>
         <div class="field"><label for="odDed">Deductible <span class="muted" id="odDedH"></span></label><input id="odDed" inputmode="decimal" value="${esc(o ? o.deductible ?? '' : '')}"></div>
@@ -3746,7 +3751,7 @@
       if(!v('#odName')) return void (body.querySelector('#odErr').textContent = 'Name required.');
       const mn = numOrNull(v('#odMin')), dd = numOrNull(v('#odDed'));
       if((mn != null && !(mn >= 0)) || (dd != null && !(dd >= 0))) return void (body.querySelector('#odErr').textContent = 'Amounts must be numbers of 0 or more, or empty.');
-      const row = { name: v('#odName'), location: v('#odLoc') || null, country: v('#odCty') || null, kind: v('#odKind'), customer_id: Number(v('#odCust')), policy_id: Number(v('#odPol')) || null, subcategory: v('#odSub') || null,
+      const row = { can_issue_certificates: v('#odCert') === '' ? null : v('#odCert') === 'true', name: v('#odName'), location: v('#odLoc') || null, country: v('#odCty') || null, kind: v('#odKind'), customer_id: Number(v('#odCust')), policy_id: Number(v('#odPol')) || null, subcategory: v('#odSub') || null,
         currencies: readCurs(body, 'odCurs'), min_premium: mn, deductible: dd, contacts: v('#odCon') || null, active: body.querySelector('#odActive').checked, sort: Number(v('#odSort')) || 100 };
       const saved = await saveRow('offices', row, o && o.id); if(!saved) return;
       const oid = o ? o.id : saved.id;
@@ -3785,6 +3790,7 @@
         <div class="field"><label>Currencies</label><div class="xs" id="ecCurs" style="padding-top:10px"></div></div>
         <div class="field"><label for="ecMin">Minimum premium for this user <span class="muted">(empty = office / policy)</span></label><input id="ecMin" inputmode="decimal" value="${esc(p.min_premium_override ?? '')}"></div>
         <div class="field"><label for="ecDed">Deductible for this user <span class="muted">(empty = office / policy)</span></label><input id="ecDed" inputmode="decimal" value="${esc(p.deductible_override ?? '')}"></div>
+        ${p.is_admin ? '' : `<div class="field"><label for="ecCert">Certificates for this user</label><select id="ecCert"><option value="" ${p.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / office / client / group</option><option value="true" ${p.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${p.can_issue_certificates === false ? 'selected' : ''}>No</option></select><span class="hint">The most specific setting wins: user, subcategory, office, client, client group.</span></div>`}
         <div class="field"><label for="ecIvm">External invoice value</label>${ivmSel('ecIvm', p.external_invoice_value_mode, 'As the subcategory / client / group')}<span class="hint">The most specific setting wins: user, subcategory, client, client group (default mandatory).</span></div>
       </div>
       <p class="xs muted" id="ecEff" style="margin:-4px 0 0"></p>
@@ -3823,6 +3829,7 @@
         approved: st === 'active', rejected: st === 'rejected', customer_id: cid, office_id: offId, cover_type: body.querySelector('#ecCover').value || null,
         group_id: cid ? (custOf(cid) || {}).group_id || null : null,
         min_premium_override: minO ? FC.parseNum(minO) : null, deductible_override: dedO ? FC.parseNum(dedO) : null, external_invoice_value_mode: body.querySelector('#ecIvm').value };
+      if(body.querySelector('#ecCert')) patch.can_issue_certificates = body.querySelector('#ecCert').value === '' ? null : body.querySelector('#ecCert').value === 'true';
       const ac = readAccess(body); if(ac.error){ body.querySelector('#ecErr').textContent = ac.error; return; }
       patch.department_id = ac.department_id;
       if(p.id !== me().id && isStaffAdmin()){ Object.assign(patch, { is_admin: ac.is_admin, user_group_id: ac.user_group_id, staff_roles: ac.staff_roles, insurer_id: ac.insurer_id }); }
@@ -5462,7 +5469,7 @@
       else acts.appendChild(btn('Open in Requests', 'primary', () => openCase(saved.id)));
       // direct certificate: case created now (retroactively, stage bound), certificate data file straight away
       const dcu = nq.mode === 'client' ? custOf(L.args.p_customer) : null;
-      if(!saved && canClientIssueCertificate(dcu)) acts.appendChild(btn('Issue certificate directly', 'ok', async b => {
+      if(!saved && canIssueCert(dcu)) acts.appendChild(btn('Issue certificate directly', 'ok', async b => {
         const al = (x.alerts || []).filter(a => a.level === 'red' || a.level === 'orange');
         if(x.status !== 'quoted' || al.length || L.data.one_off){
           const why = [x.status !== 'quoted' ? 'no automatic rate (' + (FC.STATUS[x.status] || x.status) + ')' : '', L.data.one_off ? 'out of cover' : ''].concat(al.map(a => a.text)).filter(Boolean);
