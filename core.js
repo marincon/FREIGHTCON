@@ -1,18 +1,28 @@
-/* FREIGHTCON — shared helpers (loaded by every page after config.js and supabase-js) */
+/* FREIGHTCON - shared helpers (loaded by every page after config.js and supabase-js) */
 (function(){
   'use strict';
   const FC = window.FC = {};
 
   // ---------- theme (before paint) ----------
   try{ const t = localStorage.getItem('freightcon-theme'); if(t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t); }catch(e){}
+  try{ const m = localStorage.getItem('freightcon-motion'); if(m === 'on' || m === 'off') document.documentElement.setAttribute('data-motion', m); }catch(e){}
+  // animations: 'auto' follows the system setting, 'on' / 'off' overrides it (account menu)
+  FC.motionPref = () => document.documentElement.getAttribute('data-motion') || 'auto';
+  FC.setMotion = m => { if(m === 'auto') document.documentElement.removeAttribute('data-motion'); else document.documentElement.setAttribute('data-motion', m); try{ m === 'auto' || !FC.consentAllows('functional') ? localStorage.removeItem('freightcon-motion') : localStorage.setItem('freightcon-motion', m); }catch(e){} };
   FC.isDark = () => {
     const t = document.documentElement.getAttribute('data-theme');
     return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   };
-  FC.toggleTheme = () => {
+  FC.toggleTheme = (originEl) => {
     const next = FC.isDark() ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    try{ localStorage.setItem('freightcon-theme', next); }catch(e){}
+    const apply = () => { document.documentElement.setAttribute('data-theme', next); try{ if(FC.consentAllows('functional')) localStorage.setItem('freightcon-theme', next); }catch(e){} if(FC.onTheme) FC.onTheme(); };
+    // circular reveal from the button (View Transitions; browsers without it switch instantly)
+    if(!document.startViewTransition || FC.reducedMotion()){ apply(); return; }
+    const r = originEl && originEl.getBoundingClientRect ? originEl.getBoundingClientRect() : { left: innerWidth - 60, top: 20, width: 0, height: 0 };
+    const x = r.left + r.width / 2, y = r.top + r.height / 2, rad = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    const vt = document.startViewTransition(apply);
+    vt.ready.then(() => document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${rad}px at ${x}px ${y}px)`] },
+      { duration: 550, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' })).catch(() => {});
   };
 
   // ---------- supabase ----------
@@ -23,7 +33,57 @@
   FC.supportEmail = window.FREIGHTCON_SUPPORT_EMAIL || '';
 
   // ---------- text & numbers ----------
-  FC.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
+  // persistent release footer on every page (version from app.html's meta, else the version of this file)
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-19c';
+  const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
+  // client / assured role (staff can extend the list in Settings: setting party_roles)
+  FC.PARTY_ROLES = [['seller','Client is the Seller (Exporter)'],['buyer','Client is the Buyer (Importer)'],['forwarder','Client is the Freight Forwarder'],['obo_seller','Acting on behalf of Seller'],
+    ['obo_buyer','Acting on behalf of Buyer'],['obo_owner','Acting on behalf of Cargo Owner / Third Party'],['planner','Shipping Planner / Logistics Coordinator'],['cargo_owner','Cargo Owner'],
+    ['charterer','Charterer / Vessel Operator'],['epc','Project Contractor / EPC'],['other','Other (specify role)']];
+  FC.setPartyRoles = list => { if(Array.isArray(list) && list.length){ const l = list.filter(x => x && x.code && x.label).map(x => [String(x.code), FC.dash(x.label)]); if(!l.some(x => x[0] === 'other')) l.push(['other', 'Other (specify role)']); if(l.length > 1) FC.PARTY_ROLES = l; } };
+  FC.partyLabel = (code, other) => code === 'other' && other ? 'Other: ' + other : ((FC.PARTY_ROLES.find(x => x[0] === code) || [0, code || ''])[1]);
+  // which side of the sale a role stands on (for Incoterm risk and interest-only cover)
+  FC.partySide = code => /^(seller|obo_seller)$/.test(code || '') ? 'seller' : /^(buyer|obo_buyer)$/.test(code || '') ? 'buyer' : null;
+  FC.partyOptions = (sel) => FC.PARTY_ROLES.map(([k, l]) => `<option value="${k}" ${k === (sel || 'seller') ? 'selected' : ''}>${FC.esc(l)}</option>`).join('');
+  FC.dash = s => String(s == null ? '' : s).replace(/[\u2012\u2013\u2014\u2015\u2212]/g, '-');
+  FC.esc = s => FC.dash(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  // counts a number up to its value (respects reduced motion)
+  FC.reducedMotion = () => { const m = FC.motionPref(); if(m === 'on') return false; if(m === 'off') return true; try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } };
+  // route arc for the result card: air flies a high arc, sea a flat one, road and rail a straight line
+  FC.routeArc = (conv, iconSvg, label) => {
+    const d = /^air/.test(conv) ? 'M8 54 Q130 -18 252 54' : /^sea/.test(conv) ? 'M8 46 Q130 12 252 46' : 'M8 38 L252 38';
+    const id = 'rc' + (FC._rc = (FC._rc || 0) + 1);
+    // the drawn part of the route is revealed by a clip rectangle (dash tricks break with non-scaling strokes)
+    return `<div class="track arc" data-conv="${FC.esc(conv)}"><svg viewBox="0 0 260 64" preserveAspectRatio="none" aria-hidden="true">
+      <defs><clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect class="rc" x="0" y="-40" width="260" height="140"/></clipPath></defs>
+      <path class="base" d="${d}" vector-effect="non-scaling-stroke"/><path class="trail" d="${d}" clip-path="url(#${id})" vector-effect="non-scaling-stroke"/>
+      ${/^sea/.test(conv) ? '<path class="waves" d="M70 60q8-5 16 0t16 0 16 0 16 0 16 0 16 0 16 0 16 0" vector-effect="non-scaling-stroke"/>' : ''}
+      </svg><i class="dot a"></i><i class="dot b"></i><span class="mode" title="${FC.esc(label || '')}">${iconSvg || ''}</span></div>`;
+  };
+  FC.playRoute = (track, animate) => {
+    if(!track) return;
+    const path = track.querySelector('.trail'), mode = track.querySelector('.mode'), svg = track.querySelector('svg'), dotB = track.querySelector('.dot.b'), dotA = track.querySelector('.dot.a');
+    const L = path.getTotalLength(), vb = svg.viewBox.baseVal;
+    const place = (el, t) => { const p = path.getPointAtLength(L * t); el.style.left = (p.x / vb.width * 100) + '%'; el.style.top = (p.y / vb.height * 100) + '%'; };
+    place(dotA, 0); place(dotB, 1);
+    const rc = track.querySelector('.rc'); const draw = (k) => { if(rc) rc.setAttribute('width', String(Math.max(0, 260 * k))); };
+    // signature animation: runs unless animations are switched off in the account menu (slow, no flashing)
+    if(!animate || FC.motionPref() === 'off'){ draw(1); place(mode, .5); return; }
+    const t0 = performance.now(), D = 1300, ease = x => 1 - Math.pow(1 - x, 3);
+    const step = t => { const k = Math.min(1, (t - t0) / D), e = ease(k); draw(e); place(mode, .5 * e); if(k < 1) requestAnimationFrame(step); else dotB.classList.add('ping'); };
+    draw(0); place(mode, 0); requestAnimationFrame(step);
+  };
+  FC.countUp = (el, to, fmt, ms) => {
+    if(!el || !isFinite(to)) return; fmt = fmt || (v => String(Math.round(v)));
+    if(FC.motionPref() === 'off'){ el.textContent = fmt(to); return; }
+    const t0 = performance.now(), d = ms || 700, ease = x => 1 - Math.pow(1 - x, 3);
+    const step = t => { const k = Math.min(1, (t - t0) / d); el.textContent = fmt(to * ease(k)); if(k < 1) requestAnimationFrame(step); else el.textContent = fmt(to); };
+    el.textContent = fmt(0); requestAnimationFrame(step);
+  };
+  FC.shipArt = '<svg class="ship-art" viewBox="0 0 160 70" aria-hidden="true"><g class="hull"><path d="M22 40h112l-12 16H36z" fill="var(--harbour)"/><rect x="44" y="26" width="20" height="14" rx="1.5" fill="#009FE3"/><rect x="66" y="26" width="20" height="14" rx="1.5" fill="var(--teal)"/><rect x="88" y="26" width="20" height="14" rx="1.5" fill="#9FD9F3"/><rect x="66" y="13" width="20" height="13" rx="1.5" fill="#009FE3"/><path d="M114 40V22h10v18" fill="var(--harbour)"/></g><path class="sea" d="M-40 60q10-6 20 0t20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0" stroke="var(--teal)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+  FC.tick = '<svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>';
   FC.parseNum = v => {
     if(typeof v === 'number') return v;
     const s = String(v == null ? '' : v).trim().replace(/\s/g, '');
@@ -40,20 +100,20 @@
     const n = Number(t);
     return isFinite(n) ? n : NaN;
   };
-  const SYM = { EUR:'€', USD:'$' };
+  const SYM = { EUR:'€', USD:'$', GBP:'£', SGD:'S$' };
   FC.money = (n, cur, dec) => {
-    if(n == null || n === '' || !isFinite(Number(n))) return '—';
+    if(n == null || n === '' || !isFinite(Number(n))) return '-';
     const d = dec == null ? (Math.abs(Number(n)) < 1000 && Number(n) % 1 !== 0 ? 2 : 0) : dec;
     return (SYM[cur] || (cur ? cur + ' ' : '')) + Number(n).toLocaleString('en-GB', { minimumFractionDigits:d, maximumFractionDigits:d });
   };
   FC.money2 = (n, cur) => FC.money(n, cur, 2);
-  FC.pct = (n, d) => n == null ? '—' : Number(n).toLocaleString('en-GB', { minimumFractionDigits:d == null ? 3 : d, maximumFractionDigits:4 }) + ' %';
+  FC.pct = (n, d) => n == null ? '-' : Number(n).toLocaleString('en-GB', { minimumFractionDigits:d == null ? 3 : d, maximumFractionDigits:4 }) + ' %';
   FC.groupInput = el => {
     el.addEventListener('blur', () => { const n = FC.parseNum(el.value); if(isFinite(n) && n > 0) el.value = n.toLocaleString('en-GB', { maximumFractionDigits:2 }); });
     el.addEventListener('focus', () => { const n = FC.parseNum(el.value); if(isFinite(n) && n > 0) el.value = String(n); });
   };
-  FC.date = v => { if(!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); };
-  FC.dateTime = v => { if(!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); };
+  FC.date = v => { if(!v) return '-'; const d = new Date(v); return isNaN(d) ? '-' : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); };
+  FC.dateTime = v => { if(!v) return '-'; const d = new Date(v); return isNaN(d) ? '-' : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); };
   FC.ago = v => {
     const s = (Date.now() - new Date(v).getTime()) / 1000;
     if(!isFinite(s)) return '';
@@ -80,8 +140,8 @@
     icc_b: { label:'Named perils, extended', clause:'Institute Cargo Clauses (B)', text:'Named perils incl. heavy weather water entry, earthquake and loss overboard.' },
     icc_c: { label:'Named perils, basic', clause:'Institute Cargo Clauses (C)', text:'Major casualties only: fire, sinking, stranding, collision, overturning, general average.' }
   };
-  // Incoterms 2020: where the risk passes from seller to buyer (pt on a 0–3 journey line) and who must insure.
-  // stops on the 0–3 risk line: [position, label]
+  // Incoterms 2020: where the risk passes from seller to buyer (pt on a 0-3 journey line) and who must insure.
+  // stops on the 0-3 risk line: [position, label]
   FC.JOURNEY = [[0, "Seller's premises"], [1, 'Handover to carrier'], [2, 'On board vessel'], [3, 'Destination']];
   FC.INCOTERMS = {
     EXW: { name:'Ex Works', pt:0, sea:false, point:"at the seller's premises, before loading",
@@ -120,7 +180,69 @@
   };
   FC.noRisk = (term, party) => term && party && ((FC.INCOTERMS[term] || {}).pt === 0 ? party === 'seller' : (FC.INCOTERMS[term] || {}).pt === 3 ? party === 'buyer' : false);
   FC.STATUS = { quoted:'Indication', on_request:'On request', sanctioned:'Compliance review' };
-  FC.STAGE = { new:'New', in_progress:'In progress', quoted:'Quoted', accepted:'Accepted', declined:'Declined', bound:'Bound', lost:'Lost', closed:'Closed' };
+  // request lifecycle (older names are mapped by the database)
+  FC.STAGE = { request:'Request', working_on_it:'Working on it', quotation:'Quotation', certificate:'Certificate', closed:'Closed' };
+  FC.STAGE_OLD = { new:'request', in_progress:'working_on_it', quoted:'quotation', accepted:'certificate', bound:'certificate', declined:'closed', lost:'closed' };
+  FC.stageOf = s => FC.STAGE_OLD[s] || s || 'request';
+  FC.CLOSURE = { completed:'Completed', declined_by_insurer:'Declined by insurer', not_taken_up:'Not taken up by client', cancelled:'Cancelled' };
+  // what clients see on quotations
+  FC.DISPLAY = { both:'Rate and premium', rate_only:'Rate only', premium_only:'Premium only' };
+  FC.showRate = m => m !== 'premium_only';
+  FC.showPremium = m => m !== 'rate_only';
+  // German insurance premium tax: same rules as public.ipt_eval
+  FC.IPT_MODE = { on:'On (default)', auto:'Auto-detect (German route or policyholder / assured)', off:'Off' };
+  // one rule: on, off, or auto = route from / to Germany or a German policyholder / assured
+  FC.iptEval = (s, mode, from, to, holder, assured) => {
+    s = s || { default_rate:19, default_mode:'auto' };
+    const r = Number(s.default_rate || 19), rs = String(Math.round(r * 100) / 100), m = mode || s.default_mode || 'auto';
+    if(m === 'off') return { applied:false, rate:r, mode:m, reason:'German IPT turned off' };
+    if(m === 'on') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: on by default' };
+    const U = x => String(x || '').toUpperCase(), why = [];
+    if(U(from) === 'DE' && U(to) === 'DE') why.push('Domestic German transport'); else if(U(from) === 'DE') why.push('Route from Germany'); else if(U(to) === 'DE') why.push('Route to Germany');
+    if(U(holder) === 'DE') why.push('German Policyholder');
+    if(U(assured) === 'DE' && U(holder) !== 'DE') why.push('German Assured');
+    return { applied: why.length > 0, rate:r, mode:m, reason: why.length ? 'German IPT ' + rs + '% applied: ' + why.join(' & ') : 'No German IPT: no German route, policyholder or assured' };
+  };
+  // quotation validity chip: "Valid until DD.MM.YYYY", "Expiring Soon" (under 48 h), "Expired"
+  FC.dmy = v => { const d = new Date(v); return isNaN(d) ? '-' : String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(); };
+  FC.validityState = v => { const t = new Date(v).getTime() - Date.now(); return isNaN(t) ? '' : t < 0 ? 'expired' : t < 48 * 3600e3 ? 'soon' : 'valid'; };
+  FC.validityChip = v => { const st = FC.validityState(v); if(!st) return '';
+    return st === 'expired' ? `<span class="chip declined vchip" title="${FC.esc(FC.dateTime(v))}">Expired</span>`
+      : st === 'soon' ? `<span class="chip pending vchip" title="${FC.esc(FC.dateTime(v))}">Expiring Soon</span> <span class="chip neutral vchip">Valid until ${FC.dmy(v)}</span>`
+      : `<span class="chip neutral vchip" title="${FC.esc(FC.dateTime(v))}">Valid until ${FC.dmy(v)}</span>`; };
+  // ---------- certificate rights: the one helper for every certificate button ----------
+  // Staff (admin, placing, claims) may ALWAYS issue / generate certificates (.fdf or platform PDF) for any case, client or policy.
+  // Clients: the right comes from their tree. The server resolves it (my_features, case_certificate_rights) with
+  // "most specific explicit setting wins": user > subcategory (policy) > office > client (company) > client group; nothing set = no.
+  FC.isStaffProfile = p => !!(p && (p.is_admin === true || ['staff','admin','admins','placing','claims','broker'].includes(String(p.user_group || p.role || '').toLowerCase())));
+  FC.canCurrentUserIssueCertificate = (targetRecord, currentUserProfile) => {
+    if(FC.isStaffProfile(currentUserProfile)) return true;
+    const t = targetRecord || {};
+    if(t.can_issue_certificates === true || t.can_issue_certificates === false) return t.can_issue_certificates;   // resolved on the server
+    const company = t.company || t.customer || {}, tree = [currentUserProfile, t.policy, t.office, company, company.parent_group || company.company_group || company.group];
+    const v = tree.map(x => x && x.can_issue_certificates).find(x => x === true || x === false);
+    return v === true;
+  };
+  // claims lifecycle (client and staff use the same labels)
+  FC.CLAIM_STATUS = { new_claim:'New Claim', under_review:'Working on it / Under Review', survey_ordered:'Surveyor Instructed / Awaiting Docs', submitted_to_insurer:'Submitted to Insurer',
+    offer_settlement:'Settlement Offered / Agreed', paid_settled:'Settled / Paid', repudiated_declined:'Declined / Repudiated', closed:'Closed' };
+  // ---------- rate units: % for every document; per mille only as an entry / schedule unit ----------
+  FC.RATE_UNITS = { percent:'%', per_mille:'‰' };
+  FC.toPercent = (v, unit) => { if(v == null || v === '' || !isFinite(Number(v))) return v === '' ? NaN : v; return unit === 'per_mille' ? Math.round(Number(v) / 10 * 1e8) / 1e8 : Number(v); };
+  FC.fromPercent = (v, unit) => { if(v == null || v === '' || !isFinite(Number(v))) return v; return unit === 'per_mille' ? Math.round(Number(v) * 10 * 1e8) / 1e8 : Number(v); };
+  FC.rateNum = v => v == null || !isFinite(Number(v)) ? '' : String(Math.round(Number(v) * 1e6) / 1e6);
+  FC.rateFmt = (v, unit) => v == null || v === '' || !isFinite(Number(v)) ? '-' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: unit === 'per_mille' ? 2 : 3, maximumFractionDigits:4 }) + ' ' + (FC.RATE_UNITS[unit] || '%');
+  // premium from a rate in its unit: sum insured x percent rate / 100
+  FC.premiumOf = (sum, rate, unit) => { const r = FC.toPercent(rate, unit); return isFinite(Number(sum)) && isFinite(Number(r)) ? Math.round(Number(sum) * Number(r)) / 100 : NaN; };
+  // merge tags for text templates
+  FC.MERGE_TAGS = [['client_name','Client name'],['assured_name','Assured name'],['policy_number','Policy number'],['certificate_number','Certificate number'],['reference','Our reference'],
+    ['cargo_description','Cargo description'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['conveyance','Conveyance'],['departure_date','Departure date'],['sum_insured','Sum insured'],['currency','Currency'],
+    ['rate_pct','Rate %'],['rate','Rate (%)'],['premium_amount','Premium (net)'],['ipt_amount','German IPT amount'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
+  FC.merge = (html, ctx) => String(html || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => ctx && ctx[k] != null && ctx[k] !== '' ? FC.esc(FC.dash(ctx[k])) : '');
+  // .fdf: Acrobat's number format script wants 33562.80 (no thousands separator)
+  FC.fdfNum = n => { const v = typeof n === 'number' ? n : FC.parseNum ? FC.parseNum(n) : Number(String(n).replace(/,/g, '')); return isFinite(v) ? v.toFixed(2) : ''; };
+  FC.FDF_HINT = 'Open your local master PDF in Adobe Acrobat first, then drag and drop this .fdf file directly onto the open PDF window.';
+  FC.fdfHint = () => FC.toast('.fdf downloaded. ' + FC.FDF_HINT, 'info', 10000);
 
   // ---------- icons ----------
   const svg = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -137,6 +259,7 @@
     shield: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>'),
     doc: svg('<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
     download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+    bell: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
     send: svg('<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
     list: svg('<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>'),
@@ -145,12 +268,15 @@
     sun:  svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
     chat: svg('<path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6A8 8 0 1 1 21 12z"/>'),
     gift: svg('<rect x="3" y="8" width="18" height="4"/><path d="M5 12v9h14v-9M12 8v13M12 8S10.5 3 8 4s-.5 4 4 4zm0 0s1.5-5 4-4 .5 4-4 4z"/>'),
+    claim: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M12 8v5M12 16.2h.01"/>'),
+    user: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>'),
+    upload: svg('<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>'),
     gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
   };
   // Official FREIGHTCON wordmark (vector). Letters take currentColor, the square is always lime.
   FC.LOGO = { viewBox:'0.00 4.50 708.00 64.38', letters:'M0.00 36.75L0.00 4.62L8.03 4.61C32.69 4.54 56.72 4.57 56.92 4.66C57.45 4.91 57.49 5.34 57.50 10.42L57.50 15.25L57.25 15.50C57.11 15.64 56.90 15.75 56.78 15.75C56.66 15.76 47.14 15.75 35.62 15.75L14.67 15.74L14.33 16.01L14.00 16.27L14.00 23.98C14.00 28.80 14.05 31.86 14.13 32.14C14.20 32.39 14.35 32.64 14.47 32.68C14.58 32.73 20.28 32.76 27.13 32.75L39.58 32.74L39.82 33.01L40.06 33.28L40.06 38.56L40.06 43.85L39.82 44.11L39.59 44.38L27.05 44.38L14.51 44.38L14.28 44.71L14.06 45.05L14.00 56.76C13.95 66.32 13.91 68.50 13.77 68.66C13.62 68.85 12.92 68.87 6.80 68.87L0.00 68.88L0.00 36.75ZM65.48 68.64L65.19 68.40L65.19 36.71L65.19 5.03L65.43 4.75L65.68 4.48L90.62 4.53L115.56 4.58L117.71 4.92C119.20 5.15 120.13 5.37 120.71 5.61C121.18 5.81 121.77 6.01 122.01 6.05C122.62 6.16 123.19 6.58 124.62 8.00C126.00 9.35 126.63 10.43 126.95 11.93C127.05 12.41 127.28 13.32 127.46 13.94L127.78 15.06L127.91 20.94C128.07 28.28 127.92 33.53 127.50 35.00C127.36 35.52 127.13 36.46 126.99 37.10C126.69 38.53 126.17 39.55 125.20 40.66C124.02 42.01 122.12 43.29 120.56 43.77C119.80 44.00 115.35 44.36 112.25 44.44C109.86 44.50 109.02 44.56 108.89 44.68C108.59 44.98 108.84 45.58 109.48 46.08C109.80 46.33 110.40 46.88 110.82 47.30C111.23 47.72 112.27 48.71 113.12 49.50C114.99 51.24 116.59 52.74 117.93 54.01C119.00 55.02 120.42 56.34 122.81 58.56C123.62 59.32 124.57 60.22 124.92 60.56C125.28 60.91 126.43 62.00 127.49 63.00C128.56 64.00 129.74 65.12 130.13 65.50C130.52 65.88 131.32 66.65 131.92 67.22C132.95 68.21 133.20 68.65 132.83 68.79C132.48 68.92 114.55 68.89 114.19 68.75C113.71 68.57 110.61 65.44 105.90 60.38C101.75 55.91 101.18 55.30 99.20 53.25C98.51 52.52 97.41 51.34 96.77 50.62C95.64 49.35 95.07 48.72 92.80 46.25C92.06 45.44 91.53 44.98 91.12 44.79L90.53 44.52L85.14 44.49L79.74 44.45L79.46 44.73L79.19 45.01L79.12 56.76L79.06 68.52L78.82 68.70C78.62 68.85 77.51 68.88 72.18 68.88L65.78 68.88L65.48 68.64ZM143.67 68.75C143.53 68.69 143.37 68.55 143.33 68.44C143.29 68.33 143.25 54.01 143.24 36.62L143.22 4.99L143.45 4.74L143.67 4.49L172.91 4.53L202.15 4.56L202.45 4.92L202.76 5.27L202.72 10.26L202.69 15.24L202.46 15.46L202.24 15.69L179.86 15.75L157.48 15.81L157.30 16.06C157.15 16.27 157.12 17.28 157.15 22.66L157.19 29.02L157.54 29.32L157.89 29.63L170.41 29.65C185.52 29.68 184.33 29.65 184.66 29.98L184.92 30.24L184.89 35.34C184.87 39.25 184.82 40.48 184.70 40.60C184.57 40.73 182.01 40.76 171.49 40.76C163.85 40.75 158.23 40.80 157.94 40.87C157.67 40.93 157.37 41.08 157.28 41.20C157.07 41.50 157.05 55.63 157.27 56.24C157.34 56.46 157.52 56.69 157.67 56.74C157.81 56.80 166.93 56.81 177.93 56.78C188.94 56.74 199.11 56.76 200.55 56.81L203.17 56.90L203.43 57.17L203.69 57.44L203.69 62.90L203.69 68.37L203.46 68.59L203.24 68.81L173.59 68.84C157.28 68.85 143.82 68.81 143.67 68.75ZM217.13 68.54L216.88 68.22L216.88 36.68L216.88 5.15L217.11 4.86L217.35 4.56L223.92 4.55C227.53 4.55 230.54 4.57 230.60 4.61C231.00 4.87 231.00 5.18 231.00 36.80L231.00 68.38L230.75 68.62L230.51 68.87L223.94 68.86L217.38 68.86L217.13 68.54ZM260.12 68.75C258.88 68.69 257.67 68.54 256.26 68.26C254.51 67.91 254.12 67.79 253.61 67.44C253.27 67.21 252.83 66.98 252.63 66.94C251.69 66.73 249.67 64.80 248.97 63.44C248.83 63.16 248.59 62.78 248.43 62.59C248.27 62.41 248.08 61.93 248.00 61.53C247.92 61.14 247.72 60.29 247.55 59.65C246.97 57.38 246.94 56.23 246.94 36.56C246.94 22.92 246.98 17.72 247.09 16.38C247.29 14.07 248.02 11.12 248.54 10.50C248.73 10.27 248.99 9.89 249.12 9.64C249.40 9.09 251.24 7.23 252.08 6.63C252.41 6.40 253.06 6.10 253.52 5.98C253.98 5.85 254.65 5.64 255.02 5.49C255.38 5.35 256.66 5.08 257.87 4.90L260.06 4.57L281.38 4.56L302.69 4.56L304.96 4.90C306.47 5.12 307.41 5.33 307.75 5.50C308.03 5.64 308.65 5.85 309.14 5.96C309.62 6.07 310.17 6.28 310.35 6.43C310.54 6.59 310.93 6.86 311.22 7.04C312.10 7.60 313.55 9.29 314.30 10.67C314.66 11.31 314.83 11.84 315.01 12.83C315.14 13.55 315.36 14.50 315.49 14.93C315.70 15.63 315.82 16.56 316.07 19.64C316.16 20.78 315.99 20.98 314.77 21.13C314.26 21.19 313.39 21.36 312.82 21.49C312.26 21.62 311.29 21.80 310.68 21.87C309.25 22.05 308.45 22.23 307.80 22.52C307.51 22.65 306.58 22.86 305.73 22.99C304.88 23.12 303.86 23.30 303.47 23.39L302.75 23.55L302.50 23.31L302.26 23.06L302.22 20.19C302.17 17.05 302.11 16.75 301.48 16.49C301.20 16.38 296.58 16.36 281.42 16.41L261.72 16.47L261.40 16.71C261.22 16.85 261.02 17.15 260.96 17.38C260.89 17.64 260.87 25.39 260.91 36.77C260.99 57.73 260.92 56.32 261.78 56.62C262.27 56.79 300.17 56.80 300.94 56.63C301.67 56.46 301.99 56.05 302.12 55.14C302.18 54.71 302.27 51.92 302.32 48.95L302.41 43.54L302.14 43.27L301.88 43.00L291.56 43.00L281.25 43.00L281.00 42.75L280.75 42.50L280.75 37.44L280.75 32.38L281.04 32.19C281.29 32.03 283.44 32.00 298.50 32.00C312.80 31.99 315.70 32.02 315.84 32.16C315.98 32.30 316.01 34.24 316.00 43.45C316.00 55.84 315.93 57.57 315.38 59.31C315.19 59.93 314.99 60.78 314.94 61.19C314.88 61.77 314.72 62.19 314.27 62.96C313.07 65.04 311.74 66.35 310.24 66.94C309.83 67.10 309.35 67.35 309.17 67.49C308.76 67.82 308.45 67.90 305.69 68.40L303.44 68.80L282.69 68.82C271.27 68.83 261.12 68.80 260.12 68.75ZM331.79 68.75C331.64 68.69 331.46 68.53 331.39 68.40C331.30 68.23 331.26 58.08 331.26 36.71L331.25 5.26L331.53 4.94L331.81 4.61L338.21 4.58C341.73 4.56 344.66 4.57 344.73 4.61C345.13 4.88 345.14 5.21 345.13 16.88L345.12 28.50L345.43 28.81L345.74 29.12L365.35 29.12L384.97 29.12L385.30 28.86L385.64 28.60L385.62 16.85L385.60 5.09L385.86 4.83L386.13 4.57L392.41 4.56C395.86 4.55 398.76 4.57 398.85 4.60C399.40 4.79 399.38 3.49 399.38 36.81L399.38 68.26L399.06 68.57L398.75 68.88L392.43 68.85L386.10 68.81L385.86 68.52L385.62 68.22L385.62 62.52C385.62 59.38 385.59 53.47 385.54 49.38L385.46 41.94L385.11 41.59L384.77 41.25L365.26 41.25L345.75 41.25L345.51 41.49C345.23 41.77 345.11 42.64 345.15 44.00C345.17 44.52 345.17 50.21 345.16 56.66L345.12 68.38L344.88 68.62L344.62 68.88L338.34 68.87C334.89 68.86 331.94 68.81 331.79 68.75ZM432.42 68.78C432.00 68.49 432.00 68.48 432.00 42.55C432.01 19.67 431.99 16.93 431.81 16.67C431.71 16.51 431.52 16.37 431.40 16.37C431.28 16.37 425.75 16.36 419.10 16.34L407.01 16.31L406.74 16.05L406.48 15.79L406.48 10.61C406.48 7.77 406.49 5.34 406.49 5.22C406.50 5.10 406.65 4.91 406.83 4.79L407.15 4.58L439.29 4.60L471.44 4.62L471.66 4.89L471.88 5.15L471.88 10.50L471.88 15.85L471.66 16.11L471.44 16.38L459.02 16.41L446.60 16.44L446.36 16.73L446.12 17.03L446.12 42.68L446.12 68.33L445.84 68.60L445.55 68.88L439.05 68.87C435.48 68.87 432.50 68.83 432.42 68.78ZM490.88 68.75C489.66 68.66 485.89 67.96 485.51 67.76C485.40 67.70 485.21 67.53 485.08 67.39C484.95 67.25 484.59 67.05 484.27 66.94C482.63 66.40 480.84 64.45 480.06 62.36C479.91 61.98 479.68 61.50 479.54 61.30C479.17 60.78 479.05 60.24 478.73 57.62L478.45 55.31L478.44 37.06L478.44 18.81L478.73 16.12C479.06 13.05 479.13 12.72 479.56 12.13C479.73 11.90 479.95 11.42 480.06 11.07C480.59 9.25 483.35 6.50 485.19 5.96C485.53 5.86 486.07 5.66 486.39 5.51C486.78 5.34 487.82 5.14 489.46 4.91L491.94 4.58L510.00 4.57C528.68 4.56 529.20 4.57 532.18 5.08C532.79 5.18 533.46 5.35 533.67 5.46C533.88 5.57 534.42 5.78 534.87 5.94C536.23 6.40 538.42 8.11 538.94 9.13C539.10 9.45 539.32 9.78 539.44 9.88C539.55 9.97 539.92 10.62 540.25 11.31L540.86 12.57L541.06 14.32C541.17 15.28 541.31 16.40 541.38 16.81C541.56 17.97 541.75 21.36 541.75 23.41L541.75 25.25L541.51 25.49C541.21 25.79 540.60 25.95 539.38 26.06C538.86 26.10 537.93 26.27 537.31 26.44C536.69 26.60 535.54 26.82 534.75 26.93C533.96 27.04 532.86 27.27 532.30 27.44C531.74 27.61 530.65 27.83 529.88 27.93C528.66 28.09 528.41 28.09 528.05 27.94C527.82 27.84 527.62 27.69 527.61 27.60C527.61 27.51 527.61 25.15 527.62 22.34L527.64 17.25L527.27 16.87C527.06 16.67 526.76 16.50 526.60 16.49C526.44 16.49 518.86 16.48 509.75 16.48L493.19 16.48L492.85 16.87L492.50 17.25L492.50 36.42C492.50 50.13 492.54 55.70 492.64 55.99C492.92 56.80 491.83 56.75 509.99 56.75C521.42 56.74 526.61 56.70 526.87 56.61C527.64 56.34 527.64 56.37 527.62 49.63C527.61 46.26 527.64 43.45 527.68 43.39C527.81 43.18 528.59 43.09 528.97 43.23C530.41 43.76 530.88 43.88 532.23 44.06C533.07 44.17 534.11 44.37 534.53 44.51C534.96 44.64 536.00 44.87 536.84 45.00C537.68 45.14 538.74 45.40 539.20 45.57C539.65 45.74 540.30 45.94 540.64 46.01C541.05 46.10 541.34 46.25 541.51 46.48L541.78 46.81L541.71 51.31L541.65 55.81L541.26 58.43L540.87 61.05L540.29 62.24C539.08 64.73 537.57 66.38 535.99 66.94C535.71 67.04 535.25 67.29 534.96 67.49C534.45 67.86 533.85 68.02 530.62 68.65C529.82 68.80 492.78 68.90 490.88 68.75ZM567.98 68.74C566.98 68.66 565.03 68.34 562.96 67.92C562.77 67.88 562.42 67.69 562.19 67.49C561.96 67.29 561.55 67.04 561.27 66.95C560.14 66.54 558.79 65.33 557.72 63.74C557.46 63.36 557.20 62.89 557.14 62.68C556.28 59.96 556.13 59.25 555.85 56.50L555.56 53.69L555.56 36.62C555.56 19.05 555.56 19.21 556.07 14.68C556.16 13.85 556.34 12.93 556.47 12.62C556.60 12.31 556.83 11.66 556.98 11.18C557.12 10.69 557.36 10.19 557.51 10.05C557.66 9.92 557.86 9.64 557.97 9.44C558.57 8.28 561.16 6.14 562.19 5.94C562.43 5.90 562.93 5.72 563.32 5.54C563.84 5.30 564.62 5.14 566.29 4.90L568.56 4.58L588.56 4.53C601.43 4.50 609.48 4.53 611.12 4.62C614.18 4.77 616.63 5.13 617.61 5.56C618.00 5.73 618.57 5.93 618.88 6.01C619.18 6.09 619.80 6.39 620.25 6.69C621.11 7.27 622.74 8.85 623.01 9.38C623.09 9.55 623.32 9.88 623.51 10.12C623.70 10.37 623.94 10.90 624.05 11.31C624.15 11.72 624.38 12.46 624.54 12.94C624.77 13.58 624.95 14.64 625.21 16.94L625.56 20.06L625.56 36.69C625.56 49.43 625.53 53.59 625.40 54.50C625.32 55.15 625.16 56.53 625.05 57.56C624.91 58.86 624.75 59.76 624.50 60.50C624.31 61.08 624.08 61.86 624.00 62.22C623.83 62.98 623.12 64.13 622.19 65.15C621.35 66.08 620.56 66.68 619.77 66.98C619.42 67.12 618.96 67.37 618.75 67.54C618.54 67.72 618.16 67.90 617.90 67.95C617.65 67.99 616.73 68.17 615.88 68.34C615.02 68.50 613.67 68.69 612.88 68.76C611.11 68.89 569.67 68.88 567.98 68.74ZM641.20 68.68C641.09 68.57 640.99 68.44 640.99 68.40C640.98 68.35 640.96 54.17 640.93 36.88C640.90 4.55 640.90 4.64 641.34 4.62C641.39 4.62 643.58 4.60 646.19 4.59L650.94 4.57L651.59 4.94C652.00 5.18 653.90 6.95 656.77 9.78C659.27 12.23 662.21 15.12 663.31 16.19C664.41 17.26 666.64 19.44 668.26 21.04C669.88 22.63 671.95 24.64 672.87 25.50C673.78 26.36 674.79 27.34 675.11 27.69C675.43 28.03 675.85 28.45 676.05 28.62C676.25 28.80 676.55 29.10 676.74 29.30C677.36 29.99 678.33 30.95 680.92 33.44C684.32 36.71 687.60 39.99 690.00 42.51C691.07 43.63 692.07 44.66 692.23 44.80C692.76 45.27 692.93 45.45 693.50 46.15C693.81 46.53 694.21 46.95 694.39 47.07C694.58 47.20 694.82 47.45 694.93 47.64C695.17 48.06 695.59 48.22 695.82 47.98C695.95 47.84 695.96 47.06 695.87 43.62C695.80 41.32 695.70 38.26 695.63 36.81C695.49 33.87 695.44 5.43 695.57 5.09C695.77 4.58 696.05 4.56 702.16 4.60L708.00 4.64L708.00 36.76L708.00 68.88L703.13 68.88C700.38 68.88 698.13 68.82 697.96 68.76C697.51 68.59 696.59 67.86 695.64 66.92C692.06 63.38 689.96 61.29 689.35 60.67C688.96 60.27 687.96 59.29 687.14 58.50C686.32 57.71 684.26 55.71 682.58 54.06C680.90 52.41 679.19 50.74 678.79 50.36C678.39 49.97 677.92 49.49 677.74 49.29C677.46 48.98 676.16 47.73 670.94 42.75C670.12 41.96 669.27 41.11 669.06 40.86C668.86 40.60 667.42 39.17 665.88 37.67C661.50 33.41 655.91 27.76 655.34 27.01C654.01 25.29 653.25 24.76 653.02 25.41C652.90 25.71 653.03 29.81 653.27 33.50C653.36 35.00 653.43 41.48 653.47 52.01L653.52 68.20L653.27 68.51L653.02 68.81L647.21 68.85C642.02 68.88 641.38 68.86 641.20 68.68ZM110.43 33.19C111.22 33.08 112.02 32.94 112.21 32.87C112.80 32.65 113.73 31.64 113.93 31.01C114.39 29.56 114.44 28.98 114.43 24.69C114.42 18.71 114.24 17.88 112.72 16.86C111.55 16.09 111.34 16.01 110.10 15.88C109.41 15.80 102.96 15.75 94.30 15.75L79.65 15.75L79.38 15.97L79.11 16.19L79.12 24.50L79.13 32.80L79.40 33.09L79.67 33.38L94.33 33.38C106.68 33.38 109.21 33.35 110.43 33.19Z', square:'M569.88 17.00H611.12V56.38H569.88Z', w:708.0, h:64.38, y0:4.5 };
-  FC.logoSvg = `<svg class="logo-mark" viewBox="${FC.LOGO.viewBox}" role="img" aria-label="FREIGHTCON"><path fill="currentColor" fill-rule="evenodd" d="${FC.LOGO.letters}"/><path fill="#90C247" d="${FC.LOGO.square}"/></svg>`;
-  FC.wordmarkHtml = sub => `${FC.logoSvg}${sub === false ? '' : `<span class="tagline">${FC.esc(sub || 'Cargo insurance indications, quotations & cover')}</span>`}`;
+  FC.logoSvg = `<svg class="logo-mark" viewBox="${FC.LOGO.viewBox}" role="img" aria-label="FREIGHTCON"><path fill="currentColor" fill-rule="evenodd" d="${FC.LOGO.letters}"/><path class="logo-sq" fill="#009FE3" d="${FC.LOGO.square}"/></svg>`;
+  FC.wordmarkHtml = sub => `<span class="wm-row">${FC.logoSvg}<span class="by-mc">by MARINCON</span></span>${sub === false ? '' : `<span class="tagline">${FC.esc(sub || 'Cargo insurance indications, quotations & cover')}</span>`}`;
 
   // ---------- small DOM helpers ----------
   FC.$ = (sel, root) => (root || document).querySelector(sel);
@@ -159,19 +285,19 @@
   FC.busy = (btn, on) => { if(!btn) return; btn.disabled = !!on; btn.classList.toggle('busy', !!on); };
 
   // ---------- toast ----------
-  FC.toast = (msg, kind) => {
+  FC.toast = (msg, kind, ms) => {
     let host = document.getElementById('toasts');
     if(!host){ host = document.createElement('div'); host.id = 'toasts'; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite'); document.body.appendChild(host); }
     const t = document.createElement('div'); t.className = 'toast' + (kind === 'error' ? ' error' : ''); t.textContent = msg;
     host.appendChild(t);
-    setTimeout(() => t.remove(), kind === 'error' ? 6500 : 3800);
+    setTimeout(() => t.remove(), ms || (kind === 'error' ? 6500 : 3800));
   };
 
   // ---------- dialog ----------
   // FC.dialog({ title, body (html or node), wide, actions:[{label, kind, value, onClick(close, dlg) }] }) → Promise(value)
   FC.dialog = (o) => new Promise(resolve => {
     const back = document.createElement('div'); back.className = 'dlg-back';
-    const box = document.createElement('div'); box.className = 'dlg' + (o.wide ? ' wide' : ''); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    const box = document.createElement('div'); box.className = 'dlg' + (o.wide ? ' wide' : '') + (o.cls ? ' ' + o.cls : ''); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
     box.innerHTML = `<div class="dlg-head"><h2></h2><button type="button" class="x" aria-label="Close">&times;</button></div><div class="dlg-body"></div><div class="dlg-foot"></div>`;
     box.querySelector('h2').textContent = o.title || '';
     const body = box.querySelector('.dlg-body');
@@ -179,8 +305,8 @@
     const foot = box.querySelector('.dlg-foot');
     const prevFocus = document.activeElement;
     const close = v => { document.removeEventListener('keydown', onKey); back.remove(); try{ prevFocus && prevFocus.focus(); }catch(e){} resolve(v); };
-    const onKey = e => { if(e.key === 'Escape' && o.dismissible !== false) close(null); };
-    (o.actions || [{ label:'Close', kind:'ghost', value:null }]).forEach(a => {
+    const onKey = e => { if(e.key === 'Escape' && o.dismissible !== false && back === Array.from(document.querySelectorAll('.dlg-back')).pop()) close(null); };
+    (o.actions || [{ label:'Close', kind:'ghost', value:null }]).filter(Boolean).forEach(a => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-' + (a.kind || 'ghost');
       b.innerHTML = '<span class="spin"></span>' + FC.esc(a.label);
       b.addEventListener('click', async () => {
@@ -201,6 +327,66 @@
     if(o.onOpen) o.onOpen(box, close);
     setTimeout(() => { if(box.contains(document.activeElement)) return; const f = box.querySelector('[autofocus], .dlg-body input, .dlg-body textarea, .dlg-body select') || foot.lastElementChild; try{ f && f.focus(); }catch(e){} }, 20);
   });
+  // ---------- rich text (quotation wording): only a few safe tags and classes survive ----------
+  const RT_TAGS = new Set(['SECTION','H4','P','DIV','UL','OL','LI','B','STRONG','I','EM','U','MARK','BR','SPAN']);
+  const RT_CLS = new Set(['box','big']);
+  // inline styles from the formatting toolbar: font, size, colours, alignment
+  const RT_STYLE = { 'font-family': /^[\w\s,'"-]{1,80}$/, 'font-size': /^(\d{1,2}(\.\d)?(pt|px)|\d{2,3}%|x?x-small|small|medium|large|x?x-large)$/, 'color': /^(#[0-9a-f]{3,6}|rgba?\([\d\s.,%]+\))$/i,
+    'background-color': /^(#[0-9a-f]{3,6}|rgba?\([\d\s.,%]+\)|transparent)$/i, 'text-align': /^(left|center|right|justify)$/, 'font-weight': /^(bold|700|normal|400)$/, 'font-style': /^(italic|normal)$/, 'text-decoration': /^(underline|none)$/, 'text-decoration-line': /^(underline|none)$/ };
+  const safeStyle = st => String(st || '').split(';').map(x => { const i = x.indexOf(':'); if(i < 0) return ''; const k = x.slice(0, i).trim().toLowerCase(), v = x.slice(i + 1).trim(); return RT_STYLE[k] && RT_STYLE[k].test(v) ? k + ':' + v : ''; }).filter(Boolean).join(';');
+  FC.cleanHtml = html => {
+    const doc = new DOMParser().parseFromString('<div>' + String(html || '') + '</div>', 'text/html');
+    let walkOne;
+    const walk = node => {
+      Array.from(node.childNodes).forEach(walkOne = n => {
+        if(n.nodeType === 3) return;
+        if(n.nodeType === 1 && n.tagName === 'FONT'){ const sp = doc.createElement('span'); const st = [n.getAttribute('face') ? 'font-family:' + n.getAttribute('face') : '', n.getAttribute('color') ? 'color:' + n.getAttribute('color') : '', n.style && n.style.cssText || ''].filter(Boolean).join(';'); if(st) sp.setAttribute('style', st); while(n.firstChild) sp.appendChild(n.firstChild); n.replaceWith(sp); return walkOne(sp); }
+        if(n.nodeType !== 1 || !RT_TAGS.has(n.tagName)){ if(n.nodeType === 1 && !['SCRIPT','STYLE','IFRAME','OBJECT'].includes(n.tagName)){ walk(n); n.replaceWith(...n.childNodes); } else n.remove(); return; }
+        const cls = Array.from(n.classList).filter(c => RT_CLS.has(c)), cat = n.tagName === 'SECTION' ? n.getAttribute('data-cat') : null, st = safeStyle(n.getAttribute('style'));
+        const al = n.getAttribute('align');
+        Array.from(n.attributes).forEach(a => n.removeAttribute(a.name));
+        if(cls.length) n.className = cls.join(' ');
+        if(cat && /^[a-z][a-z0-9_]{0,39}$/.test(cat)) n.setAttribute('data-cat', cat);
+        const st2 = [st, al && /^(left|center|right|justify)$/.test(al) ? 'text-align:' + al : ''].filter(Boolean).join(';');
+        if(st2) n.setAttribute('style', st2);
+        walk(n);
+      });
+    };
+    walk(doc.body.firstChild);
+    return doc.body.firstChild.innerHTML;
+  };
+  // the same wording with inline styles, for pasting into an e-mail
+  // default typography (text formatting of the level): Calibri 10 pt, line height 1.35, 8 pt after each paragraph
+  FC.FMT = { font_family:'Calibri', font_size_pt:10, line_height:1.35, paragraph_spacing_pt:8, text_color:'#000000' };
+  FC.fmtCss = f => { f = Object.assign({}, FC.FMT, f || {}); const fam = String(f.font_family).replace(/[^\w\s,-]/g, ''); return 'font-family:' + fam + ',sans-serif;font-size:' + Number(f.font_size_pt) + 'pt;line-height:' + Number(f.line_height) + ';color:' + f.text_color; };
+  FC.emailHtml = (html, fmt) => {
+    // Editor.pdf format: bold + underlined headings; typography from the level's default formatting
+    const f = Object.assign({}, FC.FMT, fmt || {});
+    const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(FC.dash(html));
+    const P = 'margin:0 0 ' + Number(f.paragraph_spacing_pt) + 'pt 0;' + FC.fmtCss(f);
+    d.querySelectorAll('h4').forEach(e => { const p = document.createElement('p'); p.innerHTML = '<b><u>' + e.innerHTML + '</u></b>'; e.replaceWith(p); });
+    d.querySelectorAll('p,div,li').forEach(e => e.setAttribute('style', P + (e.getAttribute('style') ? ';' + e.getAttribute('style') : '')));
+    d.querySelectorAll('.box').forEach(e => e.setAttribute('style', e.getAttribute('style') + ';border:1px solid ' + f.text_color + ';padding:6pt 8pt'));
+    d.querySelectorAll('.big').forEach(e => e.setAttribute('style', 'font-size:120%'));
+    d.querySelectorAll('mark').forEach(e => e.setAttribute('style', 'background:#FFF2A8'));
+    d.querySelectorAll('[class]').forEach(e => e.removeAttribute('class'));
+    d.querySelectorAll('[data-cat]').forEach(e => e.removeAttribute('data-cat'));
+    return '<div style="' + FC.fmtCss(f) + '">' + d.innerHTML + '</div>';
+  };
+  FC.copyRich = async (html, text) => {
+    html = FC.dash(html); text = FC.dash(text);
+    try{
+      if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type:'text/html' }), 'text/plain': new Blob([text], { type:'text/plain' }) })]);
+        return true;
+      }
+    }catch(e){}
+    const d = document.createElement('div'); d.innerHTML = html; d.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(d);
+    const r = document.createRange(); r.selectNodeContents(d); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    let ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
+    sel.removeAllRanges(); d.remove(); return ok;
+  };
+  FC.htmlText = html => { const d = document.createElement('div'); d.innerHTML = FC.cleanHtml(FC.dash(html)); d.querySelectorAll('h4,p,div,li').forEach(e => e.insertAdjacentText('afterend', '\n')); return d.textContent.replace(/\n{3,}/g, '\n\n').trim(); };
   FC.confirm = (title, text, okLabel, kind) => FC.dialog({
     title, body: `<p style="margin:0">${FC.esc(text)}</p>`,
     actions: [{ label:'Cancel', kind:'ghost', value:false }, { label: okLabel || 'Confirm', kind: kind || 'primary', value:true }]
@@ -230,4 +416,52 @@
     s.onerror = () => { delete _scripts[src]; s.remove(); rej(new Error('Could not load ' + src)); };
     document.head.appendChild(s);
   }));
+
+  // =================================================================== GDPR: cookie & privacy consent
+  // Strictly necessary (always on): log-in session, security time-out, this consent.
+  // Functional / startup preferences: theme, animations, remembered views and stamps.
+  // Analytics: no analytics tool is used today; the choice is recorded for the future.
+  const CK = 'freightcon-consent';
+  FC.CONSENT_VERSION = '2026-11-18';
+  FC.consentGet = () => { try{ const v = JSON.parse(localStorage.getItem(CK) || 'null'); return v && typeof v === 'object' ? v : null; }catch(e){ return null; } };
+  FC.consentAllows = k => { if(k === 'necessary') return true; const v = FC.consentGet(); return !!(v && v[k]); };
+  const FUNCTIONAL_KEYS = ['freightcon-theme', 'freightcon-motion', 'freightcon-stamps'];
+  FC.consentSave = (v, choice) => {
+    const c = { necessary:true, functional: !!v.functional, analytics: !!v.analytics, choice: choice || 'custom', version: FC.consentVersion || FC.CONSENT_VERSION, at: new Date().toISOString() };
+    try{ localStorage.setItem(CK, JSON.stringify(c)); }catch(e){}
+    if(!c.functional) FUNCTIONAL_KEYS.forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
+    else { try{ const t = document.documentElement.getAttribute('data-theme'); if(t) localStorage.setItem('freightcon-theme', t); }catch(e){} }
+    document.querySelectorAll('.ck-banner').forEach(x => x.remove());
+    if(FC.consentSync) FC.consentSync(c);
+    return c;
+  };
+  FC.consent = {
+    banner(){
+      if(document.querySelector('.ck-banner')) return;
+      const b = document.createElement('div'); b.className = 'ck-banner'; b.setAttribute('role', 'dialog'); b.setAttribute('aria-label', 'Cookies and privacy');
+      b.innerHTML = `<div class="ck-in"><div><b>Cookies &amp; privacy</b><p>We use strictly necessary storage to keep you logged in and secure. With your consent we also remember functional preferences (theme, animations, startup views). No advertising cookies. <a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a></p></div>
+        <div class="ck-acts"><button type="button" class="btn btn-ghost btn-sm" data-ck="custom">Customize</button><button type="button" class="btn btn-ghost btn-sm" data-ck="reject">Reject non-essential</button><button type="button" class="btn btn-primary btn-sm" data-ck="all">Accept all</button></div></div>`;
+      b.addEventListener('click', e => { const t = e.target.closest('[data-ck]'); if(!t) return;
+        if(t.dataset.ck === 'all') FC.consentSave({ functional:true, analytics:true }, 'accept_all');
+        else if(t.dataset.ck === 'reject') FC.consentSave({ functional:false, analytics:false }, 'reject_non_essential');
+        else FC.consent.open(); });
+      document.body.appendChild(b);
+    },
+    open(){
+      const cur = FC.consentGet() || { functional:false, analytics:false };
+      const row = (id, title, text, on, dis) => `<label class="switch ck-row"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}><span><b>${title}</b><span>${text}</span></span></label>`;
+      return FC.dialog({ title:'Cookie & privacy preferences', body: `<p style="margin-top:0" class="small">Choose what ${FC.esc(FC.brand || 'FREIGHTCON')} may store in your browser. You can change this at any time (Settings → Privacy, or the link in the footer).</p>
+        ${row('ckN', 'Strictly necessary', 'Log-in session, security time-out and this choice. Always on.', true, true)}
+        ${row('ckF', 'Functional / startup preferences', 'Theme, animations, remembered views and quotation stamps on this device.', cur.functional)}
+        ${row('ckA', 'Analytics', 'Anonymous usage statistics to improve the platform. No analytics tool is active at the moment; your choice is recorded for when one is added.', cur.analytics)}
+        ${cur.at ? `<p class="xs muted">Current choice saved ${FC.esc(FC.dateTime(cur.at))} (version ${FC.esc(cur.version || '')}).</p>` : ''}`,
+        actions:[{ label:'Reject non-essential', kind:'ghost', onClick: async () => { FC.consentSave({ functional:false, analytics:false }, 'reject_non_essential'); return true; } },
+          { label:'Accept all', kind:'ghost', onClick: async () => { FC.consentSave({ functional:true, analytics:true }, 'accept_all'); return true; } },
+          { label:'Save preferences', kind:'primary', onClick: async (c, box) => { FC.consentSave({ functional: box.querySelector('#ckF').checked, analytics: box.querySelector('#ckA').checked }, 'custom'); FC.toast && FC.toast('Preferences saved.'); return true; } }] });
+    },
+    // first visit or a new consent version: ask
+    check(version){ if(version) FC.consentVersion = version; const v = FC.consentGet(); if(!v || (FC.consentVersion && v.version !== FC.consentVersion)) FC.consent.banner(); }
+  };
+  const ckInit = () => { FC.consent.check(); document.querySelectorAll('[data-cookie-prefs]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); FC.consent.open(); })); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ckInit); else setTimeout(ckInit, 0);
 })();

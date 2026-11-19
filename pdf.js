@@ -1,4 +1,4 @@
-/* FREIGHTCON — PDF documents (indication, quotation, cover note) with pdf-lib */
+/* FREIGHTCON - PDF documents (indication, quotation, cover note) with pdf-lib */
 (function(){
   'use strict';
   const LIB = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
@@ -6,38 +6,62 @@
 
   // Standard PDF fonts only cover WinAnsi: transliterate Cyrillic, map arrows, drop the rest
   const CYR = {'А':'A','Б':'B','В':'V','Г':'H','Ґ':'G','Д':'D','Е':'E','Є':'Ye','Ж':'Zh','З':'Z','И':'Y','І':'I','Ї':'Yi','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch','Ь':'','Ю':'Yu','Я':'Ya','Ы':'Y','Э':'E','Ё':'Yo','Ъ':''};
-  const T = s => String(s == null ? '' : s)
+  let RICH = false;   // true once the Calibri-compatible font (Carlito) is embedded: keeps ș, ł, ğ …
+  const T = s => String(s == null ? '' : s).replace(/[\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[Ѐ-ӿ]/g, ch => { const u = ch.toUpperCase(); const t = CYR[u]; if(t == null) return '?'; return ch === u ? t : t.toLowerCase(); })
     .replace(/[→⟶➔]/g, '>').replace(/[←]/g, '<').replace(/[≥]/g, '>=').replace(/[≤]/g, '<=').replace(/[   ]/g, ' ')
-    .replace(/[^\x20-\x7E -ÿ€–—‘’“”•…·‰]/g, '');
+    .replace(RICH ? /[^\x20-\x7E\u00A0-\u024F€‘’“”•…·‰]/g : /[^\x20-\x7E -ÿ€‘’“”•…·‰]/g, '');
   P.text = T;
 
-  const C = { harbour:[10,64,39], teal:[30,107,60], amber:[144,194,71], steel:[94,110,117], ink:[18,35,42], line:[214,222,225], fog:[237,241,242], white:[255,255,255] };
+  const C = { harbour:[0,58,121], teal:[0,58,121], amber:[0,159,227], steel:[102,104,107], ink:[14,27,44], line:[212,217,224], fog:[241,244,248], white:[255,255,255] };
 
   async function ensure(){ if(!window.PDFLib) await FC.loadScript(LIB); return window.PDFLib; }
+  // Calibri-compatible font (Carlito, metric-identical, SIL OFL) embedded in every PDF; falls back to Helvetica
+  let FONTS = null;
+  async function brandFonts(){
+    if(FONTS !== null) return FONTS;
+    try{
+      if(!window.fontkit) await FC.loadScript('assets/fontkit.umd.min.js');
+      const get = u => fetch(u).then(x => { if(!x.ok) throw new Error(u); return x.arrayBuffer(); });
+      const [r, b] = await Promise.all([get('assets/fonts/carlito-400.ttf'), get('assets/fonts/carlito-700.ttf')]);
+      FONTS = { r, b };
+    }catch(e){ console.warn('PDF font fallback', e); FONTS = false; }
+    return FONTS;
+  }
 
+  // MARINCON logo: assets/brand/marincon-logo.png (or the website copy if the browser may load it); text fallback
+  const LOGO_URLS = [window.MARINCON_LOGO_URL || 'assets/brand/marincon-logo.png'];
+  let LOGO = null;
+  async function marinconLogo(){
+    if(LOGO !== null) return LOGO;
+    LOGO = false;
+    for(const u of LOGO_URLS){ try{ const x = await fetch(u, { mode:'cors' }); if(x.ok){ const b = await x.arrayBuffer(); if(b.byteLength > 100){ LOGO = { bytes: b, png: /\.png($|\?)/i.test(u) || new Uint8Array(b)[0] === 0x89 }; break; } } }catch(e){} }
+    return LOGO;
+  }
+  P.ISSUER = 'MARINCON';
   // A tiny layout engine: pages, cursor, wrapping
   async function newDoc(meta){
     const { PDFDocument, StandardFonts, rgb } = await ensure();
     const doc = await PDFDocument.create();
-    doc.setTitle(T(meta.title)); doc.setAuthor(T(FC.brand)); doc.setCreator(T(FC.brand)); doc.setProducer(T(FC.brand));
-    const f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) };
+    doc.setTitle(T(meta.title)); doc.setAuthor(P.ISSUER); doc.setCreator(P.ISSUER); doc.setProducer(P.ISSUER);
+    const lg = await marinconLogo(); let logoImg = null;
+    if(lg){ try{ logoImg = lg.png ? await doc.embedPng(lg.bytes) : await doc.embedJpg(lg.bytes); }catch(e){ logoImg = null; } }
+    const bf = await brandFonts(); let f;
+    if(bf){ doc.registerFontkit(window.fontkit); f = { r: await doc.embedFont(bf.r, { subset:true }), b: await doc.embedFont(bf.b, { subset:true }) }; RICH = true; }
+    else{ f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) }; RICH = false; }
     const col = a => rgb(a[0]/255, a[1]/255, a[2]/255);
     const W = 595.28, H = 841.89, M = 46;
     const ctx = { doc, f, col, W, H, M, page:null, y:0, pages:[], meta };
     ctx.addPage = () => {
       const pg = doc.addPage([W, H]); ctx.page = pg; ctx.pages.push(pg);
-      // header band
-      pg.drawRectangle({ x:0, y:H-78, width:W, height:78, color:col(C.harbour) });
-      pg.drawRectangle({ x:0, y:H-82, width:W, height:4, color:col(C.amber) });
-      // official wordmark as vector paths: white letters, lime square
-      const L = FC.LOGO, sc = 150 / L.w;
-      pg.drawSvgPath(L.letters, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.white) });
-      pg.drawSvgPath(L.square, { x: M, y: H - 30 + L.y0 * sc, scale: sc, color: col(C.amber) });
-      pg.drawText(T('Cargo insurance indications, quotations & cover'), { x: M, y: H - 62, size: 7.5, font: f.r, color: rgb(.72, .85, .76) });
+      // header: issued by MARINCON (logo), navy rule
+      pg.drawRectangle({ x:0, y:H-82, width:W, height:82, color:col(C.white) });
+      pg.drawRectangle({ x:0, y:H-84, width:W, height:2.5, color:col(C.harbour) });
+      if(logoImg){ const h = 40, w = Math.min(210, logoImg.width * h / logoImg.height); pg.drawImage(logoImg, { x: M, y: H - 22 - h, width: w, height: w * logoImg.height / logoImg.width }); }
+      else{ pg.drawText('MARINCON', { x: M, y: H - 46, size: 22, font: f.b, color: col(C.harbour) }); pg.drawText(T('Marine Insurance Brokers - Hamburg'), { x: M, y: H - 62, size: 8, font: f.r, color: col(C.steel) }); }
       const tt = T(meta.title).toUpperCase(), tw = f.b.widthOfTextAtSize(tt, 12);
-      pg.drawText(tt, { x:W-M-tw, y:H-44, size:12, font:f.b, color:col(C.white) });
-      if(meta.ref){ const rw = f.r.widthOfTextAtSize(T(meta.ref), 9); pg.drawText(T(meta.ref), { x:W-M-rw, y:H-58, size:9, font:f.r, color:rgb(.85,.92,.93) }); }
+      pg.drawText(tt, { x:W-M-tw, y:H-44, size:12, font:f.b, color:col(C.harbour) });
+      if(meta.ref){ const rw = f.r.widthOfTextAtSize(T(meta.ref), 9); pg.drawText(T(meta.ref), { x:W-M-rw, y:H-58, size:9, font:f.r, color:col(C.steel) }); }
       ctx.y = H - 112;
       return pg;
     };
@@ -146,7 +170,7 @@
     return ctx;
   }
 
-  const legal = () => (window.FREIGHTCON_LEGAL_LINE || FC.brand);
+  const legal = () => (/marincon/i.test(window.FREIGHTCON_LEGAL_LINE || '') ? FC.dash(window.FREIGHTCON_LEGAL_LINE) : 'MARINCON GmbH & Co. KG, Hamburg');
   const placeOf = (place, name) => [place, name].filter(Boolean).join(', ');
 
   // ---------------- indication ----------------
@@ -155,14 +179,19 @@
     const conv = (FC.CONVEYANCE[r.conveyance] || {}).short || r.conveyance;
     ctx.para('Issued ' + FC.dateTime(r.issued_at || new Date()) + (r.company ? ' for ' + r.company : ''), { color:C.steel, size:9 });
     ctx.lane({ iso:r.origin_country, place: r.origin_place || r.origin_name || '' }, { iso:r.dest_country, place: r.dest_place || r.dest_name || '' }, conv);
+    if(r.insured_name || r.customer_ref){
+      ctx.heading('Assured');
+      ctx.kv([['Assured', r.insured_name ? r.insured_name + (r.insured_address ? ', ' + r.insured_address : '') : ''], ['Policyholder', r.insured_name ? r.company : ''], ['Your reference', r.customer_ref]]);
+    }
     ctx.heading('Shipment');
     ctx.kv([
       ['Goods', r.goods_description], ['Cargo type', r.commodity_name], ['Packaging', r.packaging],
       ['Conveyance', conv], ['From', placeOf(r.origin_place, r.origin_name)], ['To', placeOf(r.dest_place, r.dest_name)],
-      ['Departure', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
+      ['Departure / ETA of loading', r.departure_date ? FC.date(r.departure_date) : 'Not stated'],
       ['Special', [r.on_deck ? 'Shipped on deck' : '', r.interest_only ? "Seller's / buyer's own interest only (contingency cover)" : ''].filter(Boolean).join(', ')],
+      ['Extensions', [r.ext_hssc ? 'Heating, sweating & spontaneous combustion (HSSC)' : '', r.ext_liw ? 'Loss / difference in weight (LiW / DiW)' : ''].filter(Boolean).join(', ')],
       ['Vessel', /^sea_/.test(r.conveyance) ? (r.vessel || 'To be declared') : ''],
-      ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + '), insured for the ' + (r.insured_party || 'seller') : '']
+      ['Incoterm', r.incoterm ? r.incoterm + ' (' + ((FC.INCOTERMS[r.incoterm] || {}).name || '') + ')' : ''], ['Role of the client', r.insured_party ? FC.partyLabel(r.insured_party, r.party_role_other) : '']
     ]);
     ctx.heading('Cover');
     const cov = FC.COVER[r.cover] || {};
@@ -188,28 +217,126 @@
     return ctx.finish(legal() + '. Indications are non-binding and confidential. Not an insurance certificate.');
   };
 
+  // ---------------- certificate form (AcroForm) ----------------
+  // Windows-1252 bytes; characters outside the code page become '?'
+  const CP1252 = { 0x20AC:0x80, 0x201A:0x82, 0x0192:0x83, 0x201E:0x84, 0x2026:0x85, 0x2020:0x86, 0x2021:0x87, 0x02C6:0x88, 0x2030:0x89, 0x0160:0x8A, 0x2039:0x8B, 0x0152:0x8C, 0x017D:0x8E,
+    0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x2013:0x96, 0x2014:0x97, 0x02DC:0x98, 0x2122:0x99, 0x0161:0x9A, 0x203A:0x9B, 0x0153:0x9C, 0x017E:0x9E, 0x0178:0x9F };
+  P.cp1252 = str => { const out = new Uint8Array(str.length); let n = 0; for(const ch of str){ const c = ch.codePointAt(0); out[n++] = (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) ? c : (CP1252[c] || 0x3F); } return out.slice(0, n); };
+  // FDF 1.2 for Adobe: literal strings with \( \) \\ escaped and line breaks as \r
+  // the certificate form's AcroForm fields (checked against the Bertling master PDF)
+  // Sum Insured raw with two decimals (33562.80): the form's AFNumber_Format script rejects 33,562.80; Perc and Ori's digits only
+  const digits = v => String(v == null ? '' : v).replace(/[^\d]/g, '');
+  // exactly the AcroForm fields of BERTLING_MASTER_TRANSPORT_POLICY_(OHNE|MIT)_STEMPEL_202304.pdf, in Acrobat's export order.
+  // Field (5) is the condition box between 4 and 7: value 5 = sea / road / rail / multimodal, 6 = air. There is no field (6),
+  // (ConditionNo) or (Additional Agreements): the L/C / additional agreements box is (LC Info). (Submit) is the form's button.
+  P.certFields = x => [['1', x.box1 || '14'], ['5', x.box === '6' ? '6' : '5'], ['Curr', x.curr], ['Date of Issue', x.date], ['Description of Goods', x.goods],
+    ['Doc', x.doc], ['Doc No', x.docNo], ['LC Info', x.agreements], ['No', x.no], ['Order/Ref No', x.ref], ["Ori's", digits(x.originals)], ['Perc', digits(x.perc)],
+    ['Pol No', x.polNo], ['Submit', null], ['Sum Insured', FC.fdfNum(x.sum)], ['The holder of this policy', x.holder], ['Type of Value', x.valueType],
+    ['conveyance', x.conveyance], ['voyage from', x.from], ['voyage to', x.to], ['wwwvhtnetworkde', x.claims]];
+  // document ID of the Bertling master forms (OHNE and MIT STEMPEL share it); window.FREIGHTCON_CERT_PDF_ID overrides it
+  P.CERT_PDF_ID = ['7401983548D31473297C83C35F105E61', '68BBD8637470604BBC0EA12D94EAC37F'];
+  // on screen 33,562.80; in the .fdf FC.fdfNum gives 33562.80; dates 06.10.2026
+  P.certNum = n => Number(n || 0).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  P.certDate = d => { d = d ? new Date(d) : new Date(); const t = n => String(n).padStart(2, '0'); return t(d.getDate()) + '.' + t(d.getMonth() + 1) + '.' + d.getFullYear(); };
+  // like the working Acrobat export: compact syntax, no /F or /UF (any copy or renamed master works),
+  // /ID of the master form and /Type/Catalog; Windows-1252 bytes
+  P.fdf = (pdfFile, fields, id) => {
+    const lit = v => '(' + FC.dash(v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r\n|\n|\r/g, '\\r') + ')';
+    const ids = (id || window.FREIGHTCON_CERT_PDF_ID || P.CERT_PDF_ID).map(h => '<' + String(h).replace(/[^0-9A-Fa-f]/g, '').toUpperCase() + '>').join('');
+    const body = '%FDF-1.2\n%âãÏÓ\n1 0 obj\n<</FDF<</Fields['
+      + fields.map(([t, v]) => '<</T' + lit(t) + (v === null ? '' : '/V' + lit(v == null ? '' : v)) + '>>').join('')
+      + ']/ID[' + ids + ']>>/Type/Catalog>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n';
+    return P.cp1252(body);
+  };
+  // fill the blank form directly (fields stay editable)
+  P.fillForm = async (bytes, fields) => {
+    const { PDFDocument, PDFTextField, PDFDropdown } = await ensure();
+    const doc = await PDFDocument.load(bytes);
+    const form = doc.getForm(), bf = await brandFonts();
+    let font = null;
+    if(bf){ doc.registerFontkit(window.fontkit); font = await doc.embedFont(bf.r, { subset:false }); }
+    const missing = [];
+    fields.forEach(([name, value]) => {
+      if(value === null) return;   // buttons such as Submit
+      let f; try{ f = form.getField(name); }catch(e){ missing.push(name); return; }
+      const v = String(value == null ? '' : value);
+      if(f instanceof PDFTextField){ if(f.getMaxLength && f.getMaxLength() != null && v.length > f.getMaxLength()) f.setMaxLength(v.length); f.setText(v); }
+      else if(f instanceof PDFDropdown){ if(v) f.select(v); else f.clear(); }
+    });
+    if(font) form.updateFieldAppearances(font);
+    return { bytes: await doc.save(), missing };
+  };
+
   // ---------------- quotation ----------------
   P.quotation = async (q, ind) => {
     const d = q.data || {};
     const ctx = await newDoc({ title:'Quotation', ref: (ind && ind.ref ? ind.ref : '') + (q.version > 1 ? ' / v' + q.version : '') });
-    ctx.para('Issued ' + FC.dateTime(d.issuedAt || q.created_at) + '  —  valid until ' + FC.dateTime(q.valid_until || d.validUntil), { color:C.steel, size:9 });
+    ctx.para('Issued ' + FC.dateTime(d.issuedAt || q.created_at) + '  -  valid until ' + FC.dateTime(q.valid_until || d.validUntil), { color:C.steel, size:9 });
     const conv = (FC.CONVEYANCE[d.conveyance] || {}).short || d.conveyance || '';
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.heading('Assured & shipment');
     ctx.kv([
-      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Goods', d.goods], ['Packaging', d.packaging],
+      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Open cover', d.policyNo], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Goods', d.goods], ['Packaging', d.packaging],
       ['Conveyance', conv + (d.vessel ? ', ' + d.vessel : '')], ['Voyage', d.voyage], ['Period', d.period], ['Incoterm', d.incoterm]
     ]);
     ctx.heading('Cover');
-    ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.special]]);
+    ctx.kv([['Conditions', d.conditions], ['Insurer', d.insurer], ['Deductible', d.deductible], ['Special conditions', d.doc ? '' : d.special]]);
     ctx.heading('Premium');
-    const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate), FC.money2(l.premium, d.currency)]);
-    if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
-    if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
-    if(Number(d.taxPct) > 0) rows.push(['Insurance tax ' + Number(d.taxPct) + ' %', '', '', FC.money2(d.tax, d.currency)]);
-    rows.push({ cells:['Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[144,194,71] });
-    ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
-    if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
+    // display mode: rate only, premium only, or both
+    const mode = d.displayMode || 'both', sR = FC.showRate(mode), sP = FC.showPremium(mode), tax = Number(d.taxPct) > 0;
+    const taxLbl = (d.iptApplied !== false ? 'German IPT' : 'Insurance tax') + ' (' + Number(d.taxPct) + '%)';
+    if(sR && sP){
+      // rates on documents are always % (a per mille value from older data is divided by 10)
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(FC.toPercent(l.rate, d.rateUnit)), FC.money2(l.premium, d.currency)]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
+      if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
+      if(tax){ rows.push(['Net premium', '', '', FC.money2(d.net, d.currency)]); rows.push([taxLbl, '', '', FC.money2(d.tax, d.currency)]); }
+      rows.push({ cells:[tax ? 'Gross total incl. IPT' : 'Total premium payable', '', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
+      ctx.table(['Cover', 'Sum insured', 'Rate', 'Premium'], rows, [.44, .2, .14, .22], { right:[1,2,3] });
+    }else if(sP){
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.money2(l.premium, d.currency)]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount ' + Number(d.discountPct) + ' %', '', '- ' + FC.money2(d.discountAmount, d.currency)]);
+      if(d.minApplied) rows.push(['Minimum premium applied', '', '']);
+      if(tax){ rows.push(['Net premium', '', FC.money2(d.net, d.currency)]); rows.push([taxLbl, '', FC.money2(d.tax, d.currency)]); }
+      rows.push({ cells:[tax ? 'Gross total incl. IPT' : 'Total premium payable', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
+      ctx.table(['Cover', 'Sum insured', 'Premium'], rows, [.5, .25, .25], { right:[1,2] });
+    }else{
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(FC.toPercent(l.rate, d.rateUnit))]);
+      if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %']);
+      if(tax) rows.push([taxLbl + ' on the premium', '', 'added']);
+      ctx.table(['Cover', 'Sum insured', 'Rate'], rows, [.5, .25, .25], { right:[1,2] });
+    }
+    if(tax && d.iptReason) ctx.para(d.iptReason, { size:8, color:C.steel });
+    // minimum premium and, where war & strikes are excluded, both rates side by side
+    const W = d.warExcl, terms = [];
+    if(Number(d.minPremium) > 0) terms.push(['Minimum premium', FC.money2(d.minPremium, d.currency)]);
+    if(W && W.offerBuyback){
+      const pay = v => sP && v != null ? '  (' + FC.money2(v, d.currency) + ' payable)' : '';
+      terms.push(['Rate, W&S excluded', (sR ? FC.pct(W.rateExcl) : 'as quoted') + pay(W.totalExcl)]);
+      terms.push(['Rate, W&S re-included', (sR ? FC.pct(W.rateIncl) + ' with' : 'With') + ' war & strikes re-included for ' + W.areas.join(', ') + pay(W.totalIncl)]);
+    }
+    if(terms.length) ctx.kv(terms);
+    if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for these areas at the rate shown, say so when you accept.' : ''), [224,160,48]);
+    if(d.doc){
+      // the broker's wording: sections as headings, outlined paragraphs as boxes, bold paragraphs in bold
+      const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc);
+      const fm = Object.assign({}, FC.FMT, d.fmt || {}), fs = Math.min(12, Math.max(7, Number(fm.font_size_pt) - 1)), sp = Number(fm.paragraph_spacing_pt);
+      x.querySelectorAll('section').forEach(sec => {
+        if(sec.dataset.cat === 'pricing') return;
+        const h = sec.querySelector('h4'); ctx.heading(h ? h.textContent.trim() : 'Terms');
+        Array.from(sec.children).forEach(el => {
+          if(el.tagName === 'H4') return;
+          const items = /^(UL|OL)$/.test(el.tagName) ? Array.from(el.children) : [el];
+          items.forEach(it => {
+            const t = it.textContent.replace(/\s+/g, ' ').trim(); if(!t) return;
+            const allBold = it.querySelector('b,strong') && Array.from(it.querySelectorAll('b,strong')).map(b => b.textContent).join('').replace(/\s+/g, '') === t.replace(/\s+/g, '');
+            if(it.classList.contains('box')) ctx.box('', t, C.teal);
+            else ctx.para((it.tagName === 'LI' ? '•  ' : '') + t, { size: fs, bold: !!allBold, after: Math.max(1, Math.round(sp * .4)) });
+          });
+        });
+      });
+      ctx.y -= 2;
+    }else if((d.subjectivities || []).length){ ctx.heading('Subject to'); d.subjectivities.forEach(s => ctx.para('•  ' + s, { size:9, after:1 })); ctx.y -= 4; }
     if(d.note){ ctx.heading('Notes'); ctx.para(d.note); }
     if(d.closing){ ctx.box('How to accept', d.closing, C.teal); }
     if(d.handler && (d.handler.name || d.handler.email)) ctx.para('Your contact: ' + [d.handler.name, d.handler.email].filter(Boolean).join(', '), { size:9, color:C.steel });
@@ -220,13 +347,13 @@
   P.coverNote = async (cn, ind) => {
     const d = cn.data || {};
     const ctx = await newDoc({ title:'Cover note', ref: cn.number || d.number || '' });
-    ctx.para('Issued ' + FC.dateTime(cn.issued_at || d.issuedAt) + (ind && ind.ref ? '  —  reference ' + ind.ref : ''), { color:C.steel, size:9 });
+    ctx.para('Issued ' + FC.dateTime(cn.issued_at || d.issuedAt) + (ind && ind.ref ? '  -  reference ' + ind.ref : ''), { color:C.steel, size:9 });
     const conv = (FC.CONVEYANCE[d.conveyance] || {}).short || d.conveyance || '';
     ctx.lane({ iso:d.originCountry || '', place:d.originPlace || '' }, { iso:d.destCountry || '', place:d.destPlace || '' }, conv);
     ctx.para('We confirm that insurance has been effected as follows:', { bold:true });
     ctx.heading('Insurance');
     ctx.kv([
-      ['Assured', d.client], ['Address', d.clientAddress], ['Co-assured', (d.coAssured || []).join(', ')], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
+      ['Assured', d.client], ['Address', d.clientAddress], ['Policyholder', d.policyholder], ['Co-assured', (d.coAssured || []).join(', ')], ['Your reference', d.customerRef], ['Insurer(s)', d.insurer], ['Policy / certificate no.', d.policyNo]
     ]);
     ctx.heading('Shipment');
     ctx.kv([
@@ -242,6 +369,62 @@
     if(d.note) ctx.para(d.note, { size:9 });
     return ctx.finish(legal() + '. This cover note is issued as evidence of insurance; terms as per the policy wording. Not negotiable unless stated.');
   };
+
+
+  // ---------- document templates (certificate / cover note): HTML with tokens and matrices, printed by the browser ----------
+  P.DOC_TOKENS = [['certificate_no','Certificate / document no.'],['date_of_issue','Date of issue'],['policy_holder','Policy holder'],['open_policy_no','Open policy no.'],['order_ref','Order / ref. no.'],
+    ['description_of_goods','Description of goods'],['conveyance','Conveyance'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['currency','Currency'],['sum_insured','Sum insured'],
+    ['valuation_basis','Valuation basis'],['uplift_pct','Uplift / percentage'],['deductible','Deductible'],['condition_code','Condition code (5 / 6)'],['clauses_block','Clauses block'],
+    ['additional_agreements','Additional agreements'],['survey_agent_url','Survey agent']];
+  P.DOC_FONTS = ['Calibri', 'Arial', 'Times New Roman'];
+  // the certificate data (same object as for the .fdf) as token values
+  P.docTokens = x => ({ certificate_no: x.no, date_of_issue: x.date, policy_holder: x.holder, open_policy_no: x.polNo, order_ref: x.ref, description_of_goods: x.goods,
+    conveyance: x.conveyance, voyage_from: x.from, voyage_to: x.to, currency: x.curr, sum_insured: x.sum, valuation_basis: x.valueType, uplift_pct: x.perc,
+    deductible: x.deductible || '', condition_code: x.box === '6' ? '6 (air)' : '5 (sea / road / rail / multimodal)', additional_agreements: x.agreements, survey_agent_url: x.claims || 'www.vht-network.de' });
+  const absUrl = u => { try{ return new URL(u, location.href).href; }catch(e){ return u; } };
+  P.matrixHtml = (m, vals) => {
+    const rows = Array.isArray(m.rows) ? m.rows : [], bc = /^#[0-9a-f]{6}$/i.test(m.border_color || '') ? m.border_color : '#1F3F8F', hb = /^#[0-9a-f]{6}$/i.test(m.header_bg || '') ? m.header_bg : '#1F3F8F';
+    const cell = (v, h) => `<${h ? 'th' : 'td'} style="border:1px solid ${bc};padding:4pt 6pt;text-align:left;vertical-align:top;${h ? 'background:' + hb + ';color:#fff;font-weight:700' : ''}">${FC.merge(FC.esc(FC.dash(v == null ? '' : v)), vals).replace(/\n/g, '<br>')}</${h ? 'th' : 'td'}>`;
+    return `<div class="mx">${m.title ? `<div class="mx-t" style="color:${hb}">${FC.esc(FC.dash(m.title))}</div>` : ''}<table style="border-collapse:collapse;width:100%;border:1px solid ${bc}">${rows.map((r, i) => '<tr>' + r.map(v => cell(v, i === 0)).join('') + '</tr>').join('')}</table></div>`;
+  };
+  // tpl: { body, settings, matrices }, x: certificate data, o: { clausesHtml, clientName }
+  P.docHtml = (tpl, x, o) => {
+    tpl = tpl || {}; o = o || {};
+    const st = Object.assign({ font_family:'Calibri', font_size_pt:10, orientation:'portrait', border:'thin', show_header:true, client_logo_url:'' }, tpl.settings || {});
+    const fs = Math.min(14, Math.max(8, Number(st.font_size_pt) || 10)), fam = P.DOC_FONTS.includes(st.font_family) ? st.font_family : 'Calibri';
+    const vals = P.docTokens(x || {});
+    const mats = Array.isArray(tpl.matrices) ? tpl.matrices : [], used = new Set();
+    let body = FC.cleanHtml(FC.dash(tpl.body || ''));
+    body = body.replace(/\{\{\s*clauses_block\s*\}\}/g, () => FC.cleanHtml(o.clausesHtml || ''));
+    body = body.replace(/\{\{\s*additional_agreements\s*\}\}/g, () => FC.esc(FC.dash(vals.additional_agreements || '')).replace(/\n/g, '<br>'));
+    body = FC.merge(body, vals);
+    body = body.replace(/(<p>\s*)?\[\[matrix:([\w-]+)\]\](\s*<\/p>)?/g, (all, a, id) => { const m = mats.find(z => String(z.id) === id); if(!m) return ''; used.add(m.id); return P.matrixHtml(m, vals); });
+    const rest = mats.filter(m => !used.has(m.id)).map(m => P.matrixHtml(m, vals)).join('');
+    const frame = st.border === 'double' ? '4px double #1F3F8F' : st.border === 'none' ? '0' : '1px solid #1F3F8F';
+    const logo = absUrl(window.MARINCON_LOGO_URL || 'assets/brand/marincon-logo.png');
+    const head = st.show_header !== false ? `<header class="hd"><div class="hd-l"><img src="${FC.esc(logo)}" alt="MARINCON" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><b class="hd-txt" style="display:none">MARINCON</b></div>
+      <div class="hd-r">${st.client_logo_url ? `<img src="${FC.esc(absUrl(st.client_logo_url))}" alt="${FC.esc(o.clientName || 'Client')}" onerror="this.remove()">` : ''}<span>MARINCON GmbH &amp; Co. KG<br>Marine insurance brokers, Hamburg</span></div></header>` : '';
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${FC.esc(FC.dash(o.title || 'MARINCON document'))}</title><style>
+      @page{size:A4 ${st.orientation === 'landscape' ? 'landscape' : 'portrait'};margin:12mm}
+      *{box-sizing:border-box} html,body{margin:0;background:#fff}
+      body{font-family:'${fam}',${fam === 'Times New Roman' ? 'serif' : 'Arial,sans-serif'};font-size:${fs}pt;line-height:1.35;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .frame{border:${frame};padding:${st.border === 'none' ? '0' : '10mm'};min-height:calc(100vh - 2px)}
+      .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #1F3F8F;padding-bottom:8px;margin-bottom:14px}
+      .hd img{max-height:46px;max-width:220px} .hd-txt{font-size:20pt;color:#1F3F8F;letter-spacing:.04em}
+      .hd-r{display:flex;gap:12px;align-items:center;text-align:right;font-size:${Math.max(7, fs - 2)}pt;color:#333}
+      h4{font-size:${fs + 3}pt;color:#1F3F8F;margin:0 0 10px} p{margin:0 0 7pt} ul,ol{margin:0 0 7pt;padding-left:18pt}
+      .box{border:1px solid #000;padding:6pt 8pt;margin:6pt 0} mark{background:#fff2a8}
+      .mx{margin:8pt 0 10pt;page-break-inside:avoid} .mx-t{font-weight:700;margin:0 0 4pt} table{font-size:${Math.max(7, fs - 1)}pt}
+      .ft{margin-top:16px;border-top:1px solid #ccc;padding-top:6px;font-size:${Math.max(7, fs - 3)}pt;color:#555}
+    </style></head><body><div class="frame">${head}${body}${rest}<div class="ft">MARINCON GmbH &amp; Co. KG, Hamburg</div></div></body></html>`;
+  };
+  // print through a hidden frame: the browser's print dialog saves it as PDF
+  P.printDoc = html => new Promise(res => {
+    const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    f.onload = () => { setTimeout(() => { try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ console.error(e); } res(f); setTimeout(() => f.remove(), 60000); }, 350); };
+    f.srcdoc = html;
+  });
 
   P.fileName = (kind, ref, extra) => [kind, ref, extra].filter(Boolean).join('_').replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_') + '.pdf';
 })();
