@@ -1476,7 +1476,9 @@
       conveyance: (FC.CONVEYANCE[d.conveyance || r.conveyance] || {}).label || '', departure_date: (d.departureDate || r.departure_date) ? FC.date(d.departureDate || r.departure_date) : '',
       policy_no: d.policyNo || (og.policy && og.policy.policy_no) || '',
       sum_insured: m2(d.sumInsured || ln.sum || r.sum_insured), currency: cur || '',
-      rate_pct: isFinite(Number(ln.rate)) && ln.rate !== '' && ln.rate != null ? FC.pct(ln.rate) : r.rate_pct != null ? FC.pct(r.rate_pct) : '',
+      // {{rate}} / {{rate_pct}}: always in % (a per mille entry is divided by 10)
+      rate_pct: isFinite(Number(ln.rate)) && ln.rate !== '' && ln.rate != null ? FC.pct(FC.toPercent(ln.rate, d.rateUnit)) : r.rate_pct != null ? FC.pct(r.rate_pct) : '',
+      rate: isFinite(Number(ln.rate)) && ln.rate !== '' && ln.rate != null ? FC.pct(FC.toPercent(ln.rate, d.rateUnit)) : r.rate_pct != null ? FC.pct(r.rate_pct) : '',
       premium_amount: m2(d.net != null ? d.net : r.premium), ipt_amount: m2(d.tax != null ? d.tax : r.ipt_amount),
       total_amount: m2(d.total != null ? d.total : (r.premium != null ? Number(r.premium) + Number(r.ipt_amount || 0) : null)),
       deductible: d.deductible || r.deductible_text || '', valid_until: d.validUntil ? FC.dateTime(d.validUntil) : '',
@@ -1687,7 +1689,8 @@
             <div class="field"><label for="qeBb">Buy-back loading, net % on the rate</label><input id="qeBb" inputmode="decimal" value="${esc(bb ? Math.round(bb * 10000) / 10000 : '')}" placeholder="e.g. 0.175"><span class="hint">Gross loading less no-claims bonus, e.g. 0.35 % - 50 % = 0.175 %.</span></div></div>
             <label class="switch" style="margin-top:4px"><input type="checkbox" id="qeBbOn" ${all ? 'checked' : ''}><span><b>Offer the buy-back</b><span>The quotation shows both rates next to the minimum premium.</span></span></label>
             <div id="qeWarRates" class="small" style="margin-top:8px"></div></div>`; })()}
-      <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Cover line</th><th>Sum insured</th><th>Rate %</th><th class="r">Premium</th><th></th></tr></thead><tbody id="qeLines">${(d.lines || []).map(lineRow).join('')}</tbody></table></div>
+      <div class="notice warn ru-banner" id="qeRUWarn" hidden role="alert"><b>Rate entered in per mille (‰)</b>The rates in this editor are per mille (decimal basis x10, premium = sum insured x rate / 1000). The quotation, certificates and cover notes still show the rate in % (‰ / 10). Switch back to % when done.</div>
+      <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Cover line</th><th>Sum insured</th><th><span class="ru-ctl">Rate <select id="qeRU" class="ru-sel" disabled aria-label="Rate unit"><option value="percent">%</option><option value="per_mille">‰</option></select><span class="ru-lock" id="qeRULock" title="Locked to %">🔒</span><button type="button" class="linkbtn xs" id="qeRUUnlock">Unlock unit</button></span></th><th class="r">Premium</th><th></th></tr></thead><tbody id="qeLines">${(d.lines || []).map(lineRow).join('')}</tbody></table></div>
       <div class="toolbar" style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="qeAdd">Add line</button>
         <label class="switch" style="margin:0"><input type="checkbox" id="qeTaxOn" ${taxOn ? 'checked' : ''}><span><b>Apply German IPT</b></span></label>
         <div class="field" style="flex-direction:row;align-items:center;gap:8px;margin:0"><label for="qeTax" style="white-space:nowrap">Rate %</label><input id="qeTax" inputmode="decimal" value="${esc(Number(d.taxPct) > 0 ? d.taxPct : taxDefault)}" style="width:80px" ${taxOn ? '' : 'disabled'}></div></div>
@@ -1890,7 +1893,7 @@
       const x = data.one_off || data.result, n = x.n || {};
       rated = { p, x, sa };
       const first = body.querySelector('#qeLines tr');
-      if(first){ first.querySelector('.ln-sum').value = n.sum_insured; first.querySelector('.ln-rate').value = x.status === 'quoted' ? x.rate : ''; }
+      if(first){ first.querySelector('.ln-sum').value = n.sum_insured; first.querySelector('.ln-rate').value = x.status === 'quoted' ? FC.rateNum(FC.fromPercent(x.rate, ruNow())) : ''; }
       if(x.min != null) $b('#qeMin').value = x.min;
       if(x.deductible && !(dPol() && dedsOf(dPol()).length)) $b('#qeDed').value = x.deductible;
       $b('#qeVoy').value = [p.origin_place, cName(p.origin_country)].filter(Boolean).join(', ') + ' to ' + [p.dest_place, cName(p.dest_country)].filter(Boolean).join(', ') + (p.transit_countries.length ? ' via ' + p.transit_countries.map(cName).join(', ') : '');
@@ -1921,11 +1924,14 @@
     const docTexts = cat => Array.from(docEl.querySelectorAll(`section[data-cat="${cat}"] p, section[data-cat="${cat}"] li, section[data-cat="${cat}"] div`)).map(x => x.textContent.trim()).filter(Boolean);
     // formatting toolbar
     wireRt($b('.rt-bar'), docEl, { ctx: mctx, onCopy: async () => { recalc(); const ok = await FC.copyRich(FC.emailHtml(docHtml(), fmt), FC.htmlText(docHtml())); toast(ok ? 'Copied - paste it into your e-mail.' : 'Copy failed; select the text and copy it manually.', ok ? undefined : 'error'); } });
+    // the rate unit of the editor: % (locked) unless unlocked; lines are always kept and saved in %
+    const ruNow = () => ($b('#qeRU') || {}).value || 'percent';
     const collect = () => {
       const ro = $b('#qeMode').value === 'rate_only';
       const lines = Array.from(body.querySelectorAll('#qeLines tr')).map(tr => {
-        let sum = FC.parseNum(tr.querySelector('.ln-sum').value); const rate = FC.parseNum(tr.querySelector('.ln-rate').value);
+        let sum = FC.parseNum(tr.querySelector('.ln-sum').value); const rate = FC.toPercent(FC.parseNum(tr.querySelector('.ln-rate').value), ruNow());
         if(ro && !isFinite(sum)) sum = 0;
+        // premium = sum insured x percent rate / 100 (the same as sum insured x per mille rate / 1000)
         return { label: tr.querySelector('.ln-label').value.trim(), sum, rate, premium: isFinite(sum) && isFinite(rate) ? Math.round(sum * rate) / 100 : NaN, tr };
       });
       return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, reb: FC.parseNum($b('#qeReb').value) || 0, cur: $b('#qeCur').value, mode: $b('#qeMode').value };
@@ -1992,6 +1998,27 @@
     });
     const insurerPick = () => { const ins = S.insurers.find(i => String(i.id) === $b('#qeInsSel').value); return ins ? { id: ins.id, name: ins.name } : { id: null, name: $b('#qeIns').value.trim() }; };
     body.addEventListener('click', e => { if(e.target.classList.contains('ln-del')){ e.target.closest('tr').remove(); recalc(); } });
+    // rate unit: locked to %; unlocking needs a confirmed warning and is logged
+    let ruOverride = null;
+    $b('#qeRUUnlock').addEventListener('click', async () => {
+      const sel = $b('#qeRU');
+      if(!sel.disabled){ if(ruNow() === 'per_mille'){ sel.value = 'percent'; sel.dispatchEvent(new Event('change')); } sel.disabled = true; $b('#qeRULock').hidden = false; $b('#qeRUUnlock').textContent = 'Unlock unit'; return; }
+      const box = FC.el(`<div><div class="serious"><b>Quotations, certificates and cover notes must be in %</b><div>Switching this quotation to per mille (‰) changes the decimal basis: 0.45 ‰ = 0.045 %, and the premium becomes sum insured x rate / 1000. Use it only to enter a rate the insurer gave you in per mille. The documents keep showing the rate in % (the per mille value divided by 10). The change is recorded in the audit log.</div></div>
+        <div class="field" style="margin-top:10px"><label for="ruWhy">Reason <span class="muted">(audit log)</span></label><input id="ruWhy" maxlength="300" placeholder="e.g. underwriter quoted 1.50 per mille"></div></div>`);
+      const okU = await FC.dialog({ title:'Unlock the rate unit?', body: box, actions:[{ label:'Keep %', kind:'ghost', value:null }, { label:'I understand - unlock', kind:'danger', onClick: async () => box.querySelector('#ruWhy').value.trim() || 'no reason given' }] });
+      if(!okU) return;
+      ruOverride = { note: FC.dash(okU) };
+      sel.disabled = false; $b('#qeRULock').hidden = true; $b('#qeRUUnlock').textContent = 'Lock to %';
+      sel.focus();
+    });
+    $b('#qeRU').addEventListener('change', async e => {
+      const to = e.target.value, from = to === 'per_mille' ? 'percent' : 'per_mille';
+      body.querySelectorAll('#qeLines .ln-rate').forEach(i => { const v = FC.parseNum(i.value); if(isFinite(v)) i.value = FC.rateNum(FC.fromPercent(FC.toPercent(v, from), to)); });
+      $b('#qeRUWarn').hidden = to !== 'per_mille';
+      if(to === 'per_mille'){ ruOverride = Object.assign({ unit:'per_mille', by: me().email, at: new Date().toISOString() }, ruOverride || {}); await sb.rpc('admin_log_rate_unit_override', { p_indication: r.id, p_unit: 'per_mille', p_note: (ruOverride || {}).note || null }); }
+      else if(ruOverride) ruOverride.unit = 'percent';
+      recalc();
+    });
     $b('#qeAdd').addEventListener('click', () => { $b('#qeLines').insertAdjacentHTML('beforeend', lineRow({ label:'', sum: Number(r.sum_insured), rate:null }, Date.now())); recalc(); });
     const build = () => {
       const c = collect(), err = t => { $b('#qeErr').textContent = t; return null; };
@@ -2013,6 +2040,7 @@
         deductible: $b('#qeDed').value.trim(), deductibleIds: Array.from(dedSel), deductibles: dedList().map(x => x.deductible_text), templateId: tplNow ? tplNow.id : null,
         special: docTexts('special').join(' '), doc: docHtml(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
         displayMode: c.mode, iptApplied: c.tax > 0, iptRate: c.tax || null, iptManual, iptReason: c.tax > 0 ? $b('#qeIptWhy').textContent : '', fmt,
+        rateUnit: 'percent', rateUnitOverride: ruOverride && ruOverride.unit === 'per_mille' && ruNow() === 'per_mille' ? ruOverride : undefined,
         lines: c.lines.map(l => ({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium })),
         subtotal: t.subtotal, discountAmount: t.discountAmount, net: t.net, minApplied: t.minApplied, tax: t.tax, total: t.total, warExcl: warBlock(c),
         sumInsured: Math.max(...c.lines.map(l => l.sum)),
@@ -4591,12 +4619,32 @@
   }
   A.clearSetup = clearSetup;
 
+  // ---------------- rate units: schedules store per mille internally; each schedule is shown and entered in its unit ----------------
+  const rateIn = (permille, unit) => permille == null || permille === '' ? permille : unit === 'percent' ? Number(permille) / 10 : Number(permille);
+  const rateOut = (v, unit) => v == null || !isFinite(Number(v)) ? v : unit === 'percent' ? Math.round(Number(v) * 10 * 1e6) / 1e6 : Number(v);
+  // unit written in cell A1 of a Rate_Matrix sheet: "From / To (%)" or "From / To (‰)"
+  const unitOfA1 = a1 => /%/.test(String(a1 || '')) ? 'percent' : /‰|per\s*mille|permille|promille/i.test(String(a1 || '')) ? 'per_mille' : null;
+  async function exportMatrix(t, sc, unit){
+    if(!window.XLSX) await FC.loadScript(XLSX_URL);
+    unit = unit || t.rate_unit || 'per_mille';
+    const list = await cellsOf(t.id), cells = {}; list.forEach(c => { cells[c.zone_a + '-' + c.zone_b] = c.permille; });
+    const zmc = (S.zoneMaps.find(z => inScope(z, sc) && z.mode === t.mode) || {}).codes || {}, zc = z => zmc[z] || zmc[String(z)] || 'Z' + z;
+    const { zones } = await zoneList(sc, t.mode).catch(() => ({ zones: [] }));
+    const wb = XLSX.utils.book_new();
+    if(zones && zones.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ZoneCode','ZoneName','ColorHex','CountriesISO2']].concat(zones.map(z => [z.code, z.name || '', z.color || '', (z.countries || []).join(', ')]))), 'Zones');
+    const rows = [['From / To (' + FC.RATE_UNITS[unit] + ')'].concat(Array.from({ length: t.zones }, (_, i) => zc(i + 1)))];
+    for(let a = 1; a <= t.zones; a++) rows.push([zc(a)].concat(Array.from({ length: t.zones }, (_, i) => { const b = i + 1; if(b < a) return ''; const v = cells[a + '-' + b]; return v == null ? 'X' : rateIn(Number(v), unit); })));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Rate_Matrix');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Schedule', t.name], ['Scope', scName(sc)], ['Rate unit', unit === 'percent' ? '% (percent)' : 'per mille'], ['Exported', FC.dateTime(new Date())], ['Note', 'Rates valid both ways. X = refer to underwriter. Quotations, certificates and cover notes always show %.']]), 'Guideline');
+    XLSX.writeFile(wb, 'FREIGHTCON_' + String(t.kind || t.id).replace(/[^\w-]+/g, '_') + '_' + (unit === 'percent' ? 'percent' : 'permille') + '.xlsx');
+  }
+
   // ---------------- Excel / CSV import with guideline and sample template ----------------
   const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   const kindsOf = mode => { const seen = new Map(); S.rateTables.filter(t => t.mode === mode).sort((a, b) => (a.scope_type === 'one_off_general' ? 0 : 1) - (b.scope_type === 'one_off_general' ? 0 : 1) || a.sort - b.sort).forEach(t => { if(!seen.has(t.kind)) seen.set(t.kind, t.name); }); return Array.from(seen.entries()); };
   const IMPORT_GUIDE = `<div class="guide"><h3 style="margin:0 0 6px">Excel file structure &amp; formatting guideline</h3>
     <ol><li><b>Sheet <code>Zones</code></b> - row 1 headers <code>ZoneCode</code> | <code>ZoneName</code> | <code>ColorHex</code> | <code>CountriesISO2</code>; one zone per row, e.g. <code>Z1</code> | <code>North Europe</code> | <code>#1F3F8F</code> | <code>DE, NL, BE</code>.</li>
-    <li><b>Sheet <code>Rate_Matrix</code></b> - cell A1 free (e.g. <code>From / To</code>); <b>row 1</b> (B1, C1, ...) the destination zone codes, <b>column A</b> (A2, A3, ...) the origin zone codes; each cell the rate in per mille (<code>0.45</code> = 0.45 ‰) or <code>X</code> = refer to underwriter. Empty cells are skipped.</li>
+    <li><b>Sheet <code>Rate_Matrix</code></b> - cell A1 free (e.g. <code>From / To</code>); <b>row 1</b> (B1, C1, ...) the destination zone codes, <b>column A</b> (A2, A3, ...) the origin zone codes; each cell the rate in the unit chosen below, % or ‰ (<code>0.45</code> = 0.45 ‰ = 0.045 %; write the unit into A1, e.g. <code>From / To (%)</code>, and it is picked up automatically) or <code>X</code> = refer to underwriter. Empty cells are skipped.</li>
     <li><b>Sheet <code>Guideline</code></b> - these notes; ignored on import.</li>
     <li>Rates are valid both ways (origin / destination and destination / origin are one cell). If the two directions differ, the higher rate is used and the import reports it.</li>
     <li><b>Overwrite</b> replaces all zones, country assignments and rates of the transport mode in the selected scope. <b>Insert / Merge</b> adds new zones, updates zones with the same code and overrides only the cells in the file.</li>
@@ -4607,7 +4655,7 @@
     const zs = zones.length ? zones : [{ code:'Z1', name:'North Europe', color:'#1F3F8F', countries:['DE','NL','BE','DK'] }, { code:'Z2', name:'Mediterranean', color:'#F2D33C', countries:['IT','ES','GR','TR'] }, { code:'Z3', name:'Far East', color:'#D63FA0', countries:['CN','JP','KR','SG'] }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ZoneCode','ZoneName','ColorHex','CountriesISO2']].concat(zs.map(z => [z.code, z.name || '', z.color || '', z.countries.join(', ')]))), 'Zones');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['From / To'].concat(zs.map(z => z.code))].concat(zs.map((a, i) => [a.code].concat(zs.map((b, j) => j < i ? '' : i === j ? 0.45 : j === zs.length - 1 ? 'X' : 0.6))))), 'Rate_Matrix');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['From / To (%)'].concat(zs.map(z => z.code))].concat(zs.map((a, i) => [a.code].concat(zs.map((b, j) => j < i ? '' : i === j ? 0.045 : j === zs.length - 1 ? 'X' : 0.06))))), 'Rate_Matrix');
     const tmp = document.createElement('div'); tmp.innerHTML = IMPORT_GUIDE;
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['FREIGHTCON by MARINCON - rating import guideline']].concat(Array.from(tmp.querySelectorAll('li')).map(li => [li.textContent.trim()]))), 'Guideline');
     XLSX.writeFile(wb, 'FREIGHTCON_rating_template.xlsx');
@@ -4625,6 +4673,7 @@
     const ms = pick('Rate_Matrix') || (zs ? wb.SheetNames.find(n => n !== zs && n.toLowerCase() !== 'guideline') : wb.SheetNames[0]);
     if(ms){
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[ms], { header:1, raw:true, defval:'' });
+      out.unit = unitOfA1((rows[0] || [])[0]);
       const head = (rows[0] || []).slice(1).map(x => String(x).trim().toUpperCase());
       rows.slice(1).forEach(r => { const from = String(r[0] || '').trim().toUpperCase(); if(!from) return;
         head.forEach((to, j) => { if(!to) return; const raw = r[j + 1]; if(raw === '' || raw == null) return;
@@ -4645,18 +4694,26 @@
       <div class="toolbar" style="margin:10px 0"><button type="button" class="btn btn-ghost btn-sm" id="imSample">Download sample Excel template (.xlsx)</button></div>
       <div class="grid3"><div class="field"><label for="imMode">Transport mode</label><select id="imMode"><option value="sea">Sea</option><option value="air">Air</option></select></div>
         <div class="field"><label for="imKind">Rate matrix (schedule)</label><select id="imKind">${kOpts('sea')}</select></div>
-        <div class="field"><label>Import mode</label><div class="seg" id="imHow" role="radiogroup" aria-label="Import mode"><button type="button" data-v="merge" aria-checked="true">Insert / Merge</button><button type="button" data-v="overwrite" aria-checked="false">Overwrite</button></div></div></div>
+        <div class="field"><label>Import mode</label><div class="seg" id="imHow" role="radiogroup" aria-label="Import mode"><button type="button" data-v="merge" aria-checked="true">Insert / Merge</button><button type="button" data-v="overwrite" aria-checked="false">Overwrite</button></div></div>
+        <div class="field"><label>Rates in the file are in</label><div class="seg" id="imUnit" role="radiogroup" aria-label="Rate unit of the file"><button type="button" data-v="percent" aria-checked="true">% (percent)</button><button type="button" data-v="per_mille" aria-checked="false">‰ (per mille)</button></div><span class="hint" id="imUnitH">The schedule takes this unit.</span></div></div>
       <div class="field"><label for="imFile">File (.xlsx or .csv)</label><input id="imFile" type="file" accept=".xlsx,.xls,.csv"></div>
       <div id="imPrev" class="notice info" hidden></div>
       <div class="field"><label for="imWhy">Reason <span class="muted">(change log)</span></label><input id="imWhy" maxlength="300" placeholder="e.g. new zoning and rates 2027 from the insurer"></div><div class="err-msg" id="imErr"></div></div>`);
     body.querySelector('#imMode').addEventListener('change', e => { body.querySelector('#imKind').innerHTML = kOpts(e.target.value); });
     body.querySelector('#imHow').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; body.querySelectorAll('#imHow button').forEach(x => x.setAttribute('aria-checked', String(x === b))); });
+    const setImUnit = u => body.querySelectorAll('#imUnit button').forEach(x => x.setAttribute('aria-checked', String(x.dataset.v === u)));
+    const imUnit = () => (body.querySelector('#imUnit [aria-checked="true"]') || {}).dataset.v || 'percent';
+    const unitOfTarget = () => (S.rateTables.find(t => inScope(t, sc) && t.kind === body.querySelector('#imKind').value) || S.rateTables.find(t => t.kind === body.querySelector('#imKind').value) || {}).rate_unit || 'percent';
+    setImUnit(unitOfTarget());
+    body.querySelector('#imKind').addEventListener('change', () => { if(!(parsed && parsed.unit)) setImUnit(unitOfTarget()); });
+    body.querySelector('#imUnit').addEventListener('click', e => { const b = e.target.closest('button'); if(b) setImUnit(b.dataset.v); });
     body.querySelector('#imSample').addEventListener('click', () => sampleWorkbook(sc).catch(e => toast('Could not build the template: ' + e.message, 'error')));
     body.querySelector('#imFile').addEventListener('change', async e => {
       const f = e.target.files[0]; parsed = null; const pv = body.querySelector('#imPrev'); if(!f) return;
       try{
         if(!window.XLSX) await FC.loadScript(XLSX_URL);
         parsed = readRatingBook(/\.csv$/i.test(f.name) ? XLSX.read(await f.text(), { type:'string' }) : XLSX.read(await f.arrayBuffer()));
+        if(parsed.unit){ setImUnit(parsed.unit); body.querySelector('#imUnitH').textContent = 'Read from cell A1 of the file: ' + FC.RATE_UNITS[parsed.unit] + '.'; }
         const nx = parsed.cells.filter(c => c.rate == null).length;
         pv.hidden = false; pv.innerHTML = `<b>${esc(f.name)}</b>${parsed.zones.length} zone(s), ${parsed.cells.length - nx} rate(s), ${nx} referral(s) (X).${parsed.unknownCodes.length ? ' Zone codes not in the Zones sheet (must exist in the scope): ' + esc(parsed.unknownCodes.join(', ')) + '.' : ''}${parsed.warnings.length ? '<br>' + parsed.warnings.slice(0, 6).map(esc).join('<br>') : ''}`;
       }catch(err){ console.error(err); pv.hidden = false; pv.textContent = 'Could not read the file: ' + err.message; }
@@ -4668,9 +4725,13 @@
       const why = body.querySelector('#imWhy').value.trim(); if(why.length < 3) return err('Please give a short reason.');
       const overwrite = body.querySelector('#imHow [aria-checked="true"]').dataset.v === 'overwrite';
       if(overwrite && !(await FC.confirm('Overwrite the ' + body.querySelector('#imMode').value + ' set-up?', 'All ' + body.querySelector('#imMode').value + ' zones, country assignments and rates of ' + scName(sc) + ' are replaced by the file.', 'Overwrite', 'danger'))) return;
+      const u = imUnit();
+      // the engine stores per mille: % from the file x 10
+      const cells = parsed.cells.map(c => c.rate == null ? c : Object.assign({}, c, { rate: rateOut(c.rate, u) }));
       const { data, error } = await sb.rpc('admin_import_rating', { p_scope_type: sc.t, p_scope_id: sc.id, p_mode: body.querySelector('#imMode').value, p_kind: body.querySelector('#imKind').value,
-        p_zones: parsed.zones, p_cells: parsed.cells, p_overwrite: overwrite, p_reason: why });
+        p_zones: parsed.zones, p_cells: cells, p_overwrite: overwrite, p_reason: why });
       if(error) return err(error.message);
+      if(cells.length){ const r2 = await sb.rpc('admin_set_rate_unit', { p_scope_type: sc.t, p_scope_id: sc.id, p_kind: body.querySelector('#imKind').value, p_unit: u, p_reason: why }); if(r2.error) toast('Rates imported, but the unit could not be set: ' + r2.error.message, 'error'); }
       toast('Imported: ' + data.zones + ' zone(s), ' + data.rates + ' rate(s), ' + data.refer + ' referral(s)' + (data.conflicts ? ', ' + data.conflicts + ' two-way conflict(s) resolved with the higher rate' : '') + '.', undefined, 7000);
       await loadAll(); render(); return true; } }] });
   }
@@ -4814,12 +4875,13 @@
     const t = tables.find(x => x.kind === curKind);
     selList({ host, rows: tables, id: x => x.id,
       cols:[ { l:'Schedule', html: x => `<button type="button" class="linkbtn tb-pick" data-k="${esc(x.kind)}">${x.kind === curKind ? '<b>' + esc(x.name) + '</b>' : esc(x.name)}</button>` }, { l:'Mode', html: x => esc(x.mode) }, { l:'Zones', cls:'r', html: x => String(x.zones) },
-        { l:'Min. premium', cls:'r num', html: x => esc(x.min_premium) }, { l:'War incl.', cls:'r num', html: x => pm(x.war_included_permille) + ' ‰' }, { l:'Updated', cls:'xs', html: x => esc(FC.date(x.updated_at || x.created_at)) } ],
+        { l:'Unit', html: x => chip(x.rate_unit === 'percent' ? 'accepted' : 'neutral', FC.RATE_UNITS[x.rate_unit || 'per_mille']) },
+        { l:'Min. premium', cls:'r num', html: x => esc(x.min_premium) }, { l:'War incl.', cls:'r num', html: x => FC.rateFmt(rateIn(x.war_included_permille, x.rate_unit), x.rate_unit) }, { l:'Updated', cls:'xs', html: x => esc(FC.date(x.updated_at || x.created_at)) } ],
       menu: x => [['Edit matrix', () => { curKind = x.kind; render(); }], ['Copy this schedule to…', () => copyDialog(['schedules'], sc, { schedules:[x.kind] })]],
       bulk:[ ['Copy selected to…', rs => copyDialog(['schedules'], sc, { schedules: rs.map(x => x.kind) })] ],
       onRow: (tr, x) => tr.querySelector('.tb-pick').addEventListener('click', () => { curKind = x.kind; render(); }) });
     host.appendChild(FC.el(`<h3 style="margin:18px 0 8px">${esc(t.name)} <span class="xs muted" style="font-weight:400">${esc(scName(sc))}</span></h3>`));
-    const bar = FC.el(`<div class="toolbar"><span class="xs muted">${esc(t.mode)} · ${t.zones} zones</span>
+    const bar = FC.el(`<div class="toolbar"><span class="xs muted">${esc(t.mode)} · ${t.zones} zones · rates in ${FC.RATE_UNITS[t.rate_unit || 'per_mille']}</span><button class="btn btn-ghost btn-sm" id="tbExp" type="button">Export matrix (.xlsx)</button>
       <span style="flex:1"></span>${rtUnlocked ? `<button class="btn btn-ghost btn-sm" id="tbZAdd" type="button">+ Add ${esc(t.mode)} zone</button><button class="btn btn-ghost btn-sm" id="tbZDel" type="button">Remove zone ${t.zones}</button><label class="btn btn-ghost btn-sm" style="cursor:pointer">Import Excel sheet<input type="file" id="tbFile" accept=".xls,.xlsx" hidden></label><button class="btn btn-ghost btn-sm" id="tbLock" type="button">Lock again</button>` : `<span class="chip neutral">🔒 Locked</span><button class="btn btn-ghost btn-sm" id="tbUnlock" type="button">Unlock to edit</button>`}<button class="btn btn-primary btn-sm" id="tbSave" disabled ${rtUnlocked ? '' : 'hidden'}><span class="spin"></span>Save changes</button></div>`);
     host.appendChild(bar);
     const box = FC.el('<div><div class="empty">Loading…</div></div>'); host.appendChild(box);
@@ -4834,14 +4896,17 @@
     };
     if(bar.querySelector('#tbZAdd')) bar.querySelector('#tbZAdd').addEventListener('click', () => zoneCount('add'));
     if(bar.querySelector('#tbZDel')) bar.querySelector('#tbZDel').addEventListener('click', () => zoneCount('remove'));
+    let unit = t.rate_unit || 'per_mille';
+    if(bar.querySelector('#tbExp')) bar.querySelector('#tbExp').addEventListener('click', () => exportMatrix(t, sc, unit).catch(e => toast('Export failed: ' + e.message, 'error')));
     cellsOf(t.id).then(list => {
       box.innerHTML = '';
       box.appendChild(FC.el(`<div class="grid3" style="margin-bottom:12px">
+        <div class="field"><label>Rate unit of this schedule</label><div class="seg" id="tbUnit" role="radiogroup" aria-label="Rate unit"><button type="button" data-v="percent" aria-checked="${unit === 'percent'}">% (percent)</button><button type="button" data-v="per_mille" aria-checked="${unit === 'per_mille'}">‰ (per mille)</button></div><span class="hint">How rates are entered, imported and exported. Quotations, certificates and cover notes always show %.</span></div>
         <div class="field"><label>Minimum premium</label><input id="tbMin" inputmode="decimal" value="${esc(t.min_premium)}"></div>
-        <div class="field"><label>War &amp; strikes inside the rates (‰)</label><input id="tbWar" inputmode="decimal" value="${pm(t.war_included_permille)}"></div>
+        <div class="field"><label>War &amp; strikes inside the rates (<span class="tb-u">${FC.RATE_UNITS[unit]}</span>)</label><input id="tbWar" class="tb-rate" inputmode="decimal" value="${pm(rateIn(t.war_included_permille, unit))}"></div>
         <div class="field"><label>Options</label><div class="small" style="padding-top:10px;display:flex;gap:16px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tbDeck" ${t.deck_allowed ? 'checked' : ''}> On deck allowed</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tbCont" ${t.contingency_allowed ? 'checked' : ''}> Interest cover allowed</label></div></div>
         ${t.mode === 'air' ? `<div class="field"><label>Loading used goods %</label><input id="tbUsed" inputmode="decimal" value="${esc(t.used_loading_pct ?? '')}"></div><div class="field"><label>Loading cars %</label><input id="tbCars" inputmode="decimal" value="${esc(t.cars_loading_pct ?? '')}"></div><div class="field"><label>Household flat ‰ (empty = on request)</label><input id="tbHh" inputmode="decimal" value="${pm(t.household_flat_permille)}"></div>` : ''}
-      </div><p class="xs muted" style="margin:-4px 0 12px">${esc(t.notes || '')} Rates in per mille (‰), valid both ways. Empty cell or X = refer to underwriter.</p>`));
+      </div><p class="xs muted" style="margin:-4px 0 12px">${esc(t.notes || '')} Rates in <b class="tb-u">${FC.RATE_UNITS[unit]}</b> (${unit === 'percent' ? 'percent' : 'per mille'}), valid both ways. Empty cell or X = refer to underwriter.</p>`));
       const n = t.zones, cells = {}; list.forEach(c => { cells[c.zone_a + '-' + c.zone_b] = c.permille; });
       const zmc = (S.zoneMaps.find(z => inScope(z, sc) && z.mode === t.mode) || {}).codes || {}, zc = z => zmc[z] || zmc[String(z)] || 'Z' + z;
       const tw = FC.el('<div class="tbl-wrap"></div>'); box.appendChild(tw);
@@ -4849,13 +4914,19 @@
       let rowsH = '';
       for(let a = 1; a <= n; a++){
         rowsH += `<tr><th>${esc(zc(a))}</th>`;
-        for(let b = 1; b <= n; b++) rowsH += b < a ? '<td class="muted xs" style="text-align:center">·</td>' : `<td style="padding:3px"><input data-a="${a}" data-b="${b}" inputmode="decimal" value="${pm(cells[a + '-' + b])}" placeholder="X" style="min-width:52px;width:56px;text-align:right;padding:5px 6px" aria-label="Zone ${a} to ${b}"></td>`;
+        for(let b = 1; b <= n; b++) rowsH += b < a ? '<td class="muted xs" style="text-align:center">·</td>' : `<td style="padding:3px"><input class="tb-rate" data-a="${a}" data-b="${b}" inputmode="decimal" value="${pm(rateIn(cells[a + '-' + b], unit))}" placeholder="X" style="min-width:52px;width:56px;text-align:right;padding:5px 6px" aria-label="Zone ${a} to ${b}"></td>`;
         rowsH += '</tr>';
       }
       tw.innerHTML = `<table class="tbl">${head}${rowsH}</table>`;
       box.appendChild(FC.el(auditFoot('schedule', t.name, 5)));
-      if(!rtUnlocked) box.querySelectorAll('.grid3 input, .tbl input').forEach(i => { i.disabled = true; });
+      if(!rtUnlocked) box.querySelectorAll('.grid3 input, .tbl input, #tbUnit button').forEach(i => { i.disabled = true; });
       const save = bar.querySelector('#tbSave');
+      // switching the unit converts what is on screen (the stored rates do not change)
+      box.querySelector('#tbUnit').addEventListener('click', e => { const b = e.target.closest('button'); if(!b || b.disabled || b.dataset.v === unit) return;
+        const to = b.dataset.v;
+        box.querySelectorAll('.tb-rate').forEach(i => { const v = ppm(i.value); if(isFinite(v)) i.value = pm(rateIn(rateOut(v, unit), to)); });
+        unit = to; box.querySelectorAll('#tbUnit button').forEach(x => x.setAttribute('aria-checked', String(x === b))); box.querySelectorAll('.tb-u').forEach(x => { x.textContent = FC.RATE_UNITS[unit]; });
+        save.disabled = false; });
       box.addEventListener('input', e => { if(e.target.matches('input')){ e.target.classList.add('dirty'); save.disabled = false; } });
       box.addEventListener('change', e => { if(e.target.type === 'checkbox'){ save.disabled = false; } });
       if(bar.querySelector('#tbFile')) bar.querySelector('#tbFile').addEventListener('change', async e => {
@@ -4881,12 +4952,12 @@
       });
       save.addEventListener('click', async () => {
         const num = id => { const el = box.querySelector(id); if(!el) return undefined; const x = el.value.trim(); return x === '' ? null : ppm(x); };
-        const meta = { min_premium: num('#tbMin') || 0, war_included_permille: num('#tbWar') || 0, deck_allowed: box.querySelector('#tbDeck').checked, contingency_allowed: box.querySelector('#tbCont').checked };
+        const meta = { rate_unit: unit, min_premium: num('#tbMin') || 0, war_included_permille: rateOut(num('#tbWar') || 0, unit), deck_allowed: box.querySelector('#tbDeck').checked, contingency_allowed: box.querySelector('#tbCont').checked };
         if(t.mode === 'air'){ meta.used_loading_pct = num('#tbUsed'); meta.cars_loading_pct = num('#tbCars'); meta.household_flat_permille = num('#tbHh'); }
         const up = [], del = []; let bad = 0;
-        tw.querySelectorAll('input.dirty').forEach(inp => { const v = inp.value.trim(), a = Number(inp.dataset.a), b = Number(inp.dataset.b); if(v === '' || /^x$/i.test(v)) del.push({ a, b }); else { const x = ppm(v); if(isFinite(x) && x >= 0) up.push({ a, b, v: x }); else bad++; } });
+        tw.querySelectorAll('input.dirty').forEach(inp => { const v = inp.value.trim(), a = Number(inp.dataset.a), b = Number(inp.dataset.b); if(v === '' || /^x$/i.test(v)) del.push({ a, b }); else { const x = ppm(v); if(isFinite(x) && x >= 0) up.push({ a, b, v: rateOut(x, unit) }); else bad++; } });
         if(bad) return toast(bad + ' cell(s) are not valid numbers.', 'error');
-        const reason = await askReason(`${t.name} (${scName(sc)}): ${up.length} rate(s) changed${del.length ? ', ' + del.length + ' removed' : ''}, settings checked for changes.`);
+        const reason = await askReason(`${t.name} (${scName(sc)}): ${up.length} rate(s) changed${del.length ? ', ' + del.length + ' removed' : ''}${unit !== (t.rate_unit || 'per_mille') ? ', unit ' + FC.RATE_UNITS[t.rate_unit || 'per_mille'] + ' -> ' + FC.RATE_UNITS[unit] : ''}, settings checked for changes.`);
         if(!reason) return;
         busy(save, true);
         const { data, error } = await sb.rpc('admin_save_rate_table', { p_table: t.id, p_meta: meta, p_cells: up, p_removed: del, p_reason: reason });
@@ -5093,14 +5164,33 @@
       body.querySelector('#ttOut').innerHTML = resultHtml(data, p.currency);
     }));
   }
+  // rate unit control: % locked; "Unlock unit" asks for confirmation (documents stay in %), the switch to per mille is logged
+  async function confirmRateUnlock(){
+    const box = FC.el(`<div><div class="serious"><b>Quotations, certificates and cover notes must be in %</b><div>Switching to per mille (‰) changes the decimal basis: 0.45 ‰ = 0.045 %, and the premium becomes sum insured x rate / 1000. The documents keep showing the rate in % (the per mille value divided by 10). The change is recorded in the audit log.</div></div>
+      <div class="field" style="margin-top:10px"><label for="ruWhy2">Reason <span class="muted">(audit log)</span></label><input id="ruWhy2" maxlength="300"></div></div>`);
+    return FC.dialog({ title:'Unlock the rate unit?', body: box, actions:[{ label:'Keep %', kind:'ghost', value:null }, { label:'I understand - unlock', kind:'danger', onClick: async () => box.querySelector('#ruWhy2').value.trim() || 'no reason given' }] });
+  }
+  function rateUnitControl(host, onChange, indicationId){
+    host.innerHTML = `<div class="ru-row"><span class="xs muted">Rate unit</span><select class="ru-sel" disabled aria-label="Rate unit"><option value="percent">%</option><option value="per_mille">‰</option></select><span class="ru-lock" title="Locked to %">🔒</span><button type="button" class="linkbtn xs">Unlock unit</button></div>
+      <div class="notice warn ru-banner" hidden role="alert"><b>Shown in per mille (‰)</b>Quotations, certificates and cover notes are always issued in % (‰ / 10).</div>`;
+    const sel = host.querySelector('select'), b = host.querySelector('button'), lock = host.querySelector('.ru-lock'); let note = null;
+    b.addEventListener('click', async () => {
+      if(!sel.disabled){ sel.value = 'percent'; sel.disabled = true; lock.hidden = false; b.textContent = 'Unlock unit'; host.querySelector('.ru-banner').hidden = true; onChange('percent'); return; }
+      note = await confirmRateUnlock(); if(!note) return;
+      sel.disabled = false; lock.hidden = true; b.textContent = 'Lock to %'; sel.focus();
+    });
+    sel.addEventListener('change', async () => { host.querySelector('.ru-banner').hidden = sel.value !== 'per_mille'; onChange(sel.value);
+      if(sel.value === 'per_mille') await sb.rpc('admin_log_rate_unit_override', { p_indication: indicationId || null, p_unit:'per_mille', p_note: FC.dash(note || '') }); });
+  }
+  A.rateUnitControl = rateUnitControl;
   // result of admin_indicate as a card: status, figures, breakdown, alerts, war, out of cover
   function resultHtml(data, cur){
     const x = data.result, o = data.one_off, n = x.n || {};
     const one = (r, title) => { const d = r.detail || {};
       return `<div class="nq-res">${title ? `<h4>${esc(title)}</h4>` : ''}${r.status === 'quoted' && r.rate_only
-        ? `<div class="nq-fig"><div><span>Rate (rate only)</span><b>${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Minimum premium</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div><div><span>Sum insured</span><b>not stated</b><i>invoice value optional</i></div></div>`
+        ? `<div class="nq-fig"><div><span>Rate (rate only)</span><b class="nq-rate" data-pct="${esc(r.rate)}">${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Minimum premium</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div><div><span>Sum insured</span><b>not stated</b><i>invoice value optional</i></div></div>`
         : r.status === 'quoted'
-        ? `<div class="nq-fig"><div><span>Premium (excl. tax)</span><b>${esc(money2(r.net, cur))}</b>${r.min_hit ? '<i>minimum premium</i>' : ''}</div><div><span>Rate</span><b>${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Sum insured</span><b>${esc(money2(n.sum_insured, cur))}</b></div><div><span>Minimum</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div></div>`
+        ? `<div class="nq-fig"><div><span>Premium (excl. tax)</span><b>${esc(money2(r.net, cur))}</b>${r.min_hit ? '<i>minimum premium</i>' : ''}</div><div><span>Rate</span><b class="nq-rate" data-pct="${esc(r.rate)}">${esc(FC.pct(r.rate))}</b><i>${esc(pm(d.rate_permille))} ‰</i></div><div><span>Sum insured</span><b>${esc(money2(n.sum_insured, cur))}</b></div><div><span>Minimum</span><b>${esc(r.min != null ? money2(r.min, cur) : '-')}</b></div></div>`
         : `<div class="notice ${r.status === 'sanctioned' ? 'danger' : 'warn'}" style="margin:0 0 10px"><b>${esc(FC.STATUS[r.status] || r.status)}</b>${esc((r.reasons || []).join('; '))}</div>`}
         ${breakdownRows(r.detail).length ? `<table class="tbl nq-bd"><tbody>${breakdownRows(r.detail).map(([a, b2, c2]) => `<tr><td>${esc(a)}</td><td class="muted">${esc(b2)}</td><td class="r num">${c2}</td></tr>`).join('')}</tbody></table>` : ''}
         ${r.war && (r.war.areas || []).length ? `<div class="nq-war"><b>War &amp; strikes excluded:</b> ${esc(r.war.areas.map(a => a.name).join(', '))} (rate not reduced)<br>${r.war.areas.map(a => esc(a.name) + ': ' + (a.buyback_permille != null ? 'buy-back ' + pm(a.buyback_permille) + ' ‰' + (Number(a.ncb_pct) ? ' less ' + esc(Number(a.ncb_pct)) + ' % NCB = ' + pm(a.net_permille) + ' ‰ net' : '') : 'no buy-back terms')).join('<br>')}${r.war.rate_pct_incl != null ? `<br>Re-included: <b>${esc(FC.pct(r.war.rate_pct_incl))}</b> = ${esc(money2(r.war.premium_incl, cur))}` : ''}</div>` : ''}
@@ -5451,6 +5541,10 @@
       const x = L.data.one_off || L.data.result, oneOff = L.args.p_one_off || L.args.p_standalone || !!L.data.one_off, saved = L.data.saved;
       out.innerHTML = `<div class="nq-head"><h3>${L.args.p_one_off ? 'One-off indication' : L.args.p_standalone ? 'Standalone one-off · ' + esc((L.data.customer || {}).name || '') : 'Indication · ' + esc(L.data.policy ? polLabel(L.data.policy) : ((L.data.customer || {}).name || '') + ' (client configuration)') + (L.data.one_off ? ' - out of cover' : '')}</h3>${saved ? chip('accepted', 'Logged as ' + saved.ref) : ''}</div>${L.data.policy && !L.args.p_standalone ? polCoverNote({ policy_id: L.data.policy.id, departure_date: nq.p.departure_date }) : ''}${resultHtml(L.data, nq.p.currency)}<div class="toolbar nq-acts" style="margin-top:12px"></div>`;
       const acts = out.querySelector('.nq-acts');
+      // rate unit of the figures: locked to % (documents are always in %); unlock shows per mille with a warning
+      if(out.querySelector('.nq-rate')){ const h = FC.el('<div class="nq-ru"></div>'); out.querySelector('.nq-res').after(h);
+        rateUnitControl(h, unit => { out.querySelectorAll('.nq-rate').forEach(b => { const v = Number(b.dataset.pct); b.textContent = unit === 'per_mille' ? FC.rateFmt(FC.fromPercent(v, unit), unit) : FC.pct(v); if(b.nextElementSibling) b.nextElementSibling.textContent = unit === 'per_mille' ? FC.pct(v) : FC.rateFmt(v * 10, 'per_mille'); }); },
+          saved ? saved.id : null); }
       // the limits of the policy next to the valuation; above the limit = special request to insurers
       { const lpo = L.data.policy && !L.args.p_standalone ? polOf(L.data.policy.id) : null, nn = (L.data.result || {}).n || {};
         const chk = lpo ? limitCheck(lpo, nn.sum_insured, nn.currency || nq.p.currency, nq.p.on_deck, nq.p.details && nq.p.details.post_courier) : null;
@@ -5511,6 +5605,7 @@
     const ctx = mergeCtx(r, Object.assign({}, d, { validUntil: q.valid_until }));
     if(!sP) ['premium_amount', 'ipt_amount', 'total_amount'].forEach(k => ctx[k] = '');
     if(!sR) ctx.rate_pct = '';
+    ctx.rate = ctx.rate_pct;
     const merged = FC.merge(body, ctx);
     return /\[\[quotation\]\]/.test(merged) ? merged.replace(/<p>\s*\[\[quotation\]\]\s*<\/p>|\[\[quotation\]\]/, quote) : merged + quote;
   }

@@ -286,7 +286,8 @@
     const mode = d.displayMode || 'both', sR = FC.showRate(mode), sP = FC.showPremium(mode), tax = Number(d.taxPct) > 0;
     const taxLbl = (d.iptApplied !== false ? 'German IPT' : 'Insurance tax') + ' (' + Number(d.taxPct) + '%)';
     if(sR && sP){
-      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate), FC.money2(l.premium, d.currency)]);
+      // rates on documents are always % (a per mille value from older data is divided by 10)
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(FC.toPercent(l.rate, d.rateUnit)), FC.money2(l.premium, d.currency)]);
       if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %', '- ' + FC.money2(d.discountAmount, d.currency)]);
       if(d.minApplied) rows.push(['Minimum premium applied', '', '', '']);
       if(tax){ rows.push(['Net premium', '', '', FC.money2(d.net, d.currency)]); rows.push([taxLbl, '', '', FC.money2(d.tax, d.currency)]); }
@@ -300,7 +301,7 @@
       rows.push({ cells:[tax ? 'Gross total incl. IPT' : 'Total premium payable', '', FC.money2(d.total, d.currency)], bold:true, fill:[178,226,247] });
       ctx.table(['Cover', 'Sum insured', 'Premium'], rows, [.5, .25, .25], { right:[1,2] });
     }else{
-      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(l.rate)]);
+      const rows = (d.lines || []).map(l => [l.label, FC.money2(l.sum, d.currency), FC.pct(FC.toPercent(l.rate, d.rateUnit))]);
       if(Number(d.discountPct) > 0) rows.push(['Client discount', '', '- ' + Number(d.discountPct) + ' %']);
       if(tax) rows.push([taxLbl + ' on the premium', '', 'added']);
       ctx.table(['Cover', 'Sum insured', 'Rate'], rows, [.5, .25, .25], { right:[1,2] });

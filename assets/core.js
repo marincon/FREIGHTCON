@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-18b';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-19c';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -226,10 +226,18 @@
   // claims lifecycle (client and staff use the same labels)
   FC.CLAIM_STATUS = { new_claim:'New Claim', under_review:'Working on it / Under Review', survey_ordered:'Surveyor Instructed / Awaiting Docs', submitted_to_insurer:'Submitted to Insurer',
     offer_settlement:'Settlement Offered / Agreed', paid_settled:'Settled / Paid', repudiated_declined:'Declined / Repudiated', closed:'Closed' };
+  // ---------- rate units: % for every document; per mille only as an entry / schedule unit ----------
+  FC.RATE_UNITS = { percent:'%', per_mille:'‰' };
+  FC.toPercent = (v, unit) => { if(v == null || v === '' || !isFinite(Number(v))) return v === '' ? NaN : v; return unit === 'per_mille' ? Math.round(Number(v) / 10 * 1e8) / 1e8 : Number(v); };
+  FC.fromPercent = (v, unit) => { if(v == null || v === '' || !isFinite(Number(v))) return v; return unit === 'per_mille' ? Math.round(Number(v) * 10 * 1e8) / 1e8 : Number(v); };
+  FC.rateNum = v => v == null || !isFinite(Number(v)) ? '' : String(Math.round(Number(v) * 1e6) / 1e6);
+  FC.rateFmt = (v, unit) => v == null || v === '' || !isFinite(Number(v)) ? '-' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: unit === 'per_mille' ? 2 : 3, maximumFractionDigits:4 }) + ' ' + (FC.RATE_UNITS[unit] || '%');
+  // premium from a rate in its unit: sum insured x percent rate / 100
+  FC.premiumOf = (sum, rate, unit) => { const r = FC.toPercent(rate, unit); return isFinite(Number(sum)) && isFinite(Number(r)) ? Math.round(Number(sum) * Number(r)) / 100 : NaN; };
   // merge tags for text templates
   FC.MERGE_TAGS = [['client_name','Client name'],['assured_name','Assured name'],['policy_number','Policy number'],['certificate_number','Certificate number'],['reference','Our reference'],
     ['cargo_description','Cargo description'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['conveyance','Conveyance'],['departure_date','Departure date'],['sum_insured','Sum insured'],['currency','Currency'],
-    ['rate_pct','Rate %'],['premium_amount','Premium (net)'],['ipt_amount','German IPT amount'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
+    ['rate_pct','Rate %'],['rate','Rate (%)'],['premium_amount','Premium (net)'],['ipt_amount','German IPT amount'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
   FC.merge = (html, ctx) => String(html || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => ctx && ctx[k] != null && ctx[k] !== '' ? FC.esc(FC.dash(ctx[k])) : '');
   // .fdf: Acrobat's number format script wants 33562.80 (no thousands separator)
   FC.fdfNum = n => { const v = typeof n === 'number' ? n : FC.parseNum ? FC.parseNum(n) : Number(String(n).replace(/,/g, '')); return isFinite(v) ? v.toFixed(2) : ''; };
