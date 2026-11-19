@@ -222,3 +222,13 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Staff (Admin, Placing, Claims) kann jederzeit Zertifikate ausstellen (.fdf oder Plattform-PDF), für jeden Fall, Kunden und jede Police, auch wenn der Kunde "Can issue certificates" aus hat oder es ein One-off ist. Im Zertifikatsfenster stehen immer beide Formate zur Wahl; das Standardformat des Kunden ist der Hauptbutton.
 * Kunden: das Recht kommt aus dem Baum Nutzer > Subcategory > Office > Client > Client group; die spezifischste gesetzte Einstellung gewinnt, nichts gesetzt = nein. Neue Schalter an Office, Client group und Nutzer ("As ..." = erben). Kunden können ihr eigenes Recht nicht ändern.
 * Eine Hilfsfunktion `FC.canCurrentUserIssueCertificate()` für alle Buttons; auf dem Server `cert_right_tree()` (my_features, case_certificate_rights, client_issue_certificate). `admin_issue_certificate` erlaubt jetzt jede Staff-Rolle (vorher nur Placing).
+
+## Update 2026-11-19 c (Version 2026-11-19c)
+
+`update_2026-11-19c.sql` ausführen (nach 18b) und die Website hochladen. Keine Edge Function betroffen.
+
+* Jede Schedule (Rate Matrix) hat eine Einheit: % oder ‰ (`rate_tables.rate_unit`). Bestehende Schedules (z. B. Bertling) bleiben ‰, neue Schedules starten mit %. Kopien behalten ihre Einheit.
+* Rates > Schedules: Spalte "Unit"; in der Matrix (nach "Unlock to edit") Umschalter % / ‰, die Werte werden auf dem Bildschirm umgerechnet. Intern rechnet die Datenbank weiter auf einer Basis, eine Umstellung ändert also keine Prämie.
+* Excel: "Export matrix (.xlsx)" in der Einheit der Schedule (A1 = "From / To (%)" bzw. "(‰)"). Import: Einheit wählbar, wird aus A1 erkannt; die Schedule übernimmt sie.
+* Angebote, Zertifikate, Cover Notes, PDF, Platzhalter `{{rate}}` / `{{rate_pct}}` und E-Mail-Text: immer in % (‰ / 10); Prämie = Versicherungssumme x Rate % / 100.
+* Quotation-Editor und New quotation: Einheit gesperrt auf %. "Unlock unit" mit Warnhinweis; nach Bestätigung kann auf ‰ umgestellt werden (Werte x10, gleiche Prämie, gelber Hinweis). Gespeichert wird in %, die Umstellung steht im Audit-Log.
