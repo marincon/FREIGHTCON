@@ -5,7 +5,7 @@
   if(!sb){ document.body.innerHTML = '<p style="padding:40px">config.js is missing or incomplete. See README.</p>'; return; }
   // app.html and app.js must come from the same release; a stale app.html would break the form
   { const m = document.querySelector('meta[name="fc-version"]');
-    if(!m || m.content !== '2026-11-19c'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
+    if(!m || m.content !== '2026-11-19d'){ document.body.insertAdjacentHTML('afterbegin', '<div class="banner" style="position:relative;z-index:500">This page is out of date (app.html does not match the scripts). Upload the latest app.html to the top of the repository and reload.</div>'); return; } }
 
   // ---------- session & profile ----------
   const { data: { session } } = await sb.auth.getSession();
@@ -960,7 +960,7 @@
     if(v === 'cover') loadCover();
     if(v === 'settings') renderSettingsView();
     if(v === 'admin'){
-      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-19c');
+      if(!window.FCAdmin) await FC.loadScript('assets/admin.js?v=2026-11-19d');
       if(FC.adminStartTab && window.FCAdmin.setTab){ window.FCAdmin.setTab(FC.adminStartTab); FC.adminStartTab = null; }
       window.FCAdmin.open($('#view-admin'));
     }
@@ -971,7 +971,7 @@
   // the Internal pill toggles: in the internal area it reads "External" and takes you back to where you were
   $$('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view === 'admin' && curView() === 'admin' ? (FC.lastExternal || 'new') : b.dataset.view)));
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
-  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-19c').catch(() => {}); }
+  if(profile.is_admin){ $('#internalBtn').hidden = false; $('#mobInternal').hidden = false; FC.loadScript('assets/admin.js?v=2026-11-19d').catch(() => {}); }
 
   // ---------- my quotations ----------
   let qTab = 'quotations', quotes = [], waiting = [], invoices = [], claims = [], myCerts = [];
@@ -1388,9 +1388,10 @@
         ${Number(d.minPremium) > 0 || d.warExcl ? `<div class="qv-terms">
           ${Number(d.minPremium) > 0 ? `<div class="qv-term"><span>Minimum premium</span><b>${esc(money2(d.minPremium, cur))}</b>${d.minApplied ? '<i>applies to this shipment</i>' : ''}</div>` : ''}
           ${d.warExcl && d.warExcl.offerBuyback ? `<div class="qv-term"><span>${sR ? 'Rate' : 'Premium'} with war &amp; strikes excluded</span><b>${esc(sR ? FC.pct(d.warExcl.rateExcl) : money2(d.warExcl.totalExcl, cur))}</b>${sR && sP ? `<i>${esc(money2(d.warExcl.totalExcl, cur))} payable</i>` : ''}</div>
-            <div class="qv-term alt"><span>${sR ? 'Rate' : 'Premium'} with war &amp; strikes re-included for ${esc(d.warExcl.areas.join(', '))}</span><b>${esc(sR ? FC.pct(d.warExcl.rateIncl) : money2(d.warExcl.totalIncl, cur))}</b>${sR && sP ? `<i>${esc(money2(d.warExcl.totalIncl, cur))} payable</i>` : ''}</div>` : ''}
+            <div class="qv-term alt"><span>${sR ? 'Rate' : 'Premium'} with war &amp; strikes re-included for ${esc(((d.warExcl.buyback || []).length ? d.warExcl.buyback.map(b => b.name) : d.warExcl.areas).join(', '))}</span><b>${esc(sR ? FC.pct(d.warExcl.rateIncl) : money2(d.warExcl.totalIncl, cur))}</b>${sR && sP ? `<i>${esc(money2(d.warExcl.totalIncl, cur))} payable</i>` : ''}</div>` : ''}
         </div>` : ''}
-        ${d.warExcl ? `<div class="notice warn" style="margin-top:12px"><b>War &amp; strikes excluded for: ${esc(d.warExcl.areas.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage.${d.warExcl.offerBuyback ? ' To re-include it for these areas, say so in your message when you accept.' : ''}</div>` : ''}
+        ${d.hraIncluded && (d.hraIncluded.areas || []).length ? `<div class="notice ok" style="margin-top:12px"><b>War &amp; strikes re-included for: ${esc(d.hraIncluded.areas.join(', '))}</b>The war &amp; strikes buy-back is included in the ${sR ? 'rate' : 'premium'}${sR && d.hraIncluded.pct != null ? ' (+' + esc(FC.pct(d.hraIncluded.pct)) + ')' : ''}${sP && d.hraIncluded.premium != null ? ', ' + esc(money2(d.hraIncluded.premium, cur)) : ''}.</div>` : ''}
+        ${d.warExcl ? `<div class="notice warn" style="margin-top:12px"><b>War &amp; strikes excluded for: ${esc(d.warExcl.areas.join(', '))}</b>War &amp; strikes cover remains in force for the rest of the voyage.${d.warExcl.offerBuyback ? ' To re-include it for these areas, say so in your message when you accept.' : ''}${(d.warExcl.refer || []).length ? ' Buy-back for ' + esc(d.warExcl.refer.join(', ')) + ': on request.' : ''}</div>` : ''}
       </div>
       ${d.note ? `<div class="notice info"><b>Note from us</b>${esc(d.note)}</div>` : ''}
       ${q.response_note ? `<div class="notice ok"><b>Your message</b>${esc(q.response_note)}</div>` : ''}

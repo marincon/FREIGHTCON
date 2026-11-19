@@ -483,6 +483,108 @@
   }
   A.filterKit = filterKit;
 
+  // ---------------- German IPT: which setting applies (case -> subcategory -> client -> client group -> configuration) ----------------
+  const iptChain = (caseMode, po, cu) => {
+    const g = cu ? grpOf(cu.group_id) : null;
+    const lv = [['this case', caseMode], ['the subcategory', po && po.ipt_mode], ['the client', cu && cu.ipt_mode], ['the client group', g && g.ipt_mode], ['the configuration', (S.ipt || {}).default_mode]];
+    const hit = lv.find(([, m]) => FC.iptMode(m));
+    return { mode: FC.iptMode(hit ? hit[1] : null) || 'default_de_domestic', from: hit ? hit[0] : 'the configuration' };
+  };
+  A.iptChain = iptChain;
+  const iptModeSelect = (id, v, inheritLabel) => `<select id="${id}"><option value="" ${!FC.iptMode(v) ? 'selected' : ''}>${esc(inheritLabel)}</option>${Object.entries(FC.IPT_MODE).map(([k, l]) => `<option value="${k}" ${FC.iptMode(v) === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+
+  // ---------------- High-Risk Areas (war & strikes zones) ----------------
+  // the areas of Internal -> Rates with the buy-back terms of the case's scope: one-off pool, or subcategory then client
+  const hraCatalogue = (polId, custId, oneOff) => (S.warAreas || []).map(a => {
+    const ex = (S.warEx || []).filter(x => x.area_code === a.code && x.active !== false);
+    const t = oneOff ? ex.find(x => x.scope_type === 'one_off_general')
+      : (polId && ex.find(x => x.scope_type === 'policy' && x.scope_id === polId)) || (custId && ex.find(x => x.scope_type === 'customer' && x.scope_id === custId)) || null;
+    const gross = t && t.buyback_permille != null ? FC.r4(Number(t.buyback_permille) / 10) : null, ncb = t ? Number(t.ncb_pct || 0) : 0;
+    return { code: a.code, name: a.name, kind: a.kind, country: a.country || null, gross_pct: gross, ncb_pct: ncb, net_pct: FC.hraNet(gross, ncb), refer: gross == null, listed: !!t };
+  });
+  // the areas the rating engine found (per mille) as HRA rows (%)
+  const hraFromEngine = (war, cat) => ((war && war.areas) || []).map(a => { const c = (cat || []).find(x => x.code === a.code) || {};
+    const g = a.buyback_permille != null ? FC.r4(Number(a.buyback_permille) / 10) : null;
+    return { code: a.code, name: a.name, kind: c.kind || null, country: c.country || null, gross_pct: g, ncb_pct: Number(a.ncb_pct || 0), net_pct: a.net_permille != null ? FC.r4(Number(a.net_permille) / 10) : FC.hraNet(g, a.ncb_pct), include: false, source: 'auto' }; });
+  const hraKind = h => h.kind === 'coast' ? 'Coast' + (h.country ? ' of ' + cName(h.country) : '') : h.kind === 'sea' ? 'Sea area' : '';
+  const hraTerms = h => h.net_pct == null ? 'Refer / A.P.' : 'gross ' + FC.pct(h.gross_pct) + (Number(h.ncb_pct) ? ' less ' + Number(h.ncb_pct) + ' % NCB' : '') + ' = net ' + FC.pct(h.net_pct);
+  // multi-select builder: + Add HRA, suggestions from the voyage, one removable row per area (gross / NCB / net editable, include or optional)
+  function hraBuilder(host, o){
+    let list = (o.list || []).filter(h => h && h.name).map(h => Object.assign({}, h, { include: !!h.include }));
+    const root = FC.el(`<div class="hra"><div class="hra-head"><div><h4>High-Risk Areas / War &amp; Strikes zones</h4><span class="xs muted">From Internal - Rates (war &amp; strikes areas and buy-back terms). Rates in %, editable for this ${esc(o.what || 'quotation')}.</span></div><span style="flex:1"></span><button type="button" class="btn btn-ghost btn-sm hra-add" aria-haspopup="true">+ Add HRA</button></div>
+      <div class="hra-pop" hidden></div><div class="hra-sug"></div><div class="hra-list"></div><div class="hra-sum small" role="status"></div></div>`);
+    host.innerHTML = ''; host.appendChild(root);
+    const $h = s => root.querySelector(s), cat = () => o.catalogue() || [];
+    const num = v => { const n = FC.parseNum(v); return v === '' || v == null || !isFinite(n) ? null : n; };
+    const clean = h => ({ code: h.code || '', name: h.name, kind: h.kind || null, country: h.country || null, gross_pct: h.gross_pct == null ? null : FC.r4(h.gross_pct), ncb_pct: h.ncb_pct == null ? 0 : Number(h.ncb_pct),
+      net_pct: h.net_pct == null ? null : FC.r4(h.net_pct), include: !!h.include && h.net_pct != null, refer: h.net_pct == null, source: h.source || 'manual' });
+    const changed = () => { paintSum(); if(o.onChange) o.onChange(api.get()); };
+    const add = (codes, source) => { codes.forEach(code => { if(list.some(h => h.code === code)) return; const c = cat().find(x => x.code === code); if(c) list.push(Object.assign({}, c, { include: false, source: source || 'manual' })); }); paint(); changed(); };
+    const paintSug = () => { const sug = (o.suggest ? o.suggest() : []).filter(code => !list.some(h => h.code === code)).map(code => cat().find(x => x.code === code)).filter(Boolean);
+      $h('.hra-sug').innerHTML = sug.length ? `<span class="xs muted">Suggested for this voyage:</span> ${sug.map(c => `<button type="button" class="chip pending hra-s" data-code="${esc(c.code)}">+ ${esc(c.name)}</button>`).join(' ')}${sug.length > 1 ? ' <button type="button" class="linkbtn xs hra-sall">Add all</button>' : ''}` : ''; };
+    const paintSum = () => { const t = FC.hraTotals(list.map(clean));
+      $h('.hra-sum').innerHTML = !t.all.length ? '<span class="muted">No High-Risk Area attached. War &amp; strikes cover as per the clauses.</span>'
+        : [t.incl.length ? `Included in the total rate: <b>+${esc(FC.pct(t.inclPct))}</b> (${esc(t.incl.map(h => h.name).join(', '))})` : '',
+           t.offered.length ? `Optional buy-back (war &amp; strikes excluded): <b>+${esc(FC.pct(t.optPct))}</b> (${esc(t.offered.map(h => h.name).join(', '))})` : '',
+           t.refer.length ? `Excluded, Refer / A.P.: ${esc(t.refer.map(h => h.name).join(', '))}` : ''].filter(Boolean).join('<br>'); };
+    const paint = () => {
+      $h('.hra-list').innerHTML = list.map((h, i) => `<div class="hra-row" data-i="${i}" data-code="${esc(h.code || '')}">
+        <div class="hra-nm"><b>${esc(h.name)}</b><span class="xs muted">${esc(hraKind(h))}</span>${h.net_pct == null ? '<span class="chip pending">Refer / A.P.</span>' : ''}${h.source === 'auto' ? '<span class="chip neutral">Suggested</span>' : ''}</div>
+        <label class="hra-f"><span>Gross %</span><input class="hra-g" inputmode="decimal" value="${h.gross_pct == null ? '' : esc(h.gross_pct)}" placeholder="A.P." ${o.readOnly ? 'disabled' : ''}></label>
+        <label class="hra-f"><span>NCB %</span><input class="hra-n" inputmode="decimal" value="${esc(h.ncb_pct || 0)}" ${o.readOnly ? 'disabled' : ''}></label>
+        <label class="hra-f"><span>Net buy-back %</span><input class="hra-net" inputmode="decimal" value="${h.net_pct == null ? '' : esc(h.net_pct)}" placeholder="Refer" ${o.readOnly ? 'disabled' : ''}></label>
+        <div class="seg hra-mode" role="radiogroup" aria-label="Treatment of ${esc(h.name)}"><button type="button" role="radio" data-v="1" aria-checked="${!!h.include && h.net_pct != null}" ${h.net_pct == null || o.readOnly ? 'disabled' : ''}>Include in Total Rate</button><button type="button" role="radio" data-v="0" aria-checked="${!(h.include && h.net_pct != null)}" ${o.readOnly ? 'disabled' : ''}>Quote as Optional Buy-Back / Excluded</button></div>
+        ${o.readOnly ? '' : `<button type="button" class="linkbtn hra-del" aria-label="Remove ${esc(h.name)}">Remove</button>`}</div>`).join('');
+      paintSug(); paintSum();
+    };
+    root.addEventListener('input', e => { const row = e.target.closest('.hra-row'); if(!row) return; e.stopPropagation(); const h = list[+row.dataset.i];
+      if(e.target.classList.contains('hra-g') || e.target.classList.contains('hra-n')){ h.gross_pct = num(row.querySelector('.hra-g').value); h.ncb_pct = Math.min(100, Math.max(0, num(row.querySelector('.hra-n').value) || 0)); h.net_pct = FC.hraNet(h.gross_pct, h.ncb_pct); row.querySelector('.hra-net').value = h.net_pct == null ? '' : h.net_pct; }
+      else if(e.target.classList.contains('hra-net')) h.net_pct = num(e.target.value) == null ? null : FC.r4(num(e.target.value));
+      if(h.net_pct == null) h.include = false;
+      const inc = row.querySelector('.hra-mode [data-v="1"]'); inc.disabled = h.net_pct == null || !!o.readOnly; row.querySelectorAll('.hra-mode button').forEach(b => b.setAttribute('aria-checked', String((b.dataset.v === '1') === (!!h.include && h.net_pct != null))));
+      changed(); });
+    root.addEventListener('click', e => {
+      const b = e.target.closest('button'); if(!b || o.readOnly) return;
+      if(b.classList.contains('hra-add')){ const pop = $h('.hra-pop'); if(!pop.hidden){ pop.hidden = true; return; }
+        const sug = o.suggest ? o.suggest() : [], av = cat().filter(c => !list.some(h => h.code === c.code)).sort((a, z) => (sug.includes(z.code) - sug.includes(a.code)) || a.name.localeCompare(z.name));
+        pop.innerHTML = av.length ? `<div class="hra-pick">${av.map(c => `<label><input type="checkbox" value="${esc(c.code)}"><span><b>${esc(c.name)}</b>${sug.includes(c.code) ? ' <span class="chip pending">Suggested</span>' : ''}<span class="xs muted">${esc(hraKind(c))} - ${esc(hraTerms(c))}</span></span></label>`).join('')}</div><div class="toolbar" style="margin:8px 0 0"><button type="button" class="btn btn-primary btn-sm hra-ok">Add selected</button><button type="button" class="btn btn-ghost btn-sm hra-x">Cancel</button></div>`
+          : '<p class="small muted" style="margin:0">Every area defined in Internal - Rates is attached already.</p>';
+        pop.hidden = false; return; }
+      if(b.classList.contains('hra-ok')){ const codes = Array.from(root.querySelectorAll('.hra-pick input:checked')).map(x => x.value); $h('.hra-pop').hidden = true; add(codes, 'manual'); return; }
+      if(b.classList.contains('hra-x')){ $h('.hra-pop').hidden = true; return; }
+      if(b.classList.contains('hra-s')){ add([b.dataset.code], 'auto'); return; }
+      if(b.classList.contains('hra-sall')){ add(Array.from(root.querySelectorAll('.hra-s')).map(x => x.dataset.code), 'auto'); return; }
+      const row = b.closest('.hra-row'); if(!row) return; const i = +row.dataset.i;
+      if(b.classList.contains('hra-del')){ list.splice(i, 1); paint(); changed(); return; }
+      if(b.parentElement.classList.contains('hra-mode')){ list[i].include = b.dataset.v === '1' && list[i].net_pct != null; row.querySelectorAll('.hra-mode button').forEach(x => x.setAttribute('aria-checked', String(x === b))); changed(); }
+    });
+    const api = { get: () => list.map(clean), el: root,
+      set: l => { list = (l || []).map(h => Object.assign({}, h)); paint(); changed(); },
+      // areas found by the engine: added when missing (the broker's own rows stay as they are)
+      merge: rows => { let n = 0; (rows || []).forEach(h => { if(!list.some(x => x.code === h.code)){ list.push(Object.assign({}, h)); n++; } }); if(n){ paint(); changed(); } else paintSug(); return n; },
+      refresh: () => paintSug() };
+    paint();
+    return api;
+  }
+  A.hraBuilder = hraBuilder;
+  // an included HRA loading as a cover line (on the sum insured of the first line); optional ones as the buy-back offer
+  const hraParts = (hras, lines, calc) => {
+    const t = FC.hraTotals(hras || []), base = (lines || []).filter(l => !l.hra), l0 = base[0];
+    const incLine = t.inclPct > 0 && l0 && isFinite(l0.sum) ? { label: 'War & strikes buy-back included (HRA): ' + t.incl.map(h => h.name).join(', '), sum: l0.sum, rate: t.inclPct, premium: Math.round(l0.sum * t.inclPct) / 100, hra: true } : null;
+    const all = incLine ? base.concat([incLine]) : base;
+    let wx = null;
+    if(t.opt.length){
+      wx = { areas: t.opt.map(h => h.name), offerBuyback: t.offered.length > 0, buybackPct: t.optPct || null, refer: t.refer.map(h => h.name), buyback: t.offered.map(h => ({ name: h.name, pct: h.net_pct })) };
+      if(wx.offerBuyback && l0 && isFinite(l0.rate) && calc){
+        const extra = { label: 'War & strikes buy-back (optional)', sum: l0.sum, rate: t.optPct, premium: Math.round(l0.sum * t.optPct) / 100 };
+        const te = calc(all), ti = calc(all.concat([extra]));
+        Object.assign(wx, { rateExcl: FC.r4(l0.rate + t.inclPct), rateIncl: FC.r4(l0.rate + t.inclPct + t.optPct), totalExcl: te.total, totalIncl: ti.total, netIncl: ti.net });
+      }
+    }
+    return { t, lines: all, incLine, wx, incl: incLine ? { areas: t.incl.map(h => h.name), pct: t.inclPct, premium: incLine.premium, baseRate: l0 && isFinite(l0.rate) ? l0.rate : null, totalRate: l0 && isFinite(l0.rate) ? FC.r4(l0.rate + t.inclPct) : null } : null };
+  };
+  A.hraParts = hraParts;
+
   // ---------------- certificates ----------------
   // Staff are never blocked: every certificate button in the internal view asks canIssueCert(), which is always true for staff.
   // clientCertRight() only tells whether the CLIENT may issue (shown as information, never used to hide staff actions).
@@ -1221,6 +1323,7 @@
   }
 
   // ---------------- case drawer ----------------
+  A.openCase = id => openCase(id);
   async function openCase(id){
     const r = S.rows.find(x => x.id === id); if(!r) return;
     const w = who(r);
@@ -1271,8 +1374,12 @@
           ${r.insured_country ? `<dt>Assured domicile</dt><dd>${esc(cName(r.insured_country))}${r.insured_country === 'AE' ? ' · FTZ: ' + (r.ftz == null ? 'not known' : r.ftz ? 'yes' : 'no, mainland') : ''}</dd>` : ''}
           ${Object.keys(r.details || {}).length ? `<dt>Details</dt><dd class="small">${[['equipment','Equipment'],['pieces','Pieces'],['weight_kg','Gross weight kg'],['dimensions','Dimensions'],['hs_code','HS code'],['vessel_year','Vessel built'],['storage','Storage']].filter(([k]) => r.details[k]).map(([k, l]) => esc(l) + ': <b>' + esc(k === 'storage' ? (r.details[k] === '30' ? '30-60 days' : 'over 60 days') : r.details[k]) + '</b>').join(' · ')}${r.details.parties ? '<br>Co-assureds / loss payees: ' + esc(r.details.parties).replace(/\n/g, '; ') : ''}</dd>` : ''}
           <dt>Cover</dt><dd>${esc((FC.COVER[r.cover] || {}).clause)}, war &amp; strikes ${r.war_strikes ? 'included' : 'not included'}</dd>
+          ${(() => { const ch = iptChain(r.ipt_mode, (!r.is_standalone_one_off && polOf(r.policy_id)) || null, custOf(r.customer_id)); const on = !!r.ipt_applied;
+            return `<dt>German IPT</dt><dd><span class="ipt-badge${on ? ' on' : ''}">${on ? esc(Number(r.ipt_rate)) + '%' : '0.00'}</span> ${r.premium != null ? (on ? esc(money2(r.ipt_amount, r.currency)) + ' on ' + esc(money2(r.premium, r.currency)) : esc(money2(0, r.currency))) : ''} <span class="xs muted">${esc(r.ipt_reason || '')}</span>
+              <div class="toolbar" style="margin:6px 0 0"><label class="xs muted" for="csIpt">IPT setting for this case</label>${iptModeSelect('csIpt', r.ipt_mode, 'As ' + (ch.from === 'this case' ? 'the client' : ch.from) + ': ' + FC.IPT_SHORT[ch.mode])}</div></dd>`; })()}
           ${r.customer_comment ? `<dt>Customer message</dt><dd>${esc(r.customer_comment)}</dd>` : ''}
         </dl></section>
+        <section id="csHraSec"><div id="csHra"></div><div class="toolbar" style="margin-top:8px" id="csHraActs"></div></section>
         <section><h3>Customer</h3><dl class="kv">
           <dt>Company</dt><dd>${esc(w.company)}${addrOf(w.p) ? '<br><span class="xs muted">' + esc(addrOf(w.p)) + '</span>' : ''}</dd><dt>Contact</dt><dd>${esc(w.name)}, <a href="mailto:${esc(w.email)}">${esc(w.email)}</a>${w.p.phone ? ', ' + esc(w.p.phone) : ''}</dd>
           <dt>Discount</dt><dd>${esc(effDisc(w.p))} % <span class="xs muted">(${esc(discLabel(w.p))})</span></dd>
@@ -1291,7 +1398,7 @@
         <section><h3>Quotations</h3><div id="csQuotes" class="list"></div><div class="toolbar" style="margin-top:10px" id="csQuoteActs"></div></section>
         <section><h3>Cover notes</h3><div id="csCovers" class="list"></div><div class="toolbar" style="margin-top:10px" id="csCoverActs"></div></section>
         <section><h3>Documents</h3><div id="csDocs" class="list"><p class="small muted" style="margin:0">Loading...</p></div><div class="toolbar" style="margin-top:10px" id="csDocActs"></div></section>
-        ${certOn(r) ? `<section><h3>Certificates</h3><div id="csCerts" class="list"></div><div class="toolbar" style="margin-top:10px" id="csCertActs"></div></section>` : ''}
+        <section><h3>Certificates</h3><p class="xs muted" style="margin:0 0 8px">Client can issue certificates: <b>${clientCertRight(r) ? 'yes' : 'no'}</b>. MARINCON staff can always issue certificates for this case.</p><div id="csCerts" class="list"></div><div class="toolbar" style="margin-top:10px" id="csCertActs"></div></section>
         <section><h3>Invoices</h3><div id="csInv" class="list"></div><div class="toolbar" style="margin-top:10px" id="csInvActs"></div></section>
         <section><h3>Notes</h3><div id="csNotes"></div>
           <div class="field" style="margin-top:8px"><label for="csNote">Add a note</label><textarea id="csNote" maxlength="2000" rows="2"></textarea></div><div id="csNoteHost" style="margin-top:8px"></div></section>
@@ -1320,6 +1427,7 @@
       $('#csSaveHost', body).appendChild(btn('Save handling', 'primary', async b => {
         busy(b, true);
         const patch = { stage: $('#csStage', body).value, owner: $('#csOwner', body).value.trim() || null, follow_up: $('#csFollow', body).value || null, is_test: $('#csTest', body).checked, status_note: $('#csStNote', body).value.trim() || null };
+        if((FC.iptMode($('#csIpt', body).value) || null) !== (FC.iptMode(r.ipt_mode) || null)) patch.ipt_mode = FC.iptMode($('#csIpt', body).value) || null;
         if(patch.stage === 'closed') patch.closure_reason = $('#csReason', body).value;
         const { error } = await sb.from('indications').update(patch).eq('id', r.id);
         busy(b, false);
@@ -1327,6 +1435,15 @@
         toast('Saved.'); refresh();
       }));
       entityPanel($('#csRem', body), 'case', r.id, r.ref || '#' + r.id, refresh);
+      // High-Risk Areas of the request: saved on the case, picked up by the quotation editor
+      { const oneOff = !!r.is_standalone_one_off || !r.customer_id, cat = () => hraCatalogue(oneOff ? null : (r.policy_id || null), r.customer_id || null, oneOff);
+        const saved0 = (r.selected_hras || []).length > 0, list0 = saved0 ? r.selected_hras : hraFromEngine(r.war, cat());
+        const sug = () => /^sea_/.test(r.conveyance) ? Array.from(new Set(FC.hraMatch(S.warAreas, { origin: r.origin_country, dest: r.dest_country, transit: r.transit_countries || [], originPlace: r.origin_place, destPlace: r.dest_place }).concat(((r.war && r.war.areas) || []).map(a => a.code)))) : [];
+        const sb0 = btn('Save High-Risk Areas', saved0 ? 'ghost' : 'primary', async b => { busy(b, true); const { error } = await sb.rpc('admin_set_case_hras', { p_indication: r.id, p_hras: hbc.get() }); busy(b, false);
+          if(error) return toast('Could not save: ' + error.message, 'error'); toast('High-Risk Areas saved on the case.'); refresh(); });
+        const hbc = hraBuilder($('#csHra', body), { list: list0, catalogue: cat, suggest: sug, what: 'request', onChange: () => { sb0.classList.remove('btn-ghost'); sb0.classList.add('btn-primary'); hint.textContent = 'Not saved yet.'; } });
+        const hint = FC.el(`<span class="xs muted">${saved0 ? 'Saved on the case. The quotation editor starts from these areas.' : list0.length ? 'Found by the rating engine, not saved yet.' : ''}</span>`);
+        $('#csHraActs', body).append(sb0, hint); }
       // quotations
       const qh = $('#csQuotes', body);
       if(!qs.length) qh.innerHTML = '<p class="small muted" style="margin:0">No quotation yet.</p>';
@@ -1482,6 +1599,11 @@
       premium_amount: m2(d.net != null ? d.net : r.premium), ipt_amount: m2(d.tax != null ? d.tax : r.ipt_amount),
       total_amount: m2(d.total != null ? d.total : (r.premium != null ? Number(r.premium) + Number(r.ipt_amount || 0) : null)),
       deductible: d.deductible || r.deductible_text || '', valid_until: d.validUntil ? FC.dateTime(d.validUntil) : '',
+      // High-Risk Areas: total rate incl. the buy-back of the included areas, and the areas excluded / optional
+      total_rate: d.hraIncluded && d.hraIncluded.totalRate != null ? FC.pct(d.hraIncluded.totalRate) : isFinite(Number(ln.rate)) && ln.rate != null && ln.rate !== '' ? FC.pct(FC.toPercent(ln.rate, d.rateUnit)) : r.rate_pct != null ? FC.pct(r.rate_pct) : '',
+      hra_included: d.hraIncluded && (d.hraIncluded.areas || []).length ? d.hraIncluded.areas.join(', ') + ' (+' + FC.pct(d.hraIncluded.pct) + ')' : '',
+      hra_excluded: d.warExcl ? (d.warExcl.areas || []).join(', ') : (r.war_excluded || []).join(', '),
+      ipt_rate: Number(d.taxPct) > 0 ? Number(d.taxPct) + '%' : d.net != null ? '0%' : r.ipt_applied ? Number(r.ipt_rate) + '%' : '0%',
       handler_name: (d.handler && d.handler.name) || me().full_name || '', today: FC.date(FC.today())
     }, extra || {});
   }
@@ -1621,11 +1743,14 @@
     const insOpts = actIns.map(i => `<option value="${i.id}" ${preIns && preIns.id === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('') + `<option value="" ${preIns ? '' : 'selected'}>Other insurer (type name)</option>`;
     const preBrk = prevInt ? Number(prevInt.brokerage_pct) : preIns ? Number(preIns.brokerage_pct || 0) : 0;
     // German IPT: the rules of the configuration (route and domicile), overridable per quotation
-    const iptS = S.ipt || { default_rate: Number(setting('insurance_tax_pct', 19)), default_mode:'off' };
-    const iptCtx = (() => { const cu = og.customer || custOf(r.customer_id) || {}, po = (!r.is_standalone_one_off && og.policy) || {}, of = og.office || {}; const holder = po.policyholder_country || cu.country || of.country || pp.country || ''; return { mode: r.ipt_mode || po.ipt_mode || cu.ipt_mode || null, holder, assured: r.insured_country || holder }; })();
-    const iptAuto = (from, to) => FC.iptEval(iptS, iptCtx.mode, from, to, iptCtx.holder, iptCtx.assured);
-    const ipt0 = iptAuto(d.originCountry, d.destCountry);
-    const taxDefault = Number(iptS.default_rate);
+    // German IPT: 19 % only DE to DE by default; the policyholder setting (case -> subcategory -> client -> group) or the broker on the spot can override
+    const iptS = S.ipt || { default_rate: 19, default_mode:'default_de_domestic' };
+    const iptCtx = iptChain(r.ipt_mode, (!r.is_standalone_one_off && og.policy) || null, og.customer || custOf(r.customer_id) || null);
+    const iptSpot0 = prev ? (FC.iptMode(d.iptMode) || '') : '';
+    const iptModeNow = () => ($b('#qeIptMode') ? FC.iptMode($b('#qeIptMode').value) : FC.iptMode(iptSpot0)) || iptCtx.mode;
+    const iptAuto = (from, to) => FC.iptEval(iptS, iptModeNow(), from, to);
+    const ipt0 = FC.iptEval(iptS, FC.iptMode(iptSpot0) || iptCtx.mode, d.originCountry, d.destCountry);
+    const taxDefault = Number(iptS.default_rate) || 19;
     const taxOn = prev ? Number(d.taxPct) > 0 : ipt0.applied;
     // what the client sees: quotation -> case -> policy -> client -> configuration
     const eCust = og.customer || custOf(r.customer_id) || null, eGrp = eCust ? grpOf(eCust.group_id) : null;
@@ -1680,18 +1805,11 @@
         <div class="field"><label>Minimum premium</label><input id="qeMin" inputmode="decimal" value="${esc(d.minPremium || 0)}"></div>
         <div class="field"><label for="qeMode">Client sees</label><select id="qeMode">${Object.entries(FC.DISPLAY).map(([k, l]) => `<option value="${k}" ${k === dm0 ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select><span class="hint">Default for this case: ${esc(FC.DISPLAY[dmCase] || dmCase)}</span></div>
       </div>
-      ${(() => { const W = d.warExcl || null, areas = W ? W.areas : ((r.war && r.war.areas) || []).map(a => a.name);
-          if(!areas.length) return '';
-          const all = W ? W.offerBuyback : ((r.war && r.war.areas) || []).every(a => a.net_permille != null);
-          const bb = W ? W.buybackPct : ((r.war && r.war.areas) || []).reduce((t, a) => t + Number(a.net_permille || 0), 0) / 10;
-          return `<div class="qe-war"><h4>War &amp; strikes excluded on this voyage</h4>
-            <div class="grid2"><div class="field"><label for="qeWarAreas">Areas (one per line, shown to the client)</label><textarea id="qeWarAreas" rows="2">${esc(areas.join('\n'))}</textarea></div>
-            <div class="field"><label for="qeBb">Buy-back loading, net % on the rate</label><input id="qeBb" inputmode="decimal" value="${esc(bb ? Math.round(bb * 10000) / 10000 : '')}" placeholder="e.g. 0.175"><span class="hint">Gross loading less no-claims bonus, e.g. 0.35 % - 50 % = 0.175 %.</span></div></div>
-            <label class="switch" style="margin-top:4px"><input type="checkbox" id="qeBbOn" ${all ? 'checked' : ''}><span><b>Offer the buy-back</b><span>The quotation shows both rates next to the minimum premium.</span></span></label>
-            <div id="qeWarRates" class="small" style="margin-top:8px"></div></div>`; })()}
+      <div class="qe-war" id="qeHraBox"><div id="qeHra"></div><div id="qeWarRates" class="small" style="margin-top:8px"></div></div>
       <div class="notice warn ru-banner" id="qeRUWarn" hidden role="alert"><b>Rate entered in per mille (‰)</b>The rates in this editor are per mille (decimal basis x10, premium = sum insured x rate / 1000). The quotation, certificates and cover notes still show the rate in % (‰ / 10). Switch back to % when done.</div>
       <div class="tbl-wrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>Cover line</th><th>Sum insured</th><th><span class="ru-ctl">Rate <select id="qeRU" class="ru-sel" disabled aria-label="Rate unit"><option value="percent">%</option><option value="per_mille">‰</option></select><span class="ru-lock" id="qeRULock" title="Locked to %">🔒</span><button type="button" class="linkbtn xs" id="qeRUUnlock">Unlock unit</button></span></th><th class="r">Premium</th><th></th></tr></thead><tbody id="qeLines">${(d.lines || []).map(lineRow).join('')}</tbody></table></div>
       <div class="toolbar" style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="qeAdd">Add line</button>
+        <div class="field" style="margin:0;min-width:240px"><label for="qeIptMode" class="xs">IPT setting (on the spot)</label>${iptModeSelect('qeIptMode', iptSpot0, 'As ' + iptCtx.from + ': ' + FC.IPT_SHORT[iptCtx.mode])}</div>
         <label class="switch" style="margin:0"><input type="checkbox" id="qeTaxOn" ${taxOn ? 'checked' : ''}><span><b>Apply German IPT</b></span></label>
         <div class="field" style="flex-direction:row;align-items:center;gap:8px;margin:0"><label for="qeTax" style="white-space:nowrap">Rate %</label><input id="qeTax" inputmode="decimal" value="${esc(Number(d.taxPct) > 0 ? d.taxPct : taxDefault)}" style="width:80px" ${taxOn ? '' : 'disabled'}></div></div>
       <div class="ipt-badge" id="qeIptWhy" role="status"></div>
@@ -1900,7 +2018,7 @@
       if(p.departure_date) $b('#qePer').value = 'Transit commencing on or about ' + FC.date(p.departure_date);
       $b('#qeAlerts').innerHTML = alertList({ alerts: (data.result.out_of_cover ? [{ level:'red', text:'Out of cover - rated with the general one-off pool' }] : []).concat(x.alerts || []) }) +
         (x.status !== 'quoted' ? `<div class="al-row al-orange"><i></i>${esc(FC.STATUS[x.status] || x.status)}: ${esc((x.reasons || []).join('; '))} - enter the rate by hand.</div>` : '');
-      if($b('#qeWarAreas') && x.war){ $b('#qeWarAreas').value = (x.war.areas || []).map(a => a.name).join('\n'); const net = (x.war.areas || []).reduce((t, a) => t + Number(a.net_permille || 0), 0) / 10; $b('#qeBb').value = net ? Math.round(net * 10000) / 10000 : ''; }
+      if(hb && x.war){ engineWar = x.war; const nAdd = hb.merge(hraFromEngine(x.war, hraCat())); if(nAdd) toast(nAdd + ' High-Risk Area' + (nAdd > 1 ? 's' : '') + ' found on this voyage and attached.'); }
       $b('#qeUpdMsg').textContent = x.status === 'quoted' ? 'Updated: ' + FC.pct(x.rate) + ' on ' + money2(n.sum_insured, p.currency) + ' = ' + money2(x.net, p.currency) + (x.min_hit ? ' (minimum)' : '') + '.' : 'Updated - no automatic rate.';
       recalc();
     });
@@ -1912,10 +2030,12 @@
       const am = n => isFinite(Number(n)) && n !== '' && n != null ? c.cur + ' ' + Number(n).toLocaleString('en-GB', { minimumFractionDigits:2, maximumFractionDigits:2 }) : '-';
       const basis = (100 + Number(r.uplift_pct || 0)) + '% ' + (r.incoterm && !/^(EXW|FCA|FAS|FOB)$/.test(r.incoterm) ? r.incoterm : 'CIF') + ' value';
       const sR = FC.showRate(c.mode), sP = FC.showPremium(c.mode);
-      sec.innerHTML = `${sR ? `<p><b>Premium Rate:</b> ${esc(isFinite(ln.rate) ? FC.pct(ln.rate) : '-')} on ${esc(basis)}${og.policy || !sP ? '' : ' (sum insured ' + esc(am(ln.sum)) + ', premium ' + esc(am(t ? t.net : NaN)) + ')'}</p>` : ''}
+      const hi = c.hra && c.hra.incl;
+      sec.innerHTML = `${sR ? `<p><b>Premium Rate:</b> ${esc(isFinite(ln.rate) ? (hi ? FC.pct(ln.rate) + ' + ' + FC.pct(hi.pct) + ' war & strikes buy-back (' + hi.areas.join(', ') + ') = ' + FC.pct(hi.totalRate) : FC.pct(ln.rate)) : '-')} on ${esc(basis)}${og.policy || !sP ? '' : ' (sum insured ' + esc(am(ln.sum)) + ', premium ' + esc(am(t ? t.net : NaN)) + ')'}</p>` : ''}
         ${sP && !sR ? `<p><b>Premium:</b> ${esc(am(t ? t.net : NaN))} (sum insured ${esc(am(ln.sum))})</p>` : ''}
         <p><b>Minimum Premium:</b> ${esc(am(c.min))}${wx && wx.offerBuyback && sR ? `<br>Rate with War &amp; Strikes excluded for ${esc(wx.areas.join(', '))}: <b>${esc(FC.pct(wx.rateExcl))}</b><br>Rate with War &amp; Strikes re-included: <b>${esc(FC.pct(wx.rateIncl))}</b>` : ''}${wx && wx.offerBuyback && !sR ? `<br>Premium with War &amp; Strikes excluded for ${esc(wx.areas.join(', '))}: <b>${esc(am(wx.totalExcl))}</b><br>Premium with War &amp; Strikes re-included: <b>${esc(am(wx.totalIncl))}</b>` : ''}</p>
-        ${wx ? `<p>War &amp; Strikes excluded for: ${esc(wx.areas.join(', '))}; remaining in force for the rest of the voyage.</p>` : ''}
+        ${hi ? `<p>War &amp; Strikes re-included for: ${esc(hi.areas.join(', '))} (buy-back included in the rate${sP ? ', ' + esc(am(hi.premium)) : ''}).</p>` : ''}
+        ${wx ? `<p>War &amp; Strikes excluded for: ${esc(wx.areas.join(', '))}; remaining in force for the rest of the voyage.${(wx.refer || []).length ? ' Buy-back for ' + esc(wx.refer.join(', ')) + ': refer / A.P.' : ''}</p>` : ''}
         ${docEl.querySelector('section[data-cat="deductibles"]') ? '' : `<p><b>Deductible:</b> ${esc($b('#qeDed').value.trim() || '-')}</p>`}
         ${c.tax && sP ? `<p><b>Net Premium:</b> ${esc(am(t ? t.net : NaN))}<br><b>German IPT (${esc(c.tax)}%):</b> ${esc(am(t ? t.tax : NaN))}<br><b>Gross Total incl. IPT:</b> ${esc(am(t ? t.total : NaN))}</p>` : c.tax ? `<p>German IPT (${esc(c.tax)}%) is added to the premium.</p>` : ''}
         ${notes.map(x => `<p data-cid="${x.id}">${esc(fillIn(x.body))}</p>`).join('')}`;
@@ -1934,11 +2054,13 @@
         // premium = sum insured x percent rate / 100 (the same as sum insured x per mille rate / 1000)
         return { label: tr.querySelector('.ln-label').value.trim(), sum, rate, premium: isFinite(sum) && isFinite(rate) ? Math.round(sum * rate) / 100 : NaN, tr };
       });
-      return { lines, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, reb: FC.parseNum($b('#qeReb').value) || 0, cur: $b('#qeCur').value, mode: $b('#qeMode').value };
+      const disc0 = FC.parseNum($b('#qeDisc').value) || 0, min0 = FC.parseNum($b('#qeMin').value) || 0, tax0 = $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0;
+      const hra = hraParts(hb ? hb.get() : [], lines, ls => calcQuote(ls, disc0, min0, tax0));
+      return { lines: hra.lines, hra, disc: FC.parseNum($b('#qeDisc').value) || 0, min: FC.parseNum($b('#qeMin').value) || 0, tax: $b('#qeTaxOn').checked ? (FC.parseNum($b('#qeTax').value) || 0) : 0, brk: FC.parseNum($b('#qeBrk').value) || 0, reb: FC.parseNum($b('#qeReb').value) || 0, cur: $b('#qeCur').value, mode: $b('#qeMode').value };
     };
     const recalc = () => {
       const c = collect();
-      c.lines.forEach(l => { l.tr.querySelector('.ln-prem').textContent = isFinite(l.premium) ? money2(l.premium, c.cur) : '-'; });
+      c.lines.forEach(l => { if(l.tr) l.tr.querySelector('.ln-prem').textContent = isFinite(l.premium) ? money2(l.premium, c.cur) : '-'; });
       const ok = c.lines.length && c.lines.every(l => isFinite(l.premium));
       if(!ok) paintLimits(c);
       if(!ok){ $b('#qeSum').innerHTML = '<tr><td class="muted">Enter sum insured and rate for each line.</td></tr>'; $b('#qeBrkAmt').textContent = $b('#qeNetIns').textContent = '-'; return; }
@@ -1947,42 +2069,44 @@
       $b('#qeBrkAmt').textContent = money2(ba, c.cur); $b('#qeNetIns').textContent = money2(Math.round((t.net - ba) * 100) / 100, c.cur);
       const ra = Math.round(t.net * c.reb) / 100; $b('#qeRebAmt').textContent = money2(ra, c.cur); $b('#qeKeep').textContent = money2(Math.round((ba - ra) * 100) / 100, c.cur);
       $b('#qeKeep').style.color = ba - ra < 0 ? 'var(--danger)' : '';
-      $b('#qeSum').innerHTML = `<tr><td>Premium</td><td class="r">${esc(money2(t.subtotal, c.cur))}</td></tr>
+      const hi = c.hra.incl, l0 = c.lines.find(l => !l.hra);
+      $b('#qeSum').innerHTML = `${hi ? `<tr><td>Cover line rate ${esc(FC.pct(l0.rate))} + HRA buy-back ${esc(FC.pct(hi.pct))} (${esc(hi.areas.join(', '))}) = total rate</td><td class="r"><b>${esc(FC.pct(hi.totalRate))}</b></td></tr><tr><td>HRA buy-back premium included</td><td class="r">${esc(money2(hi.premium, c.cur))}</td></tr>` : ''}
+        <tr><td>Premium</td><td class="r">${esc(money2(t.subtotal, c.cur))}</td></tr>
         ${c.disc ? `<tr><td>Client discount ${esc(c.disc)} %</td><td class="r">- ${esc(money2(t.discountAmount, c.cur))}</td></tr>` : ''}
         ${t.minApplied ? `<tr><td>Minimum premium applies</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr>` : ''}
-        ${c.tax ? `<tr><td>Net premium</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr><tr><td>German IPT (${esc(c.tax)}%)</td><td class="r">${esc(money2(t.tax, c.cur))}</td></tr>` : ''}
+        <tr><td>Net premium</td><td class="r">${esc(money2(t.net, c.cur))}</td></tr>
+        <tr class="ipt-line"><td>German IPT (${esc(c.tax ? c.tax : 0)}%)${c.tax ? '' : ' - not applicable'}</td><td class="r">${esc(money2(c.tax ? t.tax : 0, c.cur))}</td></tr>
         <tr class="tot"><td>${c.tax ? 'Gross total incl. IPT' : 'Total premium payable'}</td><td class="r">${esc(money2(t.total, c.cur))}</td></tr>`;
       paintIpt();
       paintLimits(c);
       const wx = warBlock(c);
       paintPricing(c, t, wx);
-      if($b('#qeWarRates')) $b('#qeWarRates').innerHTML = wx && wx.offerBuyback ? `Rate with war &amp; strikes excluded: <b>${esc(FC.pct(wx.rateExcl))}</b> → ${esc(money2(wx.totalExcl, c.cur))} · Rate with war &amp; strikes re-included: <b>${esc(FC.pct(wx.rateIncl))}</b> → ${esc(money2(wx.totalIncl, c.cur))}` : wx ? 'The client sees the exclusion notice only.' : '';
+      if($b('#qeWarRates')) $b('#qeWarRates').innerHTML = wx && wx.offerBuyback ? `Rate with war &amp; strikes excluded: <b>${esc(FC.pct(wx.rateExcl))}</b> → ${esc(money2(wx.totalExcl, c.cur))} · Rate with the optional buy-back: <b>${esc(FC.pct(wx.rateIncl))}</b> → ${esc(money2(wx.totalIncl, c.cur))}` : wx ? 'The client sees the exclusion notice only (no buy-back terms: refer / A.P.).' : '';
     };
     // policy limits of the subcategory; above the limit = special request / referral to insurers
     const paintLimits = c => { const lpo = $b('#qeSA').checked ? null : polOf(ePOsel ? ePO.policy : polId);
       const sums = c.lines.map(l => l.sum).filter(v => isFinite(v)), si = sums.length ? Math.max(...sums) : NaN;
       const chk = lpo ? limitCheck(lpo, si, c.cur, !!r.on_deck, !!(r.details || {}).post_courier) : null;
       $b('#qeLim').innerHTML = lpo ? limitsHtml(lpo, chk) + limitWarnHtml(chk, c.cur) : ''; };
-    // war & strikes excluded areas: the cargo line carries the rate without war; the buy-back adds the net loading
-    const warBlock = c => {
-      if(!$b('#qeWarAreas')) return null;
-      const areas = $b('#qeWarAreas').value.split('\n').map(x => x.trim()).filter(Boolean); if(!areas.length) return null;
-      const bb = FC.parseNum($b('#qeBb').value), on = $b('#qeBbOn').checked && bb > 0;
-      const out = { areas, offerBuyback: on, buybackPct: isFinite(bb) ? bb : null };
-      if(on && c.lines.length && isFinite(c.lines[0].rate)){
-        const incl = c.lines.map((l, i) => i ? l : Object.assign({}, l, { rate: l.rate + bb, premium: Math.round(l.sum * (l.rate + bb)) / 100 }));
-        const te = calcQuote(c.lines, c.disc, c.min, c.tax), ti = calcQuote(incl, c.disc, c.min, c.tax);
-        Object.assign(out, { rateExcl: c.lines[0].rate, rateIncl: Math.round((c.lines[0].rate + bb) * 10000) / 10000, totalExcl: te.total, totalIncl: ti.total, netIncl: ti.net });
-      }
-      return out;
-    };
+    // High-Risk Areas: included ones are a cover line (total rate); optional ones stay excluded with the buy-back offered
+    const warBlock = c => c.hra ? c.hra.wx : null;
+    let engineWar = r.war || null, hb = null;
+    const hraCat = () => hraCatalogue(ePOsel ? ePO.policy : (!r.is_standalone_one_off && og.policy ? og.policy.id : null), (eCust || {}).id || r.customer_id || null, ($b('#qeSA') ? $b('#qeSA').checked : !!r.is_standalone_one_off) || !(eCust || r.customer_id));
+    const hraSuggest = () => !/^sea_/.test($b('#qeConv').value) ? [] : Array.from(new Set(FC.hraMatch(S.warAreas, { origin: $b('#qeOC').value, dest: $b('#qeDC').value, transit: viaList(), originPlace: $b('#qeOP').value, destPlace: $b('#qeDP').value })
+      .concat(((engineWar && engineWar.areas) || []).map(a => a.code))));
+    { const legacy = d.warExcl && !Array.isArray(d.selectedHras) ? (d.warExcl.areas || []).map(n => { const c = hraCat().find(x => x.name === n) || { name: n };
+          return Object.assign({}, c, d.warExcl.areas.length === 1 && d.warExcl.buybackPct ? { net_pct: Number(d.warExcl.buybackPct) } : {}, { include: false, source: 'manual' }); }) : null;
+      const hra0 = Array.isArray(d.selectedHras) ? d.selectedHras : legacy ? legacy : (r.selected_hras || []).length ? r.selected_hras : hraFromEngine(r.war, hraCat());
+      hb = hraBuilder($b('#qeHra'), { list: hra0, catalogue: hraCat, suggest: hraSuggest, what: 'quotation', onChange: () => recalc() }); }
+    ['#qeConv', '#qeOC', '#qeDC', '#qeOP', '#qeDP', '#qeVia'].forEach(id => $b(id) && $b(id).addEventListener('change', () => hb && hb.refresh()));
     body.addEventListener('input', recalc);
     // IPT: the rules decide until the broker switches it by hand
     let iptManual = !!(prev && d.iptManual);
     const paintIpt = () => { const a = iptAuto($b('#qeOC').value.trim().toUpperCase(), $b('#qeDC').value.trim().toUpperCase()), on = $b('#qeTaxOn').checked;
       $b('#qeIptWhy').className = 'ipt-badge' + (on ? ' on' : '');
-      $b('#qeIptWhy').textContent = iptManual && on !== a.applied ? (on ? 'German IPT applied by hand' : 'German IPT switched off by hand') + ' (rules: ' + a.reason + ')' : on ? a.reason.replace(/^No German IPT: .*/, 'German IPT applied') : a.reason; };
+      $b('#qeIptWhy').textContent = iptManual && on !== a.applied ? (on ? 'German IPT applied by hand' : 'German IPT switched off by hand') + ' (rules: ' + a.reason + ')' : on ? a.reason.replace(/^No German IPT.*/, 'German IPT applied') : a.reason; };
     $b('#qeTaxOn').addEventListener('change', () => { iptManual = true; $b('#qeTax').disabled = !$b('#qeTaxOn').checked; recalc(); });
+    $b('#qeIptMode').addEventListener('change', () => { iptManual = false; const a = iptAuto($b('#qeOC').value.trim().toUpperCase(), $b('#qeDC').value.trim().toUpperCase()); $b('#qeTaxOn').checked = a.applied; $b('#qeTax').disabled = !a.applied; if(a.applied && !(FC.parseNum($b('#qeTax').value) > 0)) $b('#qeTax').value = taxDefault; recalc(); });
     ['#qeOC', '#qeDC'].forEach(id => $b(id).addEventListener('change', () => { if(iptManual) return; const a = iptAuto($b('#qeOC').value.trim().toUpperCase(), $b('#qeDC').value.trim().toUpperCase()); $b('#qeTaxOn').checked = a.applied; $b('#qeTax').disabled = !a.applied; recalc(); }));
     $b('#qeMode').addEventListener('change', () => { $b('#qeInvOpt').hidden = $b('#qeMode').value !== 'rate_only'; recalc(); });
     $b('#qeSA').addEventListener('change', () => { applyDedDefaults(); });
@@ -2039,11 +2163,12 @@
         voyage: $b('#qeVoy').value.trim(), period: $b('#qePer').value.trim(), conditions: $b('#qeCond').value.trim(), insurer: insurerPick().name,
         deductible: $b('#qeDed').value.trim(), deductibleIds: Array.from(dedSel), deductibles: dedList().map(x => x.deductible_text), templateId: tplNow ? tplNow.id : null,
         special: docTexts('special').join(' '), doc: docHtml(), currency: c.cur, discountPct: c.disc, minPremium: c.min, taxPct: c.tax,
-        displayMode: c.mode, iptApplied: c.tax > 0, iptRate: c.tax || null, iptManual, iptReason: c.tax > 0 ? $b('#qeIptWhy').textContent : '', fmt,
+        displayMode: c.mode, iptApplied: c.tax > 0, iptRate: c.tax || null, iptManual, iptMode: FC.iptMode($b('#qeIptMode').value) || null, iptModeEffective: iptModeNow(), iptReason: $b('#qeIptWhy').textContent, fmt,
         rateUnit: 'percent', rateUnitOverride: ruOverride && ruOverride.unit === 'per_mille' && ruNow() === 'per_mille' ? ruOverride : undefined,
-        lines: c.lines.map(l => ({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium })),
+        lines: c.lines.map(l => Object.assign({ label:l.label, sum: Math.round(l.sum * 100) / 100, rate: l.rate, premium: l.premium }, l.hra ? { hra: true } : {})),
         subtotal: t.subtotal, discountAmount: t.discountAmount, net: t.net, minApplied: t.minApplied, tax: t.tax, total: t.total, warExcl: warBlock(c),
-        sumInsured: Math.max(...c.lines.map(l => l.sum)),
+        selectedHras: hb ? hb.get() : [], hraIncluded: c.hra.incl || null,
+        sumInsured: Math.max(...c.lines.filter(l => !l.hra).map(l => l.sum)),
         subjectivities: docTexts('subjectivity').slice(0, 40), note: $b('#qeNote').value.trim(), closing: $b('#qeClose').value.trim(),
         handler: { name: $b('#qeHandler').value.trim(), email: me().email, initials: myInitials() }, issuedAt: new Date().toISOString(),
         commodityId: $b('#qeCom').value, invoiceValue: FC.parseNum($b('#qeInv').value), transit: viaList(), cover: $b('#qeCov').value, warStrikes: $b('#qeWarOn').checked, departureDate: $b('#qeDep').value || null
@@ -2070,6 +2195,7 @@
             if(pe){ $b('#qeErr').textContent = 'Could not update the office / subcategory of the case: ' + pe.message; return; } }
           const { error } = await sb.rpc('admin_save_quotation', { p_indication_id: r.id, p_data: b.data, p_valid_until: b.validUntil, p_internal: b.internal, p_send: send, p_method: method, p_quotation_id: opt.draft ? opt.draft.id : null });
           if(error){ $b('#qeErr').textContent = (send ? 'Could not send: ' : 'Could not save: ') + error.message; return; }
+          if(JSON.stringify(b.data.selectedHras || []) !== JSON.stringify(r.selected_hras || [])) await sb.rpc('admin_set_case_hras', { p_indication: r.id, p_hras: b.data.selectedHras || [] });
           toast(send ? (method === 'manual' ? 'Quotation saved and released - send it yourself (manual dispatch).' : 'Quotation sent to the client.') : 'Quotation saved. It is not visible to the client until you send it.'); return true;
     }
   }
@@ -2099,7 +2225,7 @@
     const goods = [d.goods || r.goods_description, d.packaging || r.packaging ? 'Packing: ' + (d.packaging || r.packaging) : '', det.equipment ? 'Equipment: ' + det.equipment : '',
       [det.pieces ? det.pieces + ' piece(s)' : '', det.weight_kg ? Number(det.weight_kg).toLocaleString('en-GB') + ' kg gross' : '', det.dimensions || ''].filter(Boolean).join(', '), det.hs_code ? 'HS code ' + det.hs_code : ''].filter(Boolean).join('\n');
     const special = d.special || r.conditions || '';
-    const war = d.warExcl ? 'War & strikes excluded for: ' + d.warExcl.areas.join(', ') + '.' : (r.war_excluded || []).length ? 'War & strikes excluded for: ' + r.war_excluded.join(', ') + '.' : '';
+    const war = (d.hraIncluded && (d.hraIncluded.areas || []).length ? 'War & strikes re-included (buy-back included in the rate) for: ' + d.hraIncluded.areas.join(', ') + '. ' : '') + (d.warExcl ? 'War & strikes excluded for: ' + d.warExcl.areas.join(', ') + '.' : (r.war_excluded || []).length ? 'War & strikes excluded for: ' + r.war_excluded.join(', ') + '.' : '');
     const agreements = [taTxt, special, war, (d.coAssured || []).length ? 'Co-assured / loss payee: ' + d.coAssured.join('; ') : '', d.deductible ? 'Deductible: ' + d.deductible : ''].filter(Boolean).join('\n');
     const inc = (r.incoterm || '').toUpperCase();
     const def = existing ? existing.data : {
@@ -2396,7 +2522,9 @@
       const pyear = S.polYears.find(y => og.policy && y.policy_id === og.policy.id && (!r.departure_date || (r.departure_date >= y.starts_on && r.departure_date <= (y.extended_to || y.ends_on))));
       const inv = (S.invoices || []).filter(i => i.indication_id === r.id);
       out.push({ r, q, d, x, og, cert, cn, docType, docNo, issued, inception, cur, si: Number(d.sumInsured || r.sum_insured || 0), gross, tax, total, brk, brkPct: Number(x.brokerage_pct || 0), reb, rebPct: Number(x.client_rebate_pct || 0),
-        keep: r2(brk - reb), insNet: r2(insNet), insurer: x.insurer_name || d.insurer || '', cover: coverOfCase(r), pyear, inv, billed: inv.length > 0 });
+        keep: r2(brk - reb), insNet: r2(insNet), insurer: x.insurer_name || d.insurer || '', cover: coverOfCase(r), pyear, inv, billed: inv.length > 0,
+        iptPct: tax > 0 ? Number(d.taxPct || r.ipt_rate || 19) : 0, hraAreas: ((d.hraIncluded || {}).areas || []).join(', '), hraPrem: Number((d.hraIncluded || {}).premium || 0),
+        hraExcl: ((d.warExcl || {}).areas || []).join(', ') });
     });
     return out.sort((a, b) => b.issued - a.issued);
   }
@@ -2433,7 +2561,9 @@
     master: [{ label:'Issue date', type:'date', get: l => l.issued }, { label:'Inception', type:'date', get: l => l.inception }, { label:'Reference', get: l => l.r.ref || '' }, { label:'Document', get: l => l.docType }, { label:'Document no.', get: l => l.docNo },
       { label:'Client group', get: l => (l.og.group || {}).name || '' }, { label:'Client', get: l => who(l.r).company }, { label:'Office', get: l => (l.og.office || {}).name || '' }, { label:'Policy', get: l => l.og.policy ? polLabel(l.og.policy) : 'One off' },
       { label:'Policy year', get: l => (l.pyear || {}).label || '' }, { label:'Insurer', get: l => l.insurer }, { label:'Cover type', get: l => COVER_T[l.cover] }, { label:'Currency', get: l => l.cur },
-      { label:'Sum insured', type:'money', get: l => l.si }, { label:'Gross written premium', type:'money', get: l => l.gross }, { label:'German IPT', type:'money', get: l => l.tax }, { label:'Total payable by client', type:'money', get: l => l.total },
+      { label:'Sum insured', type:'money', get: l => l.si }, { label:'Gross written premium', type:'money', get: l => l.gross },
+      { label:'HRA buy-back included', get: l => l.hraAreas }, { label:'HRA buy-back premium', type:'money', get: l => l.hraPrem }, { label:'HRA excluded / optional', get: l => l.hraExcl },
+      { label:'German IPT rate %', type:'pct', get: l => l.iptPct }, { label:'German IPT', type:'money', get: l => l.tax }, { label:'Total payable by client', type:'money', get: l => l.total },
       { label:'UW commission %', type:'pct', get: l => l.brkPct }, { label:'UW commission', type:'money', get: l => l.brk }, { label:'Insurer net premium', type:'money', get: l => l.insNet },
       { label:'Client rebate %', type:'pct', get: l => l.rebPct }, { label:'Client rebate', type:'money', get: l => l.reb }, { label:'MARINCON net retained brokerage', type:'money', get: l => l.keep },
       { label:'Net retained (EUR eq.)', type:'money', get: l => r2(lgEUR(l.keep, l.cur)) }],
@@ -2447,7 +2577,7 @@
       { label:'Net premium payable to insurer', type:'money', get: l => l.insNet }, { label:'German IPT (paid over by the broker)', type:'money', get: l => l.tax }],
     ipt: [{ label:'Accounting month', get: l => l.issued.getFullYear() + '-' + String(l.issued.getMonth() + 1).padStart(2, '0') }, { label:'Reference', get: l => l.r.ref || '' }, { label:'Document', get: l => l.docType + (l.docNo ? ' ' + l.docNo : '') },
       { label:'Policyholder / assured', get: l => l.d.client || l.r.insured_name || who(l.r).company }, { label:'Route', get: l => l.r.origin_country + ' to ' + l.r.dest_country }, { label:'Currency', get: l => l.cur },
-      { label:'Taxable premium', type:'money', get: l => l.gross }, { label:'IPT rate %', type:'pct', get: l => Number(l.d.taxPct || l.r.ipt_rate || 19) }, { label:'IPT amount', type:'money', get: l => l.tax },
+      { label:'Taxable premium', type:'money', get: l => l.gross }, { label:'IPT rate %', type:'pct', get: l => l.iptPct }, { label:'IPT amount', type:'money', get: l => l.tax },
       { label:'IPT (EUR eq.)', type:'money', get: l => r2(lgEUR(l.tax, l.cur)) }, { label:'Reason', get: l => l.d.iptReason || l.r.ipt_reason || '' }],
     unbilled: [{ label:'Accepted / issued', type:'date', get: l => l.issued }, { label:'Reference', get: l => l.r.ref || '' }, { label:'Document', get: l => l.docType + (l.docNo ? ' ' + l.docNo : '') }, { label:'Client', get: l => who(l.r).company },
       { label:'Policy', get: l => l.og.policy ? polLabel(l.og.policy) : 'One off' }, { label:'Cover type', get: l => COVER_T[l.cover] }, { label:'Currency', get: l => l.cur }, { label:'Sum insured', type:'money', get: l => l.si },
@@ -3454,7 +3584,8 @@
         <div class="field"><label for="gdDom">E-mail domains <span class="muted">(comma separated, e.g. bertling.com)</span></label><input id="gdDom" value="${esc(g ? (g.email_domains || []).join(', ') : '')}"></div>
         <div class="field"><label for="gdSort">Sort</label><input id="gdSort" inputmode="numeric" value="${esc(g ? g.sort : 100)}"></div>
         <div class="field"><label>Allowed currencies</label>${curBoxes('gdCurs', g ? g.currencies : [])}</div></div>
-      <div class="grid2"><div class="field"><label for="gdCert">Certificates for the clients of this group</label><select id="gdCert"><option value="" ${!g || g.can_issue_certificates == null ? 'selected' : ''}>As each client</option><option value="true" ${g && g.can_issue_certificates === true ? 'selected' : ''}>Yes, where the client has no setting</option><option value="false" ${g && g.can_issue_certificates === false ? 'selected' : ''}>No, where the client has no setting</option></select><span class="hint">Staff can always issue certificates.</span></div>
+      <div class="grid2"><div class="field"><label for="gdIpt">German IPT for the clients of this group</label>${iptModeSelect('gdIpt', g ? g.ipt_mode : 'default_de_domestic', 'As the configuration (' + FC.IPT_SHORT[FC.iptMode((S.ipt || {}).default_mode) || 'default_de_domestic'] + ')')}<span class="hint">Used for clients set to "As the client group".</span></div></div>
+      <div class="grid2"><div class="field"><label for="gdCert">Client can issue certificates (clients of this group)</label><select id="gdCert"><option value="" ${!g || g.can_issue_certificates == null ? 'selected' : ''}>As each client</option><option value="true" ${g && g.can_issue_certificates === true ? 'selected' : ''}>Yes, where the client has no setting</option><option value="false" ${g && g.can_issue_certificates === false ? 'selected' : ''}>No, where the client has no setting</option></select><span class="hint">Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting.</span></div>
         <div class="field"><label for="gdIvm">External invoice value</label>${ivmSel('gdIvm', g && g.external_invoice_value_mode, '', true)}<span class="hint">Mandatory (default) or optional ("or about") on the client request form. Client, subcategory and user can override it.</span></div>
         <div class="field"><label for="gdMode">Quotations show the client</label>${modeSel('gdMode', g && g.quote_display_mode, 'As the configuration (' + (FC.DISPLAY[setting('quote_display_mode', 'both')] || 'both') + ')')}</div></div>
       <label class="switch"><input type="checkbox" id="gdShow" ${!g || g.show_premium ? 'checked' : ''}><span><b>Clients see the indicative premium</b><span>Off: the portal only takes declarations and requests. Set by staff only; a client or policy can be set differently by staff.</span></span></label>
@@ -3467,7 +3598,7 @@
       const doms = body.querySelector('#gdDom').value.split(/[,;\s]+/).map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
       if(doms.some(d => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))){ body.querySelector('#gdErr').textContent = 'Please enter domains like bertling.com.'; return; }
       const gcv = body.querySelector('#gdCert').value;
-      const row = { can_issue_certificates: gcv === '' ? null : gcv === 'true', name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, external_invoice_value_mode: body.querySelector('#gdIvm').value, quote_display_mode: body.querySelector('#gdMode').value || null, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
+      const row = { can_issue_certificates: gcv === '' ? null : gcv === 'true', ipt_mode: FC.iptMode(body.querySelector('#gdIpt').value) || null, name, kind: body.querySelector('#gdKind').value, show_premium: body.querySelector('#gdShow').checked, external_invoice_value_mode: body.querySelector('#gdIvm').value, quote_display_mode: body.querySelector('#gdMode').value || null, email_domains: doms, currencies: readCurs(body, 'gdCurs'), notes: body.querySelector('#gdNotes').value.trim() || null, sort: Number(body.querySelector('#gdSort').value) || 100 };
       return (await saveRow('client_groups', row, g && g.id)) ? true : undefined;
     } });
     FC.dialog({ title: g ? 'Client group' : 'New client group', body, actions });
@@ -3503,7 +3634,7 @@
         <div class="field"><label for="cuDiscN">Discount notes</label><input id="cuDiscN" maxlength="300" value="${esc(c ? c.discount_notes || '' : '')}"></div>
         <div class="field"><label for="cuCountry">Country of the client (ISO)</label><input id="cuCountry" maxlength="2" value="${esc(c ? c.country || '' : '')}" placeholder="e.g. DE"><span class="hint">Policyholder domicile for the German IPT rules.</span></div>
         <div class="field"><label for="cuMode">Quotations show the client</label>${modeSel('cuMode', c && c.quote_display_mode, 'As the configuration (' + (FC.DISPLAY[setting('quote_display_mode', 'both')] || 'both') + ')')}</div>
-        <div class="field"><label for="cuIpt">German IPT</label>${iptSel('cuIpt', c && c.ipt_mode, 'As the configuration (' + (FC.IPT_MODE[(S.ipt || {}).default_mode] || 'off') + ')')}</div>
+        <div class="field"><label for="cuIpt">German IPT (policyholder / company setting)</label>${iptSel('cuIpt', c ? c.ipt_mode : 'default_de_domestic', 'As the client group / configuration (' + FC.IPT_SHORT[iptChain(null, null, c ? Object.assign({}, c, { ipt_mode: null }) : null).mode] + ')')}<span class="hint">Default: 19% only when the transport starts and ends in Germany. Subcategories and each quotation can override it.</span></div>
         <div class="field"><label for="cuQvd">Quotation validity (days)</label><input id="cuQvd" inputmode="numeric" value="${esc(c && c.quote_validity_days != null ? c.quote_validity_days : '')}" placeholder="As the configuration (${esc(setting('quote_validity_days', 3))})"></div>
         <div class="field"><label for="cuInv">Colleague invitations</label><select id="cuInv"><option value="true" ${!c || c.allow_colleague_invites !== false ? 'selected' : ''}>Users may invite colleagues</option><option value="false" ${c && c.allow_colleague_invites === false ? 'selected' : ''}>Switched off</option></select></div>
         <div class="field"><label for="cuIvm">External invoice value</label>${ivmSel('cuIvm', c && c.external_invoice_value_mode, 'As the client group (' + (IVM_T[((grpOf(c ? c.group_id : groupId) || {}).external_invoice_value_mode) || 'mandatory'] || 'Mandatory') + ')')}</div>
@@ -3513,7 +3644,7 @@
         <div class="field"><label for="cuSort">Sort</label><input id="cuSort" inputmode="numeric" value="${esc(c ? c.sort : 100)}"></div>
         ${c ? '' : `<div class="field"><label for="cuOff">First office <span class="muted">(optional)</span></label><input id="cuOff" maxlength="200" placeholder="e.g. Hamburg head office"></div>`}</div>
       <h3 style="margin:16px 0 6px">Certificates</h3>
-      <label class="switch"><input type="checkbox" id="cuFdf" ${c && c.can_issue_certificates ? 'checked' : ''}><span><b>Can issue certificates</b><span>Staff and the client's users can issue certificates for accepted quotations.</span></span></label>
+      <label class="switch"><input type="checkbox" id="cuFdf" ${c && c.can_issue_certificates ? 'checked' : ''}><span><b>Client can issue certificates</b><span>Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting.</span></span></label>
       <div class="field"><label for="cuCertMode">Certificate generation</label><select id="cuCertMode"><option value="platform_pdf" ${!c || c.certificate_mode !== 'fdf_export' ? 'selected' : ''}>Platform certification document (PDF from the template)</option><option value="fdf_export" ${c && c.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file (Adobe master form)</option></select>
         <span class="hint">The certificate and cover note templates are set up under Templates &amp; Matrices.${c ? ' <button type="button" class="linkbtn" id="cuTplLink">Open the templates of this client</button>' : ''}</span></div>
       <p class="xs muted" style="margin:-4px 0 10px">With "Can issue certificates" on, staff and the client can also issue a certificate directly; the case is then created retroactively.</p>
@@ -3646,7 +3777,7 @@
 
   // display mode / IPT selects for client and policy
   const modeSel = (id, v, inherit) => `<select id="${id}"><option value="" ${!v ? 'selected' : ''}>${esc(inherit)}</option>${Object.entries(FC.DISPLAY).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  const iptSel = (id, v, inherit) => `<select id="${id}"><option value="" ${!v ? 'selected' : ''}>${esc(inherit)}</option>${Object.entries(FC.IPT_MODE).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const iptSel = (id, v, inherit) => iptModeSelect(id, v, inherit);
   function policyDialog(po, customerId){
     const R = Object.assign({}, (po && po.rules) || {}), rv = (path) => { let v = R; path.forEach(k => v = v && v[k]); return v == null ? '' : v; }, rd = (path) => { let v = RULE_DEF; path.forEach(k => v = v && v[k]); return v == null ? 'on request' : v; };
     const rIn = (id, path, label) => `<div class="field"><label for="${id}">${label}</label><input id="${id}" data-rule="${path.join('.')}" inputmode="decimal" value="${esc(rv(path))}" placeholder="${esc(rd(path))}"></div>`;
@@ -3670,7 +3801,7 @@
         <div class="field"><label for="pdProf">Rate profile</label><select id="pdProf">${profileOptions(po ? { t:'policy', id: po.id } : null, hasOwn ? 'Keep its own configuration' : "Use the customer's configuration")}</select><span class="hint">${hasOwn ? 'This policy has its own schedules.' : 'Without an own copy the policy uses the customer defaults.'}</span></div>
         <div class="field"><label for="pdShow">Clients see the indicative premium</label><select id="pdShow"><option value="" ${!po || po.show_premium == null ? 'selected' : ''}>As the client</option><option value="true" ${po && po.show_premium === true ? 'selected' : ''}>Yes</option><option value="false" ${po && po.show_premium === false ? 'selected' : ''}>No - the portal only takes declarations and requests</option></select></div>
         <div class="field"><label for="pdMode">Quotations show the client</label>${modeSel('pdMode', po && po.quote_display_mode, 'As the client')}</div>
-        <div class="field"><label for="pdIpt">German IPT</label>${iptSel('pdIpt', po && po.ipt_mode, 'As the client')}</div>
+        <div class="field"><label for="pdIpt">German IPT for this subcategory</label>${iptSel('pdIpt', po && po.ipt_mode, 'As the client')}</div>
         <div class="field"><label for="pdIvm">External invoice value</label>${ivmSel('pdIvm', po && po.external_invoice_value_mode, 'As the client')}</div>
         <div class="field"><label for="pdQvd">Quotation validity (days)</label><input id="pdQvd" inputmode="numeric" value="${esc(po && po.quote_validity_days != null ? po.quote_validity_days : '')}" placeholder="As the client"></div>
         <div class="field"><label for="pdHC">Policyholder country (ISO)</label><input id="pdHC" maxlength="2" value="${esc(po ? po.policyholder_country || '' : '')}" placeholder="e.g. DE"><span class="hint">Domicile for the IPT rules; empty = as the client.</span></div>
@@ -3687,7 +3818,7 @@
         ${rIn('ruW', ['air_war_permille'], 'Air: war &amp; strikes A.P. ‰')}${rIn('ruAU', ['air_freight', 'used_pct'], 'Airfreight: used goods loading %')}${rIn('ruAC', ['air_freight', 'cars_pct'], 'Airfreight: cars loading %')}
         ${rIn('ruAH', ['air_freight', 'household_permille'], 'Airfreight: household goods flat ‰')}${rIn('ruCU', ['air_charter', 'used_pct'], 'Air charter: used goods loading %')}${rIn('ruCC', ['air_charter', 'cars_pct'], 'Air charter: cars loading %')}</div>
       ${po ? `<h3 style="margin:18px 0 6px">Default clauses</h3><p class="xs muted" style="margin:0 0 8px">Pre-ticked in quotations under this policy.</p>${clauseTicks(po.customer_id, po.id)}` : ''}
-      <div class="grid2"><div class="field"><label for="pdCanCert">Certificates for this subcategory</label><select id="pdCanCert"><option value="" ${!po || po.can_issue_certificates == null ? 'selected' : ''}>As the client</option><option value="true" ${po && po.can_issue_certificates === true ? 'selected' : ''}>Can issue certificates</option><option value="false" ${po && po.can_issue_certificates === false ? 'selected' : ''}>No certificates</option></select></div>
+      <div class="grid2"><div class="field"><label for="pdCanCert">Policy client can issue certificates</label><select id="pdCanCert"><option value="" ${!po || po.can_issue_certificates == null ? 'selected' : ''}>As the client</option><option value="true" ${po && po.can_issue_certificates === true ? 'selected' : ''}>Yes - the policy client can self-issue</option><option value="false" ${po && po.can_issue_certificates === false ? 'selected' : ''}>No - MARINCON issues the certificates</option></select><span class="hint">Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting.</span></div>
         <div class="field"><label for="pdCertMode">Certificate generation</label><select id="pdCertMode"><option value="" ${!po || !po.certificate_mode ? 'selected' : ''}>As the client</option><option value="platform_pdf" ${po && po.certificate_mode === 'platform_pdf' ? 'selected' : ''}>Platform certification document (PDF)</option><option value="fdf_export" ${po && po.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file</option></select></div></div>
       <label class="switch"><input type="checkbox" id="pdActive" ${!po || po.active ? 'checked' : ''}><span><b>Active</b><span>Inactive policies send every shipment to the brokers.</span></span></label>
       <div class="field" style="margin-top:12px"><label for="pdNotes">Internal notes</label><textarea id="pdNotes" rows="2" maxlength="2000">${esc(po ? po.notes || '' : '')}</textarea></div>
@@ -3759,7 +3890,7 @@
         <div class="field" style="grid-column:1/-1"><label>Also covered by <span class="muted">(further subcategories this office may declare under)</span></label><div id="odPols" class="ded-offs"></div></div>
         <div class="field"><label for="odSub">Subcategory <span class="muted">(e.g. Singapore)</span></label><input id="odSub" maxlength="60" value="${esc(o ? o.subcategory || '' : '')}"></div>
         <div class="field"><label>Allowed currencies <span class="muted">(this office only)</span></label>${curBoxes('odCurs', o ? o.currencies : [])}</div>
-        <div class="field"><label for="odCert">Certificates for this office</label><select id="odCert"><option value="" ${!o || o.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / client</option><option value="true" ${o && o.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${o && o.can_issue_certificates === false ? 'selected' : ''}>No</option></select></div>
+        <div class="field"><label for="odCert">Client can issue certificates (this office)</label><select id="odCert"><option value="" ${!o || o.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / client</option><option value="true" ${o && o.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${o && o.can_issue_certificates === false ? 'selected' : ''}>No</option></select><span class="hint">Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting.</span></div>
         <div class="field"><label for="odSort">Sort</label><input id="odSort" inputmode="numeric" value="${esc(o ? o.sort : 100)}"></div>
         <div class="field"><label for="odMin">Minimum premium <span class="muted" id="odMinH"></span></label><input id="odMin" inputmode="decimal" value="${esc(o ? o.min_premium ?? '' : '')}"></div>
         <div class="field"><label for="odDed">Deductible <span class="muted" id="odDedH"></span></label><input id="odDed" inputmode="decimal" value="${esc(o ? o.deductible ?? '' : '')}"></div>
@@ -3818,7 +3949,7 @@
         <div class="field"><label>Currencies</label><div class="xs" id="ecCurs" style="padding-top:10px"></div></div>
         <div class="field"><label for="ecMin">Minimum premium for this user <span class="muted">(empty = office / policy)</span></label><input id="ecMin" inputmode="decimal" value="${esc(p.min_premium_override ?? '')}"></div>
         <div class="field"><label for="ecDed">Deductible for this user <span class="muted">(empty = office / policy)</span></label><input id="ecDed" inputmode="decimal" value="${esc(p.deductible_override ?? '')}"></div>
-        ${p.is_admin ? '' : `<div class="field"><label for="ecCert">Certificates for this user</label><select id="ecCert"><option value="" ${p.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / office / client / group</option><option value="true" ${p.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${p.can_issue_certificates === false ? 'selected' : ''}>No</option></select><span class="hint">The most specific setting wins: user, subcategory, office, client, client group.</span></div>`}
+        ${p.is_admin ? '' : `<div class="field"><label for="ecCert">Client can issue certificates (this user)</label><select id="ecCert"><option value="" ${p.can_issue_certificates == null ? 'selected' : ''}>As the subcategory / office / client / group</option><option value="true" ${p.can_issue_certificates === true ? 'selected' : ''}>Yes</option><option value="false" ${p.can_issue_certificates === false ? 'selected' : ''}>No</option></select><span class="hint">Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting. The most specific setting wins: user, subcategory, office, client, client group.</span></div>`}
         <div class="field"><label for="ecIvm">External invoice value</label>${ivmSel('ecIvm', p.external_invoice_value_mode, 'As the subcategory / client / group')}<span class="hint">The most specific setting wins: user, subcategory, client, client group (default mandatory).</span></div>
       </div>
       <p class="xs muted" id="ecEff" style="margin:-4px 0 0"></p>
@@ -5518,7 +5649,7 @@
       const { data, error } = await sb.rpc('admin_indicate', Object.assign({ p: pp, p_save: !!save }, ctxArgs()));
       busy(b, false);
       if(error) return err(error.message);
-      nq.p = pp; nq.last = { data, args: ctxArgs() };
+      nq.p = pp; nq.last = { data, args: ctxArgs() }; nq.calcId = (nq.calcId || 0) + 1;
       paintOut();
       return data;
     };
@@ -5529,13 +5660,20 @@
         cover: n.cover, war_strikes: n.war_strikes, on_deck: n.on_deck, interest_only: n.interest_only, ext_hssc: n.ext_hssc, ext_liw: n.ext_liw, incoterm: n.incoterm, insured_party: n.insured_party, vessel: n.vessel, insured_name: pp.insured_name,
         status: x.status, rate_pct: x.rate, premium_gross: x.gross, premium: x.net, discount_pct: x.disc, min_applied: x.min_hit, reasons: x.reasons, conditions: x.conditions, deductible_text: x.deductible, issued_at: new Date().toISOString(), company: pp.insured_name || '' }; };
     const quoteData = (x, row) => { const n = x.n || {}, conv = (FC.CONVEYANCE[n.conveyance] || {}).label || '';
-      const net = Number(x.net), lines = [{ label: 'Cargo, ' + ((FC.COVER[n.cover] || {}).clause || '') + (n.war_strikes ? ', incl. war & strikes' : ''), sum: Number(n.sum_insured), rate: Number(x.rate), premium: Math.round(Number(n.sum_insured) * Number(x.rate)) / 100 }];
+      const base = [{ label: 'Cargo, ' + ((FC.COVER[n.cover] || {}).clause || '') + (n.war_strikes ? ', incl. war & strikes' : ''), sum: Number(n.sum_insured), rate: Number(x.rate), premium: Math.round(Number(n.sum_insured) * Number(x.rate)) / 100 }];
+      // High-Risk Areas and German IPT as chosen on the result card
+      const ia = nqIpt(), hp = hraParts(nq.hras || [], base, ls => { const nn = Math.round((Number(x.net) + ls.filter(l => l.hra || l.label === 'War & strikes buy-back (optional)').reduce((t, l) => t + l.premium, 0)) * 100) / 100, tx = ia.applied ? Math.round(nn * ia.rate) / 100 : 0; return { net: nn, tax: tx, total: Math.round((nn + tx) * 100) / 100 }; });
+      const lines = hp.lines, net = Math.round((Number(x.net) + (hp.incLine ? hp.incLine.premium : 0)) * 100) / 100, taxA = ia.applied ? Math.round(net * ia.rate) / 100 : 0;
       return { client: row.insured_name || '', goods: row.goods_description, packaging: row.packaging || '', conveyance: n.conveyance, originCountry: n.origin_country, originPlace: row.origin_place || '', destCountry: n.dest_country, destPlace: row.dest_place || '',
         voyage: [row.origin_place, n.origin_name].filter(Boolean).join(', ') + ' to ' + [row.dest_place, n.dest_name].filter(Boolean).join(', ') + ((n.transit_countries || []).length ? ' via ' + n.transit_countries.map(cName).join(', ') : ''),
         period: n.departure_date ? 'Transit commencing on or about ' + FC.date(n.departure_date) : 'Single transit as per voyage', conditions: ((FC.COVER[n.cover] || {}).clause || '') + (n.war_strikes ? ', Institute War Clauses (Cargo), Institute Strikes Clauses (Cargo)' : '') + ', warehouse to warehouse',
-        insurer: setting('default_insurer', ''), deductible: x.deductible || '', special: x.conditions || '', currency: n.currency, discountPct: 0, minPremium: Number(x.min) || 0, taxPct: 0, lines,
-        subtotal: lines[0].premium, discountAmount: 0, net, minApplied: !!x.min_hit, tax: 0, total: net, sumInsured: Number(n.sum_insured), closing: setting('quote_closing', ''), issuedAt: new Date().toISOString(),
+        insurer: setting('default_insurer', ''), deductible: x.deductible || '', special: x.conditions || '', currency: n.currency, discountPct: 0, minPremium: Number(x.min) || 0, taxPct: ia.applied ? ia.rate : 0, lines,
+        subtotal: lines.reduce((t, l) => t + l.premium, 0), discountAmount: 0, net, minApplied: !!x.min_hit, tax: taxA, total: Math.round((net + taxA) * 100) / 100, sumInsured: Number(n.sum_insured),
+        iptApplied: ia.applied, iptRate: ia.applied ? ia.rate : null, iptReason: ia.reason, iptMode: nq.ipt || null, warExcl: hp.wx, selectedHras: nq.hras || [], hraIncluded: hp.incl, closing: setting('quote_closing', ''), issuedAt: new Date().toISOString(),
         handler: { name: me().full_name || '', email: me().email }, incoterm: n.incoterm || '', vessel: n.vessel || '', _conv: conv, displayMode: x.rate_only ? 'rate_only' : undefined }; };
+    // German IPT of the result: the client's setting (subcategory -> client -> group -> configuration) or the one chosen on the spot
+    const nqIptCtx = () => { const L = nq.last || { args:{} }, cu = nq.mode === 'client' ? custOf(L.args.p_customer) : null, po = !L.args.p_standalone && L.args.p_policy ? polOf(L.args.p_policy) : null; return iptChain(null, po, cu); };
+    const nqIpt = () => { const n0 = (((nq.last || {}).data || {}).one_off || ((nq.last || {}).data || {}).result || {}).n || {}; return FC.iptEval(S.ipt, FC.iptMode(nq.ipt) || nqIptCtx().mode, n0.origin_country, n0.dest_country); };
     const paintOut = () => {
       const out = $q('#nqOut'), L = nq.last; if(!L) return;
       const x = L.data.one_off || L.data.result, oneOff = L.args.p_one_off || L.args.p_standalone || !!L.data.one_off, saved = L.data.saved;
@@ -5545,6 +5683,21 @@
       if(out.querySelector('.nq-rate')){ const h = FC.el('<div class="nq-ru"></div>'); out.querySelector('.nq-res').after(h);
         rateUnitControl(h, unit => { out.querySelectorAll('.nq-rate').forEach(b => { const v = Number(b.dataset.pct); b.textContent = unit === 'per_mille' ? FC.rateFmt(FC.fromPercent(v, unit), unit) : FC.pct(v); if(b.nextElementSibling) b.nextElementSibling.textContent = unit === 'per_mille' ? FC.pct(v) : FC.rateFmt(v * 10, 'per_mille'); }); },
           saved ? saved.id : null); }
+      // German IPT line and the High-Risk Areas of this indication
+      { const cuN = nq.mode === 'client' ? custOf(L.args.p_customer) : null, poN = !L.args.p_standalone && L.args.p_policy ? polOf(L.args.p_policy) : null, n0 = x.n || {};
+        const oneOffN = !!(L.args.p_one_off || L.args.p_standalone || L.data.one_off), ch = nqIptCtx();
+        const cat = () => hraCatalogue(oneOffN ? null : (poN || {}).id || null, (cuN || {}).id || null, oneOffN);
+        if(nq.hrasFor !== nq.calcId){ const man = (nq.hras || []).filter(h => h.source === 'manual'); nq.hras = man.concat(hraFromEngine(x.war, cat()).filter(h => !man.some(m => m.code === h.code))); nq.hrasFor = nq.calcId; }
+        const box = FC.el(`<div class="nq-extra"><div class="nq-ipt toolbar"><b>German IPT</b><span class="ipt-badge" id="nqIptV"></span><span class="xs muted" id="nqIptWhy"></span><span style="flex:1"></span><label class="xs muted" for="nqIpt">IPT setting</label>${iptModeSelect('nqIpt', nq.ipt, 'As ' + ch.from + ': ' + FC.IPT_SHORT[ch.mode])}</div><div id="nqHra"></div></div>`);
+        (out.querySelector('.nq-ru') || out.querySelector('.nq-res') || out.querySelector('.nq-head')).after(box);
+        const paintI = () => { const a = nqIpt(), hp = hraParts(nq.hras || [], [{ sum: Number(n0.sum_insured), rate: Number(x.rate), premium: 0 }], null), net = x.status === 'quoted' ? Math.round((Number(x.net || 0) + (hp.incLine ? hp.incLine.premium : 0)) * 100) / 100 : null;
+          const v = box.querySelector('#nqIptV'); v.className = 'ipt-badge' + (a.applied ? ' on' : '');
+          v.textContent = a.applied ? a.rate + '%' + (net != null && !x.rate_only ? ' = ' + money2(Math.round(net * a.rate) / 100, n0.currency) : '') : '0.00';
+          box.querySelector('#nqIptWhy').textContent = a.reason + (net != null && !x.rate_only ? ' · Total payable ' + money2(Math.round((net + (a.applied ? Math.round(net * a.rate) / 100 : 0)) * 100) / 100, n0.currency) + (hp.incl ? ' (incl. HRA buy-back ' + money2(hp.incl.premium, n0.currency) + ')' : '') : ''); };
+        box.querySelector('#nqIpt').addEventListener('change', e => { nq.ipt = FC.iptMode(e.target.value); paintI(); });
+        const sugN = () => /^sea_/.test(n0.conveyance || nq.p.conveyance) ? Array.from(new Set(FC.hraMatch(S.warAreas, { origin: n0.origin_country, dest: n0.dest_country, transit: n0.transit_countries || [], originPlace: nq.p.origin_place, destPlace: nq.p.dest_place }).concat(((x.war && x.war.areas) || []).map(a => a.code)))) : [];
+        hraBuilder(box.querySelector('#nqHra'), { list: nq.hras, catalogue: cat, suggest: sugN, what: 'indication', onChange: l => { nq.hras = l; paintI(); } });
+        paintI(); }
       // the limits of the policy next to the valuation; above the limit = special request to insurers
       { const lpo = L.data.policy && !L.args.p_standalone ? polOf(L.data.policy.id) : null, nn = (L.data.result || {}).n || {};
         const chk = lpo ? limitCheck(lpo, nn.sum_insured, nn.currency || nq.p.currency, nq.p.on_deck, nq.p.details && nq.p.details.post_courier) : null;
@@ -5558,6 +5711,7 @@
         const { data, error } = await sb.rpc('admin_indicate', Object.assign({ p: nq.p, p_save: true, p_user: (out.querySelector('#nqUser') || {}).value || null }, L.args));
         busy(b, false);
         if(error) return toast(error.message, 'error');
+        await nqKeep(data.saved.id);
         nq.last.data = data; toast('Logged as ' + data.saved.ref + ' in Requests.'); await loadAll(); paintOut();
       }));
       else acts.appendChild(btn('Open in Requests', 'primary', () => openCase(saved.id)));
@@ -5573,6 +5727,7 @@
         const { data, error } = await sb.rpc('admin_indicate', Object.assign({ p: nq.p, p_save: true, p_user: (out.querySelector('#nqUser') || {}).value || null, p_direct: true }, L.args));
         busy(b, false);
         if(error) return toast(error.message, 'error');
+        await nqKeep(data.saved.id);
         nq.last.data = data; await loadAll(); paintOut();
         const r = S.rows.find(z => z.id === data.saved.id);
         if(r) certificateDialog(r, null, { direct:true }).then(async ok => { if(ok){ toast('Case ' + data.saved.ref + ' recorded as bound with its certificate.'); await loadAll(); } });
@@ -5588,6 +5743,9 @@
       }
       if(saved) acts.appendChild(btn('Create quotation', 'ghost', () => { const r = S.rows.find(z => z.id === saved.id); if(r) quotationEditor(r).then(async ok => { if(ok){ await loadAll(); tab = 'quotations'; syncNav(); render(); } }); }));
     };
+    // the HRAs and the IPT setting chosen here go with the new case
+    const nqKeep = async id => { if((nq.hras || []).length) await sb.rpc('admin_set_case_hras', { p_indication: id, p_hras: nq.hras });
+      if(nq.ipt) await sb.from('indications').update({ ipt_mode: nq.ipt }).eq('id', id); };
     if(nq.last) paintOut();
   }
 
@@ -5756,10 +5914,10 @@
       matrices: JSON.parse(JSON.stringify(eff && Array.isArray(eff.matrices) ? eff.matrices : [])) };
     const S2 = W.settings, sample = dtSample(custId, polId);
     body.innerHTML = `${adm ? '' : '<div class="notice" style="margin:0 0 12px"><b>Read only</b>Templates are changed by staff admins.</div>'}
-      ${cu ? `<div class="card cert-set"><div><b>Certificates for ${esc(po ? polLabel(po) : cu.name)}</b><span class="xs muted">${po ? 'Subcategory setting; empty = as the client.' : 'Applies to the client and its subcategories unless a subcategory overrides it.'}</span></div>
-        ${po ? `<select id="dtCan" aria-label="Can issue certificates"><option value="" ${po.can_issue_certificates == null ? 'selected' : ''}>As the client (${cu.can_issue_certificates ? 'yes' : 'no'})</option><option value="true" ${po.can_issue_certificates === true ? 'selected' : ''}>Can issue certificates</option><option value="false" ${po.can_issue_certificates === false ? 'selected' : ''}>No certificates</option></select>
+      ${cu ? `<div class="card cert-set"><div><b>Certificates for ${esc(po ? polLabel(po) : cu.name)}</b><span class="xs muted">${po ? 'Subcategory setting; empty = as the client.' : 'Applies to the client and its subcategories unless a subcategory overrides it.'} Controls whether the external client / policyholder can self-issue certificates in their portal. Marincon staff can always issue certificates regardless of this setting.</span></div>
+        ${po ? `<label class="xs" for="dtCan" style="font-weight:600">Policy client can issue certificates</label><select id="dtCan" aria-label="Policy client can issue certificates"><option value="" ${po.can_issue_certificates == null ? 'selected' : ''}>As the client (${cu.can_issue_certificates ? 'yes' : 'no'})</option><option value="true" ${po.can_issue_certificates === true ? 'selected' : ''}>Yes - the policy client can self-issue</option><option value="false" ${po.can_issue_certificates === false ? 'selected' : ''}>No - MARINCON issues the certificates</option></select>
               <select id="dtMode" aria-label="Certificate generation"><option value="" ${!po.certificate_mode ? 'selected' : ''}>As the client (${cu.certificate_mode === 'fdf_export' ? '.fdf' : 'platform PDF'})</option><option value="platform_pdf" ${po.certificate_mode === 'platform_pdf' ? 'selected' : ''}>Platform certification document</option><option value="fdf_export" ${po.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file</option></select>`
-            : `<label class="switch" style="margin:0"><input type="checkbox" id="dtCan" ${cu.can_issue_certificates ? 'checked' : ''}><span><b>Can issue certificates</b></span></label>
+            : `<label class="switch" style="margin:0"><input type="checkbox" id="dtCan" ${cu.can_issue_certificates ? 'checked' : ''}><span><b>Client can issue certificates</b></span></label>
               <select id="dtMode" aria-label="Certificate generation"><option value="platform_pdf" ${cu.certificate_mode !== 'fdf_export' ? 'selected' : ''}>Platform certification document (PDF)</option><option value="fdf_export" ${cu.certificate_mode === 'fdf_export' ? 'selected' : ''}>Generate .fdf data file</option></select>`}</div>` : ''}
       <div class="notice ${own ? 'ok' : 'info'}" style="margin:0 0 10px"><b>${own ? 'Own template of this level' : 'Inherited'}</b>${own ? 'Used for this level and every subcategory below it without its own template.' : 'This level uses the template of ' + esc(fromTxt(eff)) + '. Saving creates its own template.'}</div>
       <div class="dt-grid"><div class="dt-edit">
@@ -6090,23 +6248,23 @@
       if(error) return toast(error.message, 'error'); await loadAll(); render();
     })));
     // German insurance premium tax: one core setting (on / auto / off) and the default display of quotations
-    const I = Object.assign({ default_rate:19, default_mode:'auto' }, S.ipt || {});
-    const ic = FC.el(`<div class="card ipt-card"><h2 style="margin:0 0 4px">German IPT (Versicherungsteuer) 19 %</h2><p class="small muted" style="margin:0 0 12px">One setting for the configuration. Clients and policies can override it, and every quotation can be switched by hand.<br><b>Auto-detect</b> applies IPT when the route starts or ends in Germany, or the policyholder / assured is domiciled in Germany.</p>
-      <div class="seg" id="ipMode" role="radiogroup" aria-label="German IPT">${[['on','On (default)'],['auto','Auto-detect: German route or German policyholder / assured'],['off','Off']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${k === I.default_mode}">${esc(l)}</button>`).join('')}</div>
-      <div class="toolbar ipt-test" style="margin-top:12px"><span class="xs">Try it:</span><input class="input" id="itF" maxlength="2" placeholder="From" value="NL" aria-label="From country"><input class="input" id="itT" maxlength="2" placeholder="To" value="DE" aria-label="To country"><input class="input" id="itH" maxlength="2" placeholder="Holder" value="NL" aria-label="Policyholder country"><input class="input" id="itA" maxlength="2" placeholder="Assured" value="NL" aria-label="Assured country"><span class="ipt-badge" id="itOut"></span></div>
+    const I = Object.assign({ default_rate:19 }, S.ipt || {}); I.default_mode = FC.iptMode(I.default_mode) || 'default_de_domestic';
+    const ic = FC.el(`<div class="card ipt-card"><h2 style="margin:0 0 4px">German IPT (Versicherungsteuer) 19 %</h2><p class="small muted" style="margin:0 0 12px">Default rule: 19% only when the transport starts AND ends in Germany (e.g. Berlin to Stuttgart). Cross-border transports (Hamburg to Amsterdam, Shanghai to Hamburg) carry 0% German IPT.<br>Client groups, clients (policyholder / company), subcategories and each quotation can override it: always 19% (German policyholder / taxable risk) or exempt.</p>
+      <div class="seg" id="ipMode" role="radiogroup" aria-label="German IPT">${Object.entries(FC.IPT_MODE).map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${k === I.default_mode}">${esc(l)}</button>`).join('')}</div>
+      <div class="toolbar ipt-test" style="margin-top:12px"><span class="xs">Try it:</span><input class="input" id="itF" maxlength="2" placeholder="From" value="NL" aria-label="From country"><input class="input" id="itT" maxlength="2" placeholder="To" value="DE" aria-label="To country"><span class="ipt-badge" id="itOut"></span></div>
       <div class="toolbar" id="ipActs" style="margin-top:8px"></div>
       <h3 style="margin:18px 0 6px">Quotations: what clients see</h3><div class="toolbar" style="margin:0"><select class="input" id="dmDef" style="max-width:260px">${Object.entries(FC.DISPLAY).map(([k, l]) => `<option value="${k}" ${k === setting('quote_display_mode', 'both') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select><span class="xs muted">Default of the configuration; clients, policies and each quotation can override it.</span></div>
       <h3 style="margin:18px 0 6px">Quotation validity</h3><div class="toolbar" style="margin:0"><label class="fk-lbl">Default validity <input class="input" id="qvDef" inputmode="numeric" style="width:70px" value="${esc(setting('quote_validity_days', 3))}"> days</label><label class="fk-lbl">"Expiring soon" alert <input class="input" id="qvWarn" inputmode="numeric" style="width:70px" value="${esc(setting('quote_expiry_warn_hours', 48))}"> hours before</label><span id="qvActs"></span></div><span class="xs muted">Clients and policies can set their own validity days.</span></div>`);
     body.appendChild(ic);
-    const ipMode = () => (ic.querySelector('#ipMode [aria-checked="true"]') || {}).dataset.v || 'auto';
-    const tryIt = () => { const r2 = FC.iptEval({ default_rate: I.default_rate, default_mode: ipMode() }, null, ic.querySelector('#itF').value, ic.querySelector('#itT').value, ic.querySelector('#itH').value, ic.querySelector('#itA').value); const o = ic.querySelector('#itOut'); o.textContent = r2.reason; o.className = 'ipt-badge' + (r2.applied ? ' on' : ''); };
+    const ipMode = () => (ic.querySelector('#ipMode [aria-checked="true"]') || {}).dataset.v || 'default_de_domestic';
+    const tryIt = () => { const r2 = FC.iptEval({ default_rate: I.default_rate, default_mode: ipMode() }, null, ic.querySelector('#itF').value, ic.querySelector('#itT').value); const o = ic.querySelector('#itOut'); o.textContent = r2.reason; o.className = 'ipt-badge' + (r2.applied ? ' on' : ''); };
     ic.querySelector('#ipMode').addEventListener('click', e => { const b = e.target.closest('button'); if(!b || b.disabled) return; ic.querySelectorAll('#ipMode button').forEach(x => x.setAttribute('aria-checked', String(x === b))); tryIt(); });
     ic.addEventListener('input', tryIt); tryIt();
     const canEdit = isStaffAdmin(); if(!canEdit) ic.querySelectorAll('#ipMode button, #dmDef, #qvDef, #qvWarn').forEach(x => x.disabled = true);
     const setKey = async (key, value) => { const ex = S.settingRows.some(s => s.key === key); return ex ? sb.from('settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key) : sb.from('settings').insert({ key, value }); };
     if(canEdit){
       ic.querySelector('#ipActs').appendChild(btn('Save IPT setting', 'primary', async b => {
-        const x = { default_mode: ipMode(), default_rate: 19, rule_holder_de:true, rule_assured_de:true, rule_domestic:true, rule_from_de:true, rule_to_de:true, combine:'any' };
+        const x = { default_mode: ipMode(), default_rate: 19, rule_holder_de:false, rule_assured_de:false, rule_domestic:true, rule_from_de:false, rule_to_de:false, combine:'domicile_and_route' };
         busy(b, true); const res = S.ipt ? await sb.from('german_ipt_settings').update(Object.assign({ updated_by: me().id, updated_at: new Date().toISOString() }, x)).eq('id', 1) : await sb.from('german_ipt_settings').insert(Object.assign({ id:1 }, x)); busy(b, false);
         if(res.error) return toast(res.error.message, 'error'); toast('IPT setting saved.'); await loadAll(); }));
       ic.querySelector('#dmDef').addEventListener('change', async e => { const { error } = await sb.from('settings').update({ value: e.target.value, updated_at: new Date().toISOString() }).eq('key', 'quote_display_mode'); if(error) return toast(error.message, 'error'); toast('Default display saved.'); await loadAll(); });

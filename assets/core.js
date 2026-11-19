@@ -35,7 +35,7 @@
   // ---------- text & numbers ----------
   // no em / en dashes anywhere: every text that is shown, copied or written into a file passes here
   // persistent release footer on every page (version from app.html's meta, else the version of this file)
-  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-19c';
+  FC.VERSION = (document.querySelector('meta[name="fc-version"]') || {}).content || '2026-11-19d';
   const relFoot = () => { if(document.querySelector('.rel-foot') || !document.body) return; const f = document.createElement('footer'); f.className = 'rel-foot'; f.innerHTML = 'FREIGHTCON by MARINCON <span aria-hidden="true">&middot;</span> Release: <b>' + FC.VERSION + '</b>'; document.body.appendChild(f); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', relFoot); else relFoot();
   // client / assured role (staff can extend the list in Settings: setting party_roles)
@@ -189,19 +189,47 @@
   FC.DISPLAY = { both:'Rate and premium', rate_only:'Rate only', premium_only:'Premium only' };
   FC.showRate = m => m !== 'premium_only';
   FC.showPremium = m => m !== 'rate_only';
-  // German insurance premium tax: same rules as public.ipt_eval
-  FC.IPT_MODE = { on:'On (default)', auto:'Auto-detect (German route or policyholder / assured)', off:'Off' };
-  // one rule: on, off, or auto = route from / to Germany or a German policyholder / assured
-  FC.iptEval = (s, mode, from, to, holder, assured) => {
-    s = s || { default_rate:19, default_mode:'auto' };
-    const r = Number(s.default_rate || 19), rs = String(Math.round(r * 100) / 100), m = mode || s.default_mode || 'auto';
-    if(m === 'off') return { applied:false, rate:r, mode:m, reason:'German IPT turned off' };
-    if(m === 'on') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: on by default' };
-    const U = x => String(x || '').toUpperCase(), why = [];
-    if(U(from) === 'DE' && U(to) === 'DE') why.push('Domestic German transport'); else if(U(from) === 'DE') why.push('Route from Germany'); else if(U(to) === 'DE') why.push('Route to Germany');
-    if(U(holder) === 'DE') why.push('German Policyholder');
-    if(U(assured) === 'DE' && U(holder) !== 'DE') why.push('German Assured');
-    return { applied: why.length > 0, rate:r, mode:m, reason: why.length ? 'German IPT ' + rs + '% applied: ' + why.join(' & ') : 'No German IPT: no German route, policyholder or assured' };
+  // German IPT 19 %: territorial rule (DE to DE), with the policyholder / company option. Same rules as public.ipt_eval
+  FC.IPT_MODE = { default_de_domestic:'Default (19% only when starting and ending in Germany)', always_19:'Always apply 19% IPT (German policyholder / taxable risk override)', exempt_0:'Exempt / 0% IPT' };
+  FC.IPT_SHORT = { default_de_domestic:'Default (DE to DE only)', always_19:'Always 19%', exempt_0:'Exempt / 0%' };
+  FC.IPT_LEGACY = { auto:'default_de_domestic', on:'always_19', off:'exempt_0' };
+  FC.iptMode = m => { m = String(m || '').trim().toLowerCase(); return FC.IPT_LEGACY[m] || (FC.IPT_MODE[m] ? m : null); };
+  // s: german_ipt_settings row; mode: the effective setting (case -> policy -> client -> group); null = configuration
+  FC.iptEval = (s, mode, from, to) => {
+    s = s || {};
+    const r = Number(s.default_rate || 19), rs = String(Math.round(r * 100) / 100), m = FC.iptMode(mode) || FC.iptMode(s.default_mode) || 'default_de_domestic';
+    if(m === 'exempt_0') return { applied:false, rate:0, mode:m, reason:'No German IPT (0%): exempt by the policyholder setting' };
+    if(m === 'always_19') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: always applied (German policyholder / taxable risk)' };
+    const U = x => String(x || '').trim().toUpperCase();
+    if(U(from) === 'DE' && U(to) === 'DE') return { applied:true, rate:r, mode:m, reason:'German IPT ' + rs + '% applied: domestic German transport (starts and ends in Germany)' };
+    return { applied:false, rate:0, mode:m, reason:'No German IPT (0%): cross-border / international transport' };
+  };
+  // ---------- High-Risk Areas (war & strikes zones): net buy-back, totals, suggestions ----------
+  FC.r4 = n => Math.round(Number(n) * 10000) / 10000;
+  FC.hraNet = (gross, ncb) => gross == null || gross === '' || !isFinite(Number(gross)) ? null : FC.r4(Number(gross) * (1 - (Number(ncb) || 0) / 100));
+  // included = added to the total rate; optional = war & strikes excluded there, buy-back offered as an option (or Refer / A.P.)
+  FC.hraTotals = list => {
+    const L = (list || []).filter(h => h && h.name), num = h => h.net_pct != null && h.net_pct !== '' && isFinite(Number(h.net_pct)) ? Number(h.net_pct) : null;
+    const incl = L.filter(h => h.include && num(h) != null), opt = L.filter(h => !h.include || num(h) == null);
+    return { all: L, incl, opt, inclPct: FC.r4(incl.reduce((t, h) => t + num(h), 0)), optPct: FC.r4(opt.filter(h => num(h) != null).reduce((t, h) => t + num(h), 0)),
+      offered: opt.filter(h => num(h) != null), refer: opt.filter(h => num(h) == null) };
+  };
+  // which areas a voyage touches: a coast by its country (and the port, where stated), a sea by its countries or ports
+  FC.hraMatch = (areas, v) => {
+    const U = x => String(x || '').trim().toUpperCase(), cc = [U(v.origin), U(v.dest)].concat((v.transit || []).map(U)).filter(Boolean);
+    const places = [v.originPlace, v.destPlace].map(x => String(x || '').toLowerCase()).filter(Boolean);
+    const portHit = (a, pl) => (a.ports || []).some(pt => pt && pl.includes(String(pt).toLowerCase()));
+    return (areas || []).filter(a => {
+      if(a.kind === 'coast'){
+        if((v.transit || []).map(U).includes(U(a.country))) return true;
+        return [[U(v.origin), String(v.originPlace || '').toLowerCase()], [U(v.dest), String(v.destPlace || '').toLowerCase()]].some(([c, pl]) => {
+          if(!c || c !== U(a.country)) return false;
+          if(pl && portHit(a, pl)) return true;
+          return !(pl && (areas || []).some(b => b !== a && b.kind === 'coast' && U(b.country) === c && portHit(b, pl)));   // unknown port: every coast of the country
+        });
+      }
+      return (a.countries || []).some(c => cc.includes(U(c))) || places.some(pl => portHit(a, pl));
+    }).map(a => a.code);
   };
   // quotation validity chip: "Valid until DD.MM.YYYY", "Expiring Soon" (under 48 h), "Expired"
   FC.dmy = v => { const d = new Date(v); return isNaN(d) ? '-' : String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear(); };
@@ -237,7 +265,7 @@
   // merge tags for text templates
   FC.MERGE_TAGS = [['client_name','Client name'],['assured_name','Assured name'],['policy_number','Policy number'],['certificate_number','Certificate number'],['reference','Our reference'],
     ['cargo_description','Cargo description'],['voyage_from','Voyage from'],['voyage_to','Voyage to'],['conveyance','Conveyance'],['departure_date','Departure date'],['sum_insured','Sum insured'],['currency','Currency'],
-    ['rate_pct','Rate %'],['rate','Rate (%)'],['premium_amount','Premium (net)'],['ipt_amount','German IPT amount'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
+    ['rate_pct','Rate %'],['rate','Rate (%)'],['premium_amount','Premium (net)'],['ipt_rate','German IPT rate'],['ipt_amount','German IPT amount'],['total_rate','Total rate (incl. HRA buy-back)'],['hra_included','HRAs included in the rate'],['hra_excluded','HRAs excluded / optional'],['total_amount','Total incl. IPT'],['deductible','Deductible'],['valid_until','Valid until'],['handler_name','Handled by'],['today','Today']];
   FC.merge = (html, ctx) => String(html || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => ctx && ctx[k] != null && ctx[k] !== '' ? FC.esc(FC.dash(ctx[k])) : '');
   // .fdf: Acrobat's number format script wants 33562.80 (no thousands separator)
   FC.fdfNum = n => { const v = typeof n === 'number' ? n : FC.parseNum ? FC.parseNum(n) : Number(String(n).replace(/,/g, '')); return isFinite(v) ? v.toFixed(2) : ''; };

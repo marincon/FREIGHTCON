@@ -308,15 +308,17 @@
     }
     if(tax && d.iptReason) ctx.para(d.iptReason, { size:8, color:C.steel });
     // minimum premium and, where war & strikes are excluded, both rates side by side
-    const W = d.warExcl, terms = [];
+    const W = d.warExcl, terms = [], bbNames = W ? ((W.buyback || []).length ? W.buyback.map(b => b.name) : W.areas) : [];
     if(Number(d.minPremium) > 0) terms.push(['Minimum premium', FC.money2(d.minPremium, d.currency)]);
     if(W && W.offerBuyback){
       const pay = v => sP && v != null ? '  (' + FC.money2(v, d.currency) + ' payable)' : '';
       terms.push(['Rate, W&S excluded', (sR ? FC.pct(W.rateExcl) : 'as quoted') + pay(W.totalExcl)]);
-      terms.push(['Rate, W&S re-included', (sR ? FC.pct(W.rateIncl) + ' with' : 'With') + ' war & strikes re-included for ' + W.areas.join(', ') + pay(W.totalIncl)]);
+      terms.push(['Rate, W&S re-included', (sR ? FC.pct(W.rateIncl) + ' with' : 'With') + ' war & strikes re-included for ' + bbNames.join(', ') + pay(W.totalIncl)]);
     }
     if(terms.length) ctx.kv(terms);
-    if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for these areas at the rate shown, say so when you accept.' : ''), [224,160,48]);
+    // High-Risk Areas with the buy-back included in the rate (war & strikes covered there)
+    if(d.hraIncluded && (d.hraIncluded.areas || []).length) ctx.box('War & strikes re-included for: ' + d.hraIncluded.areas.join(', '), 'The war & strikes buy-back for ' + (d.hraIncluded.areas.length > 1 ? 'these High-Risk Areas' : 'this High-Risk Area') + ' is included in the rate' + (sR && d.hraIncluded.pct != null ? ' (+' + FC.pct(d.hraIncluded.pct) + ')' : '') + (sP && d.hraIncluded.premium != null ? ', ' + FC.money2(d.hraIncluded.premium, d.currency) : '') + '.', [47,143,96]);
+    if(W) ctx.box('War & strikes excluded for: ' + W.areas.join(', '), 'War & strikes cover remains in force for the rest of the voyage.' + (W.offerBuyback ? ' To re-include it for ' + bbNames.join(', ') + ' at the rate shown, say so when you accept.' : '') + ((W.refer || []).length ? ' Buy-back for ' + W.refer.join(', ') + ': on request.' : ''), [224,160,48]);
     if(d.doc){
       // the broker's wording: sections as headings, outlined paragraphs as boxes, bold paragraphs in bold
       const x = document.createElement('div'); x.innerHTML = FC.cleanHtml(d.doc);

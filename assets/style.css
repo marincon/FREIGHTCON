@@ -1577,3 +1577,33 @@ th.sortable[aria-sort="descending"]::after{content:' ↓';opacity:.9}
 .ru-sel:disabled{opacity:.75;cursor:not-allowed}
 .ru-lock{font-size:12px}
 .ru-banner{margin:10px 0 0}
+
+/* 2026-11-19d: High-Risk Areas builder, IPT line */
+.hra{display:flex;flex-direction:column;gap:8px;position:relative}
+.hra-head{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.hra-head h4{margin:0 0 2px}
+.hra-sug{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hra-sug:empty{display:none}
+.hra-s{cursor:pointer;border:0;font:inherit;font-size:var(--fs-xs)}
+.hra-list{display:flex;flex-direction:column;gap:8px}
+.hra-row{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper)}
+.hra-nm{display:flex;flex-direction:column;gap:3px;align-self:center;flex:1 1 170px;min-width:0}
+.hra-nm .chip{align-self:flex-start}
+.hra-f{display:flex;flex-direction:column;gap:3px;font-size:var(--fs-xs);color:var(--steel);margin:0;flex:0 1 96px;min-width:76px}
+.hra-f span{white-space:nowrap}
+.hra-f input{width:100%;min-width:0}
+.hra-mode{gap:4px;flex:1 1 230px}
+.hra-mode button{padding:5px 10px;font-size:var(--fs-xs);white-space:normal;text-align:left}
+.hra-del{align-self:center;color:var(--danger)}
+.hra-pop{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper);box-shadow:var(--shadow);padding:10px 12px}
+.hra-pick{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.hra-pick label{display:flex;gap:8px;align-items:flex-start;font-size:var(--fs-sm);cursor:pointer}
+.hra-pick label input{width:auto;min-width:0;margin-top:3px}
+.hra-pick label > span{display:flex;flex-direction:column;gap:2px}
+.hra-sum{padding:8px 10px;border-radius:var(--r-sm);background:var(--fog);line-height:1.5}
+#csHraSec .hra,.nq-extra .hra{margin-top:4px}
+.nq-extra{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+.nq-ipt{gap:8px;align-items:center;flex-wrap:wrap;margin:0}
+.nq-ipt .ipt-badge{margin:0}
+.nq-ipt select{max-width:320px}
+.qtable tr.ipt-line td{color:var(--steel)}
