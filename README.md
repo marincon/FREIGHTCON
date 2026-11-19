@@ -214,3 +214,11 @@ SQL Editor: `update_2026-11-13t.sql` ausführen (nach s). Danach alle Website-Da
 * Settings je Rolle: Staff (My settings mit Startseite, Notifications, Calendar sync, Numbering & initials, Client reminders, GDPR & cookies, System defaults nur für Admins). Kunden / Versicherer: eigene Seite Settings (Profil, Passwort und 2FA, Team, Anzeige, Benachrichtigungen, Startseite, Datenschutz).
 * German IPT: nur noch On / Auto-detect (deutsche Route oder deutscher Versicherungsnehmer / Versicherter) / Off, je Konfiguration, Kunde, Police und Angebot.
 * GDPR: Cookie-Banner beim ersten Besuch (Accept all / Reject non-essential / Customize), Einstellungen jederzeit über Footer oder Settings, Speicherung im Browser und in `profiles.gdpr_consent` mit Protokoll, Export der eigenen Daten (JSON / CSV / Excel), Löschantrag.
+
+## Update 2026-11-18 b (Version 2026-11-18b)
+
+`update_2026-11-18b.sql` ausführen (nach 18a) und die Website hochladen. Keine Edge Function betroffen.
+
+* Staff (Admin, Placing, Claims) kann jederzeit Zertifikate ausstellen (.fdf oder Plattform-PDF), für jeden Fall, Kunden und jede Police, auch wenn der Kunde "Can issue certificates" aus hat oder es ein One-off ist. Im Zertifikatsfenster stehen immer beide Formate zur Wahl; das Standardformat des Kunden ist der Hauptbutton.
+* Kunden: das Recht kommt aus dem Baum Nutzer > Subcategory > Office > Client > Client group; die spezifischste gesetzte Einstellung gewinnt, nichts gesetzt = nein. Neue Schalter an Office, Client group und Nutzer ("As ..." = erben). Kunden können ihr eigenes Recht nicht ändern.
+* Eine Hilfsfunktion `FC.canCurrentUserIssueCertificate()` für alle Buttons; auf dem Server `cert_right_tree()` (my_features, case_certificate_rights, client_issue_certificate). `admin_issue_certificate` erlaubt jetzt jede Staff-Rolle (vorher nur Placing).
